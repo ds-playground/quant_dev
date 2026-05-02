@@ -88,3 +88,16 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# Local development folder
+dev/
+dev/imports/*
+
+# Temporary files or scrapbooks
+scrapbook*.*
+*_dev*.*
+*_tmp*.*
+*_wip*.*
+*_old*.*
+*_bak*.*
+*copy*.*
