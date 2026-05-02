@@ -1,2 +1,19 @@
-nose
-sphinx
+# nose
+# sphinx
+
+# Standard Libraries
+pandas
+numpy
+matplotlib
+plotly
+
+# Jupyter Notebook Libraries
+nbformat
+
+# Data Retrieval Libraries
+yfinance
+
+# Technical Analysis Libraries
+pandas_ta
+TA-Lib
+ta
