@@ -91,7 +91,6 @@ ENV/
 
 # Local development folder
 dev/
-dev/imports/*
 
 # Temporary files or scrapbooks
 scrapbook*.*
