@@ -1,0 +1,84 @@
+//@version=5
+// ── Linear Regression Candles and Slope ──────────────────────────────────────
+// Version : 1.0
+//
+// Description:
+//   Plots candlesticks smoothed by linear regression, optionally overlaid on the
+//   raw OHLC data. A signal line (SMA or EMA of the LinReg close) is drawn on top.
+//   The signal line can be colored dynamically based on the direction of its slope
+//   (rising = up color, falling = down color), making trend changes immediately
+//   visible. Candle display and signal line appearance (width, style, color) are
+//   all configurable via input options.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator(
+     title     = "Linear Regression Candles and Slope",
+     shorttitle = "LinReg Candles Slope",
+     format    = format.price,
+     precision = 4,
+     overlay   = true)
+
+// ── Candle inputs ─────────────────────────────────────────────────────────────
+show_candles  = input.bool(title = "Show Candles",                  defval = true)  // Toggle candle visibility on the chart
+lin_reg       = input.bool(title = "Apply Linear Regression",       defval = true)  // Smooth OHLC with LinReg; disable to use raw candles
+linreg_length = input.int( title = "Linear Regression Length",      defval = 11, minval = 1, maxval = 200)  // Lookback period for the LinReg calculation
+
+// ── Signal line inputs ────────────────────────────────────────────────────────
+signal_length = input.int( title = "Signal Smoothing Length",       defval = 11, minval = 1, maxval = 200)  // Lookback period for smoothing the signal line
+sma_signal    = input.bool(title = "Use SMA for Signal (else EMA)", defval = true)  // SMA is simpler; EMA is more responsive to recent prices
+
+// ── Slope coloring inputs ─────────────────────────────────────────────────────
+show_slope_color = input.bool( title = "Color Signal Line by Slope", defval = false)  // Enable dynamic coloring based on slope direction
+slope_up_color   = input.color(title = "Slope Up Color",             defval = color.teal)    // Color when signal slope is rising (positive)
+slope_down_color = input.color(title = "Slope Down Color",           defval = color.orange)  // Color when signal slope is falling (negative)
+signal_color_def = input.color(title = "Signal Line Color",          defval = color.white)   // Fallback color when slope coloring is disabled
+signal_linewidth = input.int(  title = "Signal Line Width",          defval = 2, minval = 1, maxval = 4)  // Line thickness (1–4 supported by Pine Script)
+
+// ── Calculations ──────────────────────────────────────────────────────────────
+// Apply linear regression to each OHLC component, or pass through raw values
+bopen  = lin_reg ? ta.linreg(open,  linreg_length, 0) : open
+bhigh  = lin_reg ? ta.linreg(high,  linreg_length, 0) : high
+blow   = lin_reg ? ta.linreg(low,   linreg_length, 0) : low
+bclose = lin_reg ? ta.linreg(close, linreg_length, 0) : close
+
+// Bullish bar: LinReg open is below LinReg close
+is_bull = bopen < bclose
+
+// Signal line: smooth of LinReg close using SMA or EMA
+signal       = sma_signal ? ta.sma(bclose, signal_length) : ta.ema(bclose, signal_length)
+// Slope: difference between current and previous bar's signal value
+slope        = signal - signal[1]
+// Choose signal color based on slope direction, or use the fixed default color
+signal_color = show_slope_color ? (slope >= 0 ? slope_up_color : slope_down_color) : signal_color_def
+
+// ── Plots ─────────────────────────────────────────────────────────────────────
+// Bullish candles: only plotted when is_bull is true and show_candles is enabled
+plotcandle(
+     show_candles and is_bull ? bopen  : na,
+     show_candles and is_bull ? bhigh  : na,
+     show_candles and is_bull ? blow   : na,
+     show_candles and is_bull ? bclose : na,
+     title       = "LinReg Candles Up",
+     color       = color.green,
+     wickcolor   = color.green,
+     bordercolor = color.green,
+     editable    = true)
+
+// Bearish candles: only plotted when is_bull is false and show_candles is enabled
+plotcandle(
+     show_candles and not is_bull ? bopen  : na,
+     show_candles and not is_bull ? bhigh  : na,
+     show_candles and not is_bull ? blow   : na,
+     show_candles and not is_bull ? bclose : na,
+     title       = "LinReg Candles Down",
+     color       = color.red,
+     wickcolor   = color.red,
+     bordercolor = color.red,
+     editable    = true)
+
+// Signal line: always visible; color and width controlled by inputs
+plot(
+     signal,
+     title     = "Signal Line",
+     color     = signal_color,
+     linewidth = signal_linewidth,
+     editable  = true)
