@@ -1,0 +1,44 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © veryfid
+
+//@version=5
+// ── ZLSMAS - Zero Lag LSMA with Slope ────────────────────────────────────────
+// Version : 1.0
+//
+// Description:
+//   Plots a Zero Lag LSMA (Least Squares Moving Average) by correcting for the
+//   lag inherent in a standard LSMA. This is achieved by computing a second
+//   LinReg pass on the first LSMA, then adding the difference (the "error")
+//   back to the first LSMA — effectively doubling the signal and cancelling lag.
+//   The ZLSMA line can be colored dynamically based on the direction of its slope
+//   (rising = up color, falling = down color), making trend changes immediately
+//   visible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+indicator(title = "ZLSMAS - Zero Lag LSMA with Slope", shorttitle = "ZLSMAS", overlay = true)
+
+// ── ZLSMA inputs ──────────────────────────────────────────────────────────────
+length = input.int(  title = "Length", defval = 32, minval = 1)
+offset = input.int(  title = "Offset", defval = 0,  minval = 0)
+src    = input.source(title = "Source", defval = close)
+
+// ── Slope coloring inputs ─────────────────────────────────────────────────────
+show_slope_color = input.bool( title = "Color ZLSMA by Slope", defval = false)  // Enable dynamic coloring based on slope direction
+slope_up_color   = input.color(title = "Slope Up Color",        defval = color.teal)    // Color when ZLSMA slope is rising
+slope_down_color = input.color(title = "Slope Down Color",      defval = color.orange)  // Color when ZLSMA slope is falling
+zlsma_color_def  = input.color(title = "ZLSMA Color",           defval = color.yellow)  // Fallback color when slope coloring is disabled
+zlsma_linewidth  = input.int(  title = "Line Width",            defval = 3, minval = 1, maxval = 4)
+
+// ── Calculations ──────────────────────────────────────────────────────────────
+lsma  = ta.linreg(src,  length, offset)   // First LinReg pass on the source
+lsma2 = ta.linreg(lsma, length, offset)   // Second LinReg pass on the first LSMA (measures lag)
+eq    = lsma - lsma2                       // Error: the amount of lag to correct for
+zlsma = lsma + eq                          // Zero Lag LSMA: lag-corrected output
+
+// Slope: difference between current and previous bar's ZLSMA value (na on the first bar)
+slope       = zlsma - zlsma[1]
+// Choose ZLSMA color based on slope direction, or use the fixed default color
+zlsma_color = show_slope_color ? (na(slope) ? zlsma_color_def : slope >= 0 ? slope_up_color : slope_down_color) : zlsma_color_def
+
+// ── Plot ──────────────────────────────────────────────────────────────────────
+plot(zlsma, title = "ZLSMA", color = zlsma_color, linewidth = zlsma_linewidth)
