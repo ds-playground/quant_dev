@@ -100,3 +100,6 @@ scrapbook*.*
 *_old*.*
 *_bak*.*
 *copy*.*
+
+# Editor settings
+.vscode/
