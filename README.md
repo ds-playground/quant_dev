@@ -88,6 +88,7 @@ browsable interactively in the v0.5 notebook via `interactive_low_probability`.
 ```
 quant_dev/
 ├── config.py           defaults for the dev/ scratch notebooks only
+├── configs/            ticker sets read by the analysis notebooks
 ├── pyproject.toml      packaging; `pip install -e .`
 ├── requirements.txt    flat dependency list for Colab
 ├── dev/                scratch work — gitignored, never tracked
@@ -96,6 +97,20 @@ quant_dev/
 ├── src/tools/          the package
 └── tests/              smoke test
 ```
+
+**`configs/tickers.yaml`** drives `dev/rare_case_run.ipynb`, which analyses every
+ticker listed there and prints two cross-ticker summary tables. The file has a
+`defaults` block merged with per-ticker overrides; keys must be `Params` fields
+apart from `label`, and anything else raises rather than being silently ignored.
+Delete the file and the notebook falls back to ES=F, NQ=F, YM=F and RTY=F, saying
+so as it does.
+
+Per-ticker overrides exist mainly to keep thresholds comparable across asset
+classes. FX runs at roughly a third of the equity futures' volatility, so the
+default ±0.2% win/loss threshold is about 0.4 standard deviations for a currency
+pair against 0.15 for an index future; the FX entries halve it. Comparing streak
+frequencies across instruments without that adjustment mostly measures the
+threshold, not the market.
 
 **The `dev/` → `notebooks/` convention.** `dev/` is ignored wholesale, as are any
 files matching `*_dev*`, `*_tmp*`, `*_wip*`, `*_old*`, `*_bak*` and `*copy*`. Work

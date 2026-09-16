@@ -93,3 +93,60 @@ def test_export_tables(enriched, params, tmp_path):
     assert written
     for path in written:
         assert pd.read_csv(path).shape[0] == 5
+
+
+# ── Multi-ticker config and comparison ───────────────────────────────────────
+def test_config_fallback(tmp_path):
+    # Explicit missing path, so the real configs/tickers.yaml is never picked up.
+    config = pr.load_ticker_config(path=tmp_path / "absent.yaml", verbose=False)
+    assert list(config) == ["ES=F", "NQ=F", "YM=F", "RTY=F"]
+    for symbol, p in config.items():
+        assert isinstance(p, pr.Params)
+        assert p.ticker == symbol
+
+
+def test_config_merges_overrides(tmp_path):
+    yaml = pytest.importorskip("yaml")
+    path = tmp_path / "tickers.yaml"
+    path.write_text(yaml.safe_dump({
+        "defaults": {"data_source": "yahoo", "win_threshold": 0.2},
+        "tickers": {"ES=F": {"label": "S&P"}, "EURUSD=X": {"win_threshold": 0.1}},
+    }), encoding="utf-8")
+
+    config = pr.load_ticker_config(path=path, verbose=False)
+    assert config["ES=F"].win_threshold == 0.2
+    assert config["EURUSD=X"].win_threshold == 0.1      # override wins
+    assert config["EURUSD=X"].data_source == "yahoo"    # default still applied
+    assert config["ES=F"].label == "S&P"
+
+
+def test_config_rejects_unknown_key(tmp_path):
+    yaml = pytest.importorskip("yaml")
+    path = tmp_path / "bad.yaml"
+    path.write_text(yaml.safe_dump({"tickers": {"X": {"win_thresold": 0.2}}}),
+                    encoding="utf-8")
+    with pytest.raises(ValueError, match="win_thresold"):
+        pr.load_ticker_config(path=path, verbose=False)
+
+
+def test_distribution_summary(enriched, params):
+    row = pr.distribution_summary(enriched, params)
+    assert list(row.columns) == ["ticker", "drift (mean)", "median", "skew",
+                                 "days > +thr", "days < -thr", "up:down"]
+    assert len(row) == 1
+    assert 0 <= row["days > +thr"].iloc[0] <= 100
+    assert 0 <= row["days < -thr"].iloc[0] <= 100
+
+
+def test_compare_tickers():
+    results = {}
+    for symbol, seed in [("SIM_A", 1), ("SIM_B", 2)]:
+        p = pr.Params(data_source="simulated", ticker=symbol, random_seed=seed,
+                      start_date="2022-01-01")
+        results[symbol] = pr.analyze_ticker(p, drill_n_days=3)
+
+    streak, dist = pr.compare_tickers(results)
+    assert len(streak) == 2 and len(dist) == 2
+    assert {"3d win/loss", "3d ratio"} <= set(streak.columns)
+    assert streak["3d win/loss"].str.match(r"\d+\.\d\d / \d+\.\d\d").all()
+    assert list(dist["ticker"]) == ["SIM_A", "SIM_B"]
