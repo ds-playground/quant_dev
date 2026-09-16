@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-dev"
+version = "0.1.0"
+description = "Historical price & return analysis framework, plus TradingView Pine scripts"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Jones Wan" }]
+dependencies = [
+    "pandas",
+    "numpy",
+    "plotly",
+    "yfinance",
+]
+
+# TA-Lib needs a C toolchain, so the technical-analysis libraries stay optional
+# rather than blocking a fresh `pip install -e .`. See requirements.txt for the
+# full notebook/Colab list.
+[project.optional-dependencies]
+dev = ["pytest", "ipywidgets", "nbformat", "matplotlib"]
+ta = ["pandas_ta", "ta", "TA-Lib"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
