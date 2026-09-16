@@ -1,11 +1,16 @@
 # =============================================================================
-#  config.py  —  Central configuration for the price-return analysis framework
+#  config.py  —  Defaults for the scratch notebooks in dev/
+# =============================================================================
+#  Scope: this file serves the exploratory notebooks under dev/ only. Code in
+#  src/tools/ does not read it — there, the Params dataclass in
+#  src/tools/price_return.py is authoritative. The overlap is deliberate, so
+#  that dev/ notebooks can be edited without touching the package.
 # =============================================================================
 import os
 
 # ── Paths (relative to this file's location) ─────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-DEV_FILES    = os.path.join(PROJECT_ROOT, "dev_files")
+DEV_FILES    = os.path.join(PROJECT_ROOT, "dev")
 
 # ── Ticker / data ─────────────────────────────────────────────────────────────
 TICKER       = "AAPL"          # symbol shown in chart titles
