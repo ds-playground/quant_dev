@@ -16,7 +16,8 @@ that object around::
 
 import datetime as dt
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -39,6 +40,8 @@ __all__ = [
     'plot_streak_timeline', 'plot_cumulative_heatmap', 'plot_cumulative_counts',
     # export
     'export_tables',
+    # multi-ticker
+    'load_ticker_config', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
 ]
 
 
@@ -117,11 +120,30 @@ def load_price_data(p=None, verbose=True):
         # pip install yfinance
         import yfinance as yf
         raw = yf.download(p.ticker, start=p.start_date, end=p.end_date)
+        if raw.empty:
+            raise ValueError(
+                f"No price data for ticker {p.ticker!r} between {p.start_date} and "
+                f"{p.end_date}. Yahoo Finance returns an empty frame for unknown "
+                f"symbols, so check the ticker first.")
         if isinstance(raw.columns, pd.MultiIndex):     # yfinance can return a (Price, Ticker) MultiIndex
             raw.columns = raw.columns.get_level_values(0)
         df = raw[['Close']].rename(columns={'Close': 'price'}).reset_index()
         df = df.rename(columns={'Date': 'date'})
         df['return_pct'] = df['price'].pct_change() * 100
+
+        # A percent change spanning a non-positive price is meaningless - WTI
+        # settled at -$37.63 on 2020-04-20, which yields a -306% "return" and a
+        # -127% one the next day. Drop those rather than let them distort every
+        # downstream statistic; a change between two positive prices is kept
+        # however large.
+        spans_nonpositive = (df['price'] <= 0) | (df['price'].shift(1) <= 0)
+        if spans_nonpositive.any():
+            flagged = df.loc[df['price'] <= 0, 'date'].dt.strftime('%Y-%m-%d').tolist()
+            print(f'Warning: {p.ticker} has {len(flagged)} non-positive price(s) '
+                  f'({", ".join(flagged)}); dropping '
+                  f'{int(spans_nonpositive.sum())} affected return(s).')
+            df.loc[spans_nonpositive, 'return_pct'] = np.nan
+
         df = df.dropna().reset_index(drop=True)
 
     elif p.data_source == 'simulated':
@@ -763,3 +785,151 @@ def export_tables(tables, out_dir='.', verbose=True):
     if verbose:
         print(f'Saved {len(paths)} file(s): ' + ', '.join(tables))
     return paths
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Multi-ticker: config, per-ticker pipeline, cross-ticker comparison
+# ─────────────────────────────────────────────────────────────────────────────
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / 'configs' / 'tickers.yaml'
+
+# Same shape as configs/tickers.yaml, so one code path builds Params from either.
+_DEFAULT_TICKER_CONFIG = {
+    'defaults': {
+        'data_source': 'yahoo',
+        'start_date': '2016-01-01',
+        'win_threshold': 0.2,
+        'loss_threshold': -0.2,
+    },
+    'tickers': {
+        'ES=F': {'label': 'S&P 500 futures'},
+        'NQ=F': {'label': 'Nasdaq 100 futures'},
+        'YM=F': {'label': 'Dow futures'},
+        'RTY=F': {'label': 'Russell 2000 futures'},
+    },
+}
+
+# Keys allowed in the config that are not Params fields.
+_META_KEYS = {'label'}
+
+
+def _build_params(defaults, override, symbol):
+    """Merge a defaults block with one ticker's overrides into a Params."""
+    merged = {**(defaults or {}), **(override or {})}
+    labels = {k: merged.pop(k) for k in list(merged) if k in _META_KEYS}
+
+    valid = {f.name for f in fields(Params)}
+    unknown = set(merged) - valid
+    if unknown:
+        raise ValueError(
+            f"{symbol}: unknown config key(s) {sorted(unknown)}. "
+            f"Keys must be Params fields or one of {sorted(_META_KEYS)}.")
+
+    merged['ticker'] = symbol
+    return Params(**merged), labels.get('label')
+
+
+def load_ticker_config(path=None, verbose=True):
+    """Return an ordered {ticker: Params} mapping from a YAML config.
+
+    Falls back to a built-in set (ES=F, NQ=F, YM=F, RTY=F) when the file is
+    absent, so the notebook runs out of the box. `label` is the only key that
+    may appear alongside `Params` fields; anything else raises.
+    """
+    path = Path(DEFAULT_CONFIG_PATH if path is None else path)
+
+    if path.exists():
+        try:
+            import yaml
+        except ImportError as exc:                          # pragma: no cover
+            raise ImportError(
+                f'Reading {path} needs PyYAML - run `pip install pyyaml`.') from exc
+        with open(path, encoding='utf-8') as fh:
+            raw = yaml.safe_load(fh) or {}
+        source = str(path)
+    else:
+        if verbose:
+            print(f'No config at {path}; using built-in defaults: '
+                  + ', '.join(_DEFAULT_TICKER_CONFIG['tickers']))
+        raw = _DEFAULT_TICKER_CONFIG
+        source = 'built-in defaults'
+
+    tickers = raw.get('tickers')
+    if not tickers:
+        raise ValueError(f'No `tickers` block in {source}.')
+
+    config = {}
+    for symbol, override in tickers.items():
+        p, label = _build_params(raw.get('defaults'), override, symbol)
+        p.label = label or symbol       # display name, not a Params field
+        config[symbol] = p
+
+    if verbose and path.exists():
+        print(f'Loaded {len(config)} ticker(s) from {source}: ' + ', '.join(config))
+    return config
+
+
+def distribution_summary(df, p=None, label=None):
+    """One-row frame of return-distribution stats, using this ticker's thresholds.
+
+    Streaks count *days clearing a threshold*, which tracks the median rather
+    than the mean - the two diverge under skew, so both are reported here.
+    """
+    p = _params(p)
+    r = df['return_pct']
+    up = int((r > p.win_threshold).sum())
+    down = int((r < p.loss_threshold).sum())
+
+    return pd.DataFrame([{
+        'ticker':       label or getattr(p, 'label', None) or p.ticker,
+        'drift (mean)': round(r.mean(), 4),
+        'median':       round(r.median(), 4),
+        'skew':         round(r.skew(), 3),
+        'days > +thr':  round(up / len(r) * 100, 2),
+        'days < -thr':  round(down / len(r) * 100, 2),
+        'up:down':      round(up / down, 3) if down else np.nan,
+    }])
+
+
+def analyze_ticker(p, drill_n_days=3, verbose=False):
+    """Run the whole pipeline for one ticker; raises so the caller can skip it."""
+    df = add_rolling_stats(load_price_data(p, verbose=verbose), p)
+    df_his = build_historical_analysis(daily_returns_series(df), p)
+    streaks = detect_streaks(df, p)
+    return {
+        'params':         p,
+        'df':             df,
+        'df_his':         df_his,
+        'drill':          low_probability_view(df_his, drill_n_days, p),
+        'streaks':        streaks,
+        'streak_summary': summarize_streaks(df, streaks, p),
+        'dist':           distribution_summary(df, p),
+    }
+
+
+def compare_tickers(results, ratio_window=3):
+    """Cross-ticker streak and distribution tables from `analyze_ticker` outputs.
+
+    `results` maps ticker -> the dict `analyze_ticker` returns. Reuses each
+    ticker's `streak_summary` rather than recounting streaks.
+    """
+    streak_rows, dist_rows = [], []
+    for symbol, r in results.items():
+        p = r['params']
+        name = getattr(p, 'label', None) or symbol
+        row = {'ticker': name}
+        by_window = r['streak_summary'].set_index('Window')
+        ratio = np.nan
+
+        for w in p.windows:
+            win, loss = by_window.loc[f'{w}d', ['Win Freq %', 'Loss Freq %']]
+            row[f'{w}d win/loss'] = f'{win:.2f} / {loss:.2f}'
+            if w == ratio_window:
+                ratio = round(win / loss, 2) if loss else np.nan
+
+        row[f'{ratio_window}d ratio'] = ratio       # keep the ratio last
+        streak_rows.append(row)
+        dist_rows.append(r['dist'])
+
+    streak_table = pd.DataFrame(streak_rows)
+    dist_table = pd.concat(dist_rows, ignore_index=True)
+    return streak_table, dist_table

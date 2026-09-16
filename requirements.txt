@@ -7,6 +7,9 @@ numpy
 matplotlib
 plotly
 
+# Configuration
+pyyaml
+
 # Jupyter Notebook Libraries
 nbformat
 ipywidgets

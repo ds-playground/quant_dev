@@ -14,6 +14,7 @@ dependencies = [
     "numpy",
     "plotly",
     "yfinance",
+    "pyyaml",
 ]
 
 # TA-Lib needs a C toolchain, so the technical-analysis libraries stay optional
