@@ -2,6 +2,23 @@
 // © LuxAlgo
 
 //@version=5
+// ── Trendlines with Breaks — Style Options ───────────────────────────────────
+// Version : 1.0
+//
+// Changes from the original:
+//   Adds a Style input group — extended line style/width, separate up/down
+//   trendline and extended line colors, and breakout label text color. The
+//   trendline and breakout detection logic is LuxAlgo's, unmodified.
+//
+// Description:
+//   Detects swing pivots and fits trendlines whose slope is derived from ATR,
+//   standard deviation, or linear regression. A break of a trendline is marked
+//   with a breakout label. Backpainting can be disabled to see the real-time
+//   (non-repainting) signal.
+//
+// Note: CC BY-NC-SA 4.0 is non-commercial and share-alike — any redistribution
+// of this file must keep the same license and attribution.
+// ─────────────────────────────────────────────────────────────────────────────
 indicator("Trendlines with Breaks [LuxAlgo]", "Trendlines with Breaks", overlay = true)
 //------------------------------------------------------------------------------
 //Settings

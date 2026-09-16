@@ -1,6 +1,17 @@
+// Derived from two TradingView community scripts, neither of which carries an
+// explicit open-source license (TradingView House Rules apply):
+//   © ugurvu   — "Humble LinReg Candles"    (linear regression candles)
+//   © emiliolb — "Linear Regression Slope"  (slope calculation)
+// Originals kept for reference under pine_scripts/references/.
+
 //@version=5
 // ── Linear Regression Candles and Slope ──────────────────────────────────────
 // Version : 1.0
+//
+// Changes from the originals:
+//   Merges ugurvu's LinReg candles with emiliolb's slope calculation, adds
+//   slope-based coloring of the signal line, and exposes candle display and
+//   signal line appearance as input options.
 //
 // Description:
 //   Plots candlesticks smoothed by linear regression, optionally overlaid on the
