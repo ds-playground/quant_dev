@@ -100,3 +100,9 @@ scrapbook*.*
 *_old*.*
 *_bak*.*
 *copy*.*
+
+# Editor settings
+.vscode/
+
+# Notebook CSV exports (export_tables writes these next to the notebook)
+notebooks/*.csv

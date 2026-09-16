@@ -1,0 +1,45 @@
+# Tickers analysed by dev/rare_case_run.ipynb.
+#
+# Keys under `defaults` and under each ticker must be fields of the Params
+# dataclass in src/tools/price_return.py, with one exception: `label`, which is
+# display-only. Anything else raises, so a mistyped key cannot silently change
+# the analysis.
+#
+# Per-ticker entries override `defaults`. Delete this file to fall back to a
+# built-in set of ES=F, NQ=F, YM=F and RTY=F.
+
+defaults:
+  data_source: yahoo
+  start_date: '2016-01-01'
+  win_threshold: 0.2
+  loss_threshold: -0.2
+  windows: [2, 3, 5]
+  prob_max: 0.10
+  prob_min: 0.0001
+
+tickers:
+
+  # ── Equity index futures ──────────────────────────────────────────────────
+  ES=F:  {label: S&P 500 futures}
+  NQ=F:  {label: Nasdaq 100 futures}
+  YM=F:  {label: Dow futures}
+  RTY=F: {label: Russell 2000 futures}
+
+  # ── Commodities ───────────────────────────────────────────────────────────
+  GC=F:  {label: Gold futures}
+  # CL=F carries one non-positive settle (2020-04-20, -$37.63). load_price_data
+  # drops the two returns spanning it; the genuine -25%/+38% days are kept.
+  CL=F:  {label: Crude oil futures}
+  # NG=F runs at ~4.3% daily vol, so every cumulative threshold up to 5% is too
+  # common to clear prob_max - its rare-event table is all-consecutive.
+  NG=F:  {label: Natural gas futures}
+
+  # ── FX ────────────────────────────────────────────────────────────────────
+  # FX volatility is roughly a third of the equity futures', so +/-0.2% is
+  # ~0.4 standard deviations here against ~0.15 there. Halving the threshold
+  # puts streak frequencies back on a comparable footing.
+  AUDUSD=X: {label: AUD/USD, win_threshold: 0.1, loss_threshold: -0.1}
+  USDCHF=X: {label: USD/CHF, win_threshold: 0.1, loss_threshold: -0.1}
+  GBPUSD=X: {label: GBP/USD, win_threshold: 0.1, loss_threshold: -0.1}
+  EURUSD=X: {label: EUR/USD, win_threshold: 0.1, loss_threshold: -0.1}
+  USDJPY=X: {label: USD/JPY, win_threshold: 0.1, loss_threshold: -0.1}
