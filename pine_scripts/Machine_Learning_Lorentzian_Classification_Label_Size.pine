@@ -2,6 +2,20 @@
 // ©jdehorty
 
 // @version=5
+// ── Machine Learning: Lorentzian Classification — Label Size ─────────────────
+// Version : 1.0
+//
+// Changes from the original:
+//   Buy/sell label size raised from size.small/size.tiny to size.large for
+//   readability on high-resolution displays. Classification logic, features,
+//   and filters are jdehorty's, unmodified.
+//
+// Description:
+//   A k-nearest-neighbours classifier that uses Lorentzian distance rather than
+//   Euclidean distance, on the premise that major economic events warp price
+//   space in a way Lorentzian geometry models better. See the Background
+//   section below for the author's full explanation.
+// ─────────────────────────────────────────────────────────────────────────────
 indicator('Machine Learning: Lorentzian Classification', 'Lorentzian Classification', true, precision=4, max_labels_count=500) 
 
 import jdehorty/MLExtensions/2 as ml
