@@ -1,7 +1,30 @@
 # quant_dev
 
-A work-in-progress playground for historical price and return analysis, plus the
-TradingView indicators that go with it.
+A work-in-progress research playground for historical price and return analysis, and
+the TradingView indicators that go with it.
+
+## Purpose
+
+The project exists to answer one question with evidence rather than intuition: **how
+often does a given price move actually happen, and when did it last happen?**
+
+Given a daily return series, the framework measures:
+
+- how often an instrument strings together consecutive up or down days,
+- how often a multi-day window compounds past a threshold, regardless of what the
+  individual days did,
+- and which moves are rare enough to be worth noticing — each carrying the date it
+  was last seen, so a "0.08% probability" can be checked against reality rather than
+  taken on faith.
+
+Running the same pipeline across instruments is the point rather than a convenience.
+A threshold that is unremarkable for natural gas is an extreme event for EUR/USD, and
+a cross-instrument comparison only means anything once that is accounted for — which
+is why thresholds are configured per ticker.
+
+This is a personal research repo, not a library and not a trading system. Nothing here
+places orders, and the numerical methods have not been checked against an independent
+reference implementation — the test suite is a smoke test, not a correctness proof.
 
 Stage one has three goals:
 
@@ -87,18 +110,36 @@ browsable interactively in the v0.5 notebook via `interactive_low_probability`.
 
 ```
 quant_dev/
-├── config.py           defaults for the dev/ scratch notebooks only
-├── configs/            ticker sets read by the analysis notebooks
-├── pyproject.toml      packaging; `pip install -e .`
-├── requirements.txt    flat dependency list for Colab
-├── dev/                scratch work — gitignored, never tracked
-├── notebooks/          promoted, tracked notebooks
-├── pine_scripts/       TradingView indicators (+ references/ for the originals)
-├── src/tools/          the package
-└── tests/              smoke test
+├── README.md                              this file
+├── pyproject.toml                         packaging; `pip install -e .`
+├── requirements.txt                       flat dependency list for Colab
+├── config.py                              defaults for the dev/ scratch notebooks only
+│
+├── configs/
+│   └── tickers.yaml                       ticker set + per-ticker parameters
+│
+├── src/
+│   └── tools/
+│       ├── price_return.py                the framework: data, analysis, charts, config
+│       └── basic.py                       superseded notebook-era draft (see below)
+│
+├── notebooks/                             tracked, promoted notebooks
+│   ├── price_return_analysis_v0.1.ipynb   frozen reference monolith
+│   ├── price_return_analysis_v0.5.ipynb   current single-ticker analysis
+│   ├── rare_case_run.ipynb                config-driven multi-ticker run
+│   └── test_es / test_ko / test_ta_packages.ipynb
+│
+├── pine_scripts/                          TradingView indicators
+│   ├── *.pine                             the modified indicators
+│   └── references/                        their unmodified originals
+│
+├── tests/
+│   └── test_smoke.py                      offline end-to-end pipeline check
+│
+└── dev/                                   scratch work — gitignored, never tracked
 ```
 
-**`configs/tickers.yaml`** drives `dev/rare_case_run.ipynb`, which analyses every
+**`configs/tickers.yaml`** drives `notebooks/rare_case_run.ipynb`, which analyses every
 ticker listed there and prints two cross-ticker summary tables. The file has a
 `defaults` block merged with per-ticker overrides; keys must be `Params` fields
 apart from `label`, and anything else raises rather than being silently ignored.
@@ -123,6 +164,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 |---|---|
 | `price_return_analysis_v0.1.ipynb` | Frozen. Self-contained monolith, no package imports; kept as a reference implementation. |
 | `price_return_analysis_v0.5.ipynb` | Current. The same analysis built on `src/tools/price_return.py`. |
+| `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
 | `test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` | Exploratory, built on the older `basic.py`. |
 
 **Two config mechanisms, deliberately.** `config.py` serves the `dev/` scratch
@@ -191,6 +233,53 @@ pytest
 (no network) and checks that every name the v0.5 notebook imports still resolves.
 It is a smoke test, not a correctness suite — the numerical methods are not yet
 verified against independent reference values.
+
+## Changelog
+
+Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-17
+- The rare-case analysis is driven by `configs/tickers.yaml`: one run covers every
+  ticker listed and emits two cross-ticker summary tables. Deleting the config falls
+  back to ES=F, NQ=F, YM=F and RTY=F, saying so as it does.
+- `load_price_data` guards against two failures found while running across twelve
+  instruments — an unknown symbol, which previously surfaced as a `ZeroDivisionError`
+  inside a plotting function several cells later, and non-positive prices, after
+  CL=F settled at -$37.63 on 2020-04-20 and produced a -306% "return" that flipped
+  crude's mean drift negative.
+- Notebook CSV exports are gitignored.
+
+### 2026-09-16
+- Removed the `samplemod` template this repo was forked from: `sample/`, `docs/`,
+  `README.rst`, `MANIFEST.in`, `Makefile`, `setup.py`, and a `LICENSE` carrying a
+  third party's copyright.
+- `pyproject.toml` replaces `setup.py`, so `pip install -e .` makes `src.tools`
+  importable from any working directory.
+- Dropped the `sys.path` bootstrap from every notebook — it made the working
+  directory load-bearing, so notebooks only imported correctly when run from
+  `notebooks/`. Colab now does an editable install instead of `os.chdir`.
+- Pine scripts gained descriptions and change notes;
+  `Linear_Regression_Candles_and_Slope.pine` had no attribution at all despite
+  deriving from two community scripts.
+- First real `README.md`, and a smoke test replacing three placeholder tests that
+  asserted `True`.
+
+### 2026-09-15
+- Extracted the analysis out of the notebooks into `src/tools/price_return.py`, with
+  every tunable value carried on a `Params` dataclass; added the v0.5 notebook built
+  on it.
+
+### 2026-09-11
+- First `price_return_analysis` notebook (v0.1), a self-contained monolith — since
+  frozen as a reference implementation.
+
+### 2026-06 to 2026-09
+- Pine script work: linear-regression candles with slope colouring, ZLSMA, the
+  LuxAlgo trendline indicator and jdehorty's Lorentzian classifier, each kept
+  alongside its unmodified original under `pine_scripts/references/`.
+
+### 2026-04-30
+- Initial commit, from the `samplemod` project template.
 
 ## License
 
