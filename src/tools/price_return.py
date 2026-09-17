@@ -10,7 +10,7 @@ that object around::
 
     from src.tools.price_return import Params, load_price_data, add_rolling_stats
 
-    P  = Params(ticker='KO', start_date='2016-01-01')
+    P  = Params(ticker='ES=F', start_date='2016-01-01')
     df = add_rolling_stats(load_price_data(P), P)
 """
 
@@ -119,7 +119,13 @@ def load_price_data(p=None, verbose=True):
     if p.data_source == 'yahoo':
         # pip install yfinance
         import yfinance as yf
-        raw = yf.download(p.ticker, start=p.start_date, end=p.end_date)
+        # auto_adjust=False keeps `Close` as the actually-traded price rather than
+        # a dividend-adjusted series. Option strikes are set against the traded
+        # price, so adjusting it would misstate where a strike sits relative to
+        # spot. Passed explicitly because yfinance flipped this default, and the
+        # two settings give different returns for anything paying a dividend.
+        raw = yf.download(p.ticker, start=p.start_date, end=p.end_date,
+                          auto_adjust=False)
         if raw.empty:
             raise ValueError(
                 f"No price data for ticker {p.ticker!r} between {p.start_date} and "

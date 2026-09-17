@@ -66,7 +66,7 @@ from src.tools.price_return import (
     detect_streaks, summarize_streaks, plot_streak_timeline,
 )
 
-P  = Params(ticker='KO', start_date='2016-01-01', data_source='yahoo')
+P  = Params(ticker='ES=F', start_date='2016-01-01', data_source='yahoo')
 df = add_rolling_stats(load_price_data(P), P)
 
 streaks = detect_streaks(df, P)
@@ -82,6 +82,23 @@ object around, re-run.
 ## Methodology
 
 The framework asks a few related questions about a daily return series.
+
+**Price data is unadjusted.** `load_price_data` passes `auto_adjust=False` to
+yfinance, so `Close` is the price that actually traded rather than a series
+adjusted backwards for dividends and splits. This is deliberate: one use of this
+analysis is sizing option strategies, and a strike is set against the traded
+price — adjusting the history would misstate where a strike sits relative to
+spot.
+
+The cost is that for a dividend payer, an ex-dividend drop registers as a
+negative return even though a holder lost nothing. Measured on KO over
+2016–2026, the unadjusted series gives a mean daily return of 0.0337% against
+0.0464% adjusted, and individual ex-dividend days differ by up to 0.91
+percentage points. For the futures and FX pairs in `configs/tickers.yaml` the
+two settings are bit-for-bit identical, since neither pays a dividend or splits
+— so this choice only bites if you add equities or ETFs. The argument is passed
+explicitly because yfinance changed its default, and leaving it implicit meant
+the same notebook could produce different numbers on different machines.
 
 **Rolling statistics.** For each holding period `d`, the `d`-day cumulative return
 is computed, then a `trade_days`-long rolling mean and standard deviation over it.
@@ -239,6 +256,9 @@ verified against independent reference values.
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-17
+- Price data is now explicitly unadjusted (`auto_adjust=False`), so `Close` is the
+  traded price. Option strikes reference the traded price, and yfinance had changed
+  this default — see Methodology for the size of the difference.
 - The rare-case analysis is driven by `configs/tickers.yaml`: one run covers every
   ticker listed and emits two cross-ticker summary tables. Deleting the config falls
   back to ES=F, NQ=F, YM=F and RTY=F, saying so as it does.
