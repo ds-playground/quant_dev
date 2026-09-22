@@ -105,6 +105,25 @@ def test_config_fallback(tmp_path):
         assert p.ticker == symbol
 
 
+def test_default_config_path_points_at_the_repo_config():
+    """The packaged default path must resolve to the real configs/tickers.yaml.
+
+    This was derived by counting parent directories, which silently became wrong
+    when the module was split into a package: the config was simply not found and
+    the run fell back to the four built-in tickers, with no error. Every other
+    config test passes an explicit path, so none of them covered this.
+    """
+    yaml = pytest.importorskip("yaml")
+    from src.tools.price_return import params as params_mod
+
+    path = params_mod.DEFAULT_CONFIG_PATH
+    assert path.is_file(), f"DEFAULT_CONFIG_PATH does not exist: {path}"
+    assert (path.parent.name, path.name) == ("configs", "tickers.yaml")
+
+    expected = list(yaml.safe_load(path.read_text(encoding="utf-8"))["tickers"])
+    assert list(pr.load_ticker_config(verbose=False)) == expected
+
+
 def test_config_merges_overrides(tmp_path):
     yaml = pytest.importorskip("yaml")
     path = tmp_path / "tickers.yaml"
