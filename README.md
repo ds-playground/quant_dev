@@ -137,7 +137,14 @@ quant_dev/
 │
 ├── src/
 │   └── tools/
-│       ├── price_return.py                the framework: data, analysis, charts, config
+│       ├── price_return/                  the framework
+│       │   ├── __init__.py                re-exports the whole public API
+│       │   ├── params.py                  Params + the ticker config that builds it
+│       │   ├── data.py                    price loading, rolling statistics
+│       │   ├── analysis.py                streaks, thresholds, rare events
+│       │   ├── viz.py                     the nine Plotly charts
+│       │   ├── report.py                  formatting, interactive table, CSV export
+│       │   └── pipeline.py                per-ticker run + cross-ticker comparison
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
 ├── notebooks/                             tracked, promoted notebooks
@@ -155,6 +162,12 @@ quant_dev/
 │
 └── dev/                                   scratch work — gitignored, never tracked
 ```
+
+**`price_return` is a package, imported as one module.** It was a single 941-line
+file until the sections were split out; `__init__.py` re-exports everything, so
+`from src.tools.price_return import ...` works exactly as before and no notebook
+needed changing. Import from the submodules directly if you prefer
+(`from src.tools.price_return.viz import plot_streak_frequency`).
 
 **`configs/tickers.yaml`** drives `notebooks/rare_case_run.ipynb`, which analyses every
 ticker listed there and prints two cross-ticker summary tables. The file has a
@@ -254,6 +267,16 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-19
+- `price_return` became a package: `params`, `data`, `analysis`, `viz`, `report`,
+  `pipeline`. The public API is unchanged — `__init__.py` re-exports it, so no
+  notebook or test needed editing. Both notebooks were run before and after and
+  produce byte-identical output.
+- Colab bootstrap fixed: `pip install -e` registers its import finder through a
+  `.pth` file that Python only reads at interpreter startup, so installing in one
+  cell and importing in the next never worked. The repo now goes on `sys.path`.
+- Price data is explicitly unadjusted (`auto_adjust=False`) — see Methodology.
 
 ### 2026-09-17
 - Price data is now explicitly unadjusted (`auto_adjust=False`), so `Close` is the
