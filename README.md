@@ -237,6 +237,46 @@ simply be deleted.
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
 
+## Technical analysis
+
+`src/tools/ta_tools/` wraps a third-party technical-analysis library behind a
+consistent API, and is where the Pine indicators below are being ported to Python.
+
+**Which library, and why.** `notebooks/ta_package_evaluation.ipynb` compares
+`pandas_ta`, `ta` and `TA-Lib` on a seeded offline OHLC fixture, judged on coverage
+and API shape:
+
+| | indicators (ex-patterns) | Pine primitives | DataFrame accessor | risk |
+|---|---|---|---|---|
+| **TA-Lib 0.6.8** | 97 | **7/10** | no | stable; C extension already builds here |
+| pandas_ta 0.4.71b0 | 151 | 6/10 | yes | beta, not validated against pandas 3 |
+| ta 0.11.0 | 80 | 3/10 | no | pure python, stable |
+
+**TA-Lib wins.** Coverage is close once TA-Lib's 61 candlestick pattern recognisers
+are set aside, and all three return a Series with the index preserved. What decides
+it is the Pine primitives: `ta` has no linear regression at all, which rules it out
+given LinReg Candles calls it four times and ZLSMA nests it. TA-Lib alone exposes
+`LINEARREG_SLOPE` and `LINEARREG_INTERCEPT` alongside `LINEARREG`, which is what
+makes Pine's `offset` semantics reconstructible as
+`LINEARREG - LINEARREG_SLOPE * offset`. `pandas_ta` also takes an `offset`, but it
+means a post-shift of the output series — a different operation, and an easy trap.
+
+Two smaller findings from the same run: `ta` returns ATR with **no** warm-up NaNs
+where the other two return 14, so it seeds differently; and TA-Lib's C extension is
+already built in this environment, contrary to the assumption behind keeping these
+libraries in the optional `[ta]` extra.
+
+**The package is part wrapper, part original code.** No library supplies pivot
+high/low with publication delay, or a harness for Pine `var` series that depend on
+their own previous bar. Those are implemented here regardless of which library is
+wrapped. `backend.py` is the only module that imports the wrapped library, and a
+`CAPABILITIES` map records which primitives come from the library and which are
+ours.
+
+Unlike the other notebooks here, the evaluation notebook is committed **with its
+outputs**. The decision is the deliverable, and the previous comparison notebook was
+useless precisely because it saved none.
+
 ## Pine scripts
 
 Each script in `pine_scripts/` is a modification of a published TradingView
@@ -267,6 +307,11 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-24
+- Evaluated `pandas_ta`, `ta` and `TA-Lib` on coverage and API shape; chose TA-Lib to
+  wrap, on the strength of its linear-regression primitives. See Technical analysis
+  above and `notebooks/ta_package_evaluation.ipynb`.
 
 ### 2026-09-19
 - `price_return` became a package: `params`, `data`, `analysis`, `viz`, `report`,
