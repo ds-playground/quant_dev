@@ -151,7 +151,8 @@ quant_dev/
 │       │   ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
 │       │   ├── volatility.py              stdev, bb (TA-Lib); true_range, atr (Pine-exact)
 │       │   ├── momentum.py                rsi (TA-Lib)
-│       │   └── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
+│       │   ├── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
+│       │   └── indicators.py              whole Pine indicators, ported (linreg_candles)
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
 ├── notebooks/                             tracked, promoted notebooks
@@ -291,6 +292,19 @@ primitive TA-Lib lacks, but it is a few lines on the one primitive where
 controlling warm-up matters most, so it is implemented here. And `pivots` computes
 support/resistance levels, not Pine's `pivothigh`/`pivotlow` swing detection.
 
+**Ported indicators** live in `indicators.py` and are built only from the primitives
+above, so they inherit their Pine parity. Arguments keep the Pine input names and
+defaults, and chart-only inputs (colours, line widths, visibility toggles) are dropped:
+an indicator returns data, not a drawing. `linreg_candles` ports
+`Linear_Regression_Candles_and_Slope.pine` and returns `lrc_open/high/low/close`,
+`lrc_signal`, `lrc_slope` and `lrc_bull`:
+
+```python
+from src.tools import ta_tools
+bars = ta_tools.make_bars()
+lrc = ta_tools.linreg_candles(bars['open'], bars['high'], bars['low'], bars['close'])
+```
+
 Unlike the other notebooks here, the evaluation notebook is committed **with its
 outputs**. The decision is the deliverable, and the previous comparison notebook was
 useless precisely because it saved none.
@@ -349,6 +363,11 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - `atr` rebuilt as `rma(true_range)`, matching Pine's `ta.atr` exactly, with a new
   `true_range` (Pine's `ta.tr`). TA-Lib's ATR is no longer used: it has no true range
   for the first bar, so it started a bar later and was 1-4% off Pine early on.
+- First ported indicator: `linreg_candles` in `indicators.py`, from
+  `Linear_Regression_Candles_and_Slope.pine`. It matches a line-by-line rewrite of the
+  script (built on `numpy.polyfit`) for both the SMA and EMA signal. Because the four
+  prices are fitted separately, about 2% of LinReg candles have a high below the body
+  or a low above it; Pine draws these as they are, and so does the port.
 
 ### 2026-09-24
 - Evaluated `pandas_ta`, `ta` and `TA-Lib` on coverage and API shape; chose TA-Lib to

@@ -2,6 +2,7 @@
 
 from .backend import CAPABILITIES
 from .data import make_bars
+from .indicators import linreg_candles
 from .momentum import rsi
 from .overlap import alma, ema, hma, sma, wma
 from .pine import (barssince, change, crossover, crossunder, linreg, nz, pivot_high, pivot_low,
@@ -13,4 +14,5 @@ __all__ = ['CAPABILITIES', 'make_bars',
            'stdev', 'true_range', 'atr', 'bb',
            'rsi',
            'linreg', 'rma', 'pivot_high', 'pivot_low',
-           'change', 'crossover', 'crossunder', 'barssince', 'nz', 'recurse']
+           'change', 'crossover', 'crossunder', 'barssince', 'nz', 'recurse',
+           'linreg_candles']
