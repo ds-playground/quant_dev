@@ -1,4 +1,5 @@
 """The only module in ta_tools that imports a third-party TA library."""
+import pandas as pd
 
 try:
     import talib
@@ -22,6 +23,13 @@ def provides(source):
         return fn
 
     return register
+
+
+def as_float_series(values):
+    """Reject non-Series input and cast to float64, the only dtype TA-Lib accepts."""
+    if not isinstance(values, pd.Series):
+        raise TypeError(f'expected a pandas Series, got {type(values).__name__}')
+    return values.astype('float64')
 
 
 def pandas_ta():
