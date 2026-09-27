@@ -147,7 +147,10 @@ quant_dev/
 │       │   └── pipeline.py                per-ticker run + cross-ticker comparison
 │       ├── ta_tools/                      technical analysis (in progress)
 │       │   ├── backend.py                 the only TA-Lib / pandas_ta import site
-│       │   └── data.py                    seeded OHLC bars for offline use
+│       │   ├── data.py                    seeded OHLC bars for offline use
+│       │   ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
+│       │   ├── volatility.py              stdev, atr, bb (TA-Lib)
+│       │   └── momentum.py                rsi (TA-Lib)
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
 ├── notebooks/                             tracked, promoted notebooks
@@ -326,6 +329,15 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
   for TA-Lib (primary) and pandas_ta (secondary, loaded lazily), a `CAPABILITIES`
   map, and a seeded OHLC bar simulator whose bars are always valid.
+- First primitives: `sma`, `ema`, `wma`, `stdev`, `atr`, `bb`, `rsi` from TA-Lib, `hma` and
+  `alma` from pandas_ta. Each is checked against an independent implementation of Pine's
+  definition. `ema` and `stdev` match exactly; `atr` starts one bar later than Pine's
+  and differs by ~4% at first, converging within a few hundred bars; `alma` equals
+  Pine's `floor=true` variant, not its default. TA-Lib rejects length 1 for SMA, EMA
+  and STDDEV (and WMA, BBANDS, RSI), so those return Pine's answer directly. `wma`, `bb` and
+  `rsi` match Pine exactly, except that on a perfectly flat window TA-Lib's RSI is 0 where
+  TradingView's built-in RSI script gives 100. Multi-output indicators return a DataFrame
+  with named columns (`bb` gives `bb_mid_20`, `bb_upper_20`, `bb_lower_20`).
 
 ### 2026-09-24
 - Evaluated `pandas_ta`, `ta` and `TA-Lib` on coverage and API shape; chose TA-Lib to
