@@ -145,6 +145,9 @@ quant_dev/
 │       │   ├── viz.py                     the nine Plotly charts
 │       │   ├── report.py                  formatting, interactive table, CSV export
 │       │   └── pipeline.py                per-ticker run + cross-ticker comparison
+│       ├── ta_tools/                      technical analysis (in progress)
+│       │   ├── backend.py                 the only TA-Lib / pandas_ta import site
+│       │   └── data.py                    seeded OHLC bars for offline use
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
 ├── notebooks/                             tracked, promoted notebooks
@@ -239,8 +242,8 @@ simply be deleted.
 
 ## Technical analysis
 
-`src/tools/ta_tools/` wraps a third-party technical-analysis library behind a
-consistent API, and is where the Pine indicators below are being ported to Python.
+`src/tools/ta_tools/` wraps TA-Lib, with pandas_ta for breadth, behind a consistent
+API, and is where the Pine indicators below are being ported to Python.
 
 **Which library, and why.** `notebooks/ta_package_evaluation.ipynb` compares
 `pandas_ta`, `ta` and `TA-Lib` on a seeded offline OHLC fixture, judged on coverage
@@ -269,9 +272,20 @@ libraries in the optional `[ta]` extra.
 **The package is part wrapper, part original code.** No library supplies pivot
 high/low with publication delay, or a harness for Pine `var` series that depend on
 their own previous bar. Those are implemented here regardless of which library is
-wrapped. `backend.py` is the only module that imports the wrapped library, and a
-`CAPABILITIES` map records which primitives come from the library and which are
-ours.
+wrapped.
+
+**Two backends, one import site.** TA-Lib is the primary; pandas_ta is used only
+for indicators TA-Lib has no equivalent for — there are 106 once naming aliases
+are discounted, including `supertrend`, `donchian`, `kc`, `vwap` and `zigzag`. On
+any overlap TA-Lib wins, so the pandas_ta beta is never on the critical path.
+`backend.py` is the only module that imports either library, and loads pandas_ta
+lazily so importing `ta_tools` never touches the beta. A `CAPABILITIES` map records
+each primitive's source as `talib`, `pandas_ta`, `derived` or `custom`.
+
+Two pandas_ta functions are deliberately *not* used. `rma` is a genuine Pine
+primitive TA-Lib lacks, but it is a few lines on the one primitive where
+controlling warm-up matters most, so it is implemented here. And `pivots` computes
+support/resistance levels, not Pine's `pivothigh`/`pivotlow` swing detection.
 
 Unlike the other notebooks here, the evaluation notebook is committed **with its
 outputs**. The decision is the deliverable, and the previous comparison notebook was
@@ -307,6 +321,11 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-27
+- `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
+  for TA-Lib (primary) and pandas_ta (secondary, loaded lazily), a `CAPABILITIES`
+  map, and a seeded OHLC bar simulator whose bars are always valid.
 
 ### 2026-09-24
 - Evaluated `pandas_ta`, `ta` and `TA-Lib` on coverage and API shape; chose TA-Lib to
