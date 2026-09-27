@@ -114,7 +114,7 @@ CONTRACT = [
     ("wma", lambda: ta_tools.wma(CLOSE, 20), "wma_20", 19),
     ("rsi", lambda: ta_tools.rsi(CLOSE, 14), "rsi_14", 14),
     ("stdev", lambda: ta_tools.stdev(CLOSE, 20), "stdev_20", 19),
-    ("atr", lambda: ta_tools.atr(HIGH, LOW, CLOSE, 14), "atr_14", 14),
+    ("atr", lambda: ta_tools.atr(HIGH, LOW, CLOSE, 14), "atr_14", 13),
     ("hma", lambda: ta_tools.hma(CLOSE, 16), "hma_16", 18),
     ("alma", lambda: ta_tools.alma(CLOSE, 9), "alma_9", 8),
 ]
@@ -135,7 +135,7 @@ def test_primitive_contract(label, call, name, warmup):
 
 def test_capabilities_record_each_primitive_source():
     expected = {"sma": "talib", "ema": "talib", "wma": "talib", "stdev": "talib",
-                "atr": "talib", "bb": "talib", "rsi": "talib",
+                "atr": "custom", "true_range": "custom", "bb": "talib", "rsi": "talib",
                 "hma": "pandas_ta", "alma": "pandas_ta"}
     assert {k: ta_tools.CAPABILITIES[k] for k in expected} == expected
 
@@ -183,18 +183,35 @@ def test_stdev_is_population_as_in_pine():
     assert not np.allclose(ta_tools.stdev(CLOSE, 20).dropna(), CLOSE.rolling(20).std().dropna())
 
 
-def test_atr_starts_one_bar_after_pine_and_converges():
-    prev = CLOSE.shift(1).to_numpy()
-    h, l = HIGH.to_numpy(), LOW.to_numpy()
+def pine_atr(high, low, close, length):
+    """Pine's ta.atr written out independently: Wilder-smoothed true range, bar 0's being high - low."""
+    prev = close.shift(1).to_numpy()
+    h, l = high.to_numpy(), low.to_numpy()
     tr = np.where(np.isnan(prev), h - l,
                   np.maximum.reduce([h - l, np.abs(h - prev), np.abs(l - prev)]))
-    pine = pine_seeded(tr, 14, 1 / 14)
-    ours = ta_tools.atr(HIGH, LOW, CLOSE, 14).to_numpy()
+    return pine_seeded(tr, length, 1 / length)
 
-    assert leading_nans(pd.Series(ours)) == leading_nans(pd.Series(pine)) + 1
-    relative = np.abs(ours - pine) / pine
-    assert relative[14] > 1e-3, "documented early divergence from Pine"
-    assert relative[-1] < 1e-9, "converges to Pine"
+
+def test_atr_matches_pine_exactly():
+    np.testing.assert_allclose(ta_tools.atr(HIGH, LOW, CLOSE, 14), pine_atr(HIGH, LOW, CLOSE, 14),
+                               rtol=1e-12, equal_nan=True)
+
+
+def test_talib_atr_is_why_atr_is_built_here():
+    # TA-Lib has no bar-0 true range, so it starts a bar later and disagrees early on.
+    talib_atr = backend.talib.ATR(HIGH, LOW, CLOSE, timeperiod=14).to_numpy()
+    pine = pine_atr(HIGH, LOW, CLOSE, 14)
+    assert leading_nans(pd.Series(talib_atr)) == leading_nans(pd.Series(pine)) + 1
+    relative = np.abs(talib_atr - pine) / pine
+    assert relative[14] > 1e-3 and relative[-1] < 1e-9
+
+
+def test_true_range():
+    tr = ta_tools.true_range(HIGH, LOW, CLOSE)
+    assert tr.iloc[0] == HIGH.iloc[0] - LOW.iloc[0]
+    assert (tr >= HIGH - LOW).all()
+    gaps = pd.concat([(HIGH - CLOSE.shift(1)).abs(), (LOW - CLOSE.shift(1)).abs()], axis=1).max(axis=1)
+    assert (tr.iloc[1:] >= gaps.iloc[1:]).all()
 
 
 def test_hma_matches_wma_definition():
@@ -278,3 +295,185 @@ def test_bb_joins_onto_the_bars():
     joined = BARS.join(ta_tools.bb(CLOSE, 20))
     assert list(joined.columns[-3:]) == ["bb_mid_20", "bb_upper_20", "bb_lower_20"]
     assert len(joined) == len(BARS)
+
+
+# ── Phase 4: Pine primitives no library provides ─────────────────────────────
+INDEX = pd.bdate_range("2024-01-01", periods=12)
+
+
+def test_linreg_on_a_straight_line_reproduces_the_line():
+    line = pd.Series(3.0 + 0.5 * np.arange(60), index=CLOSE.index[:60])
+    for offset in (0, 1, 4):
+        fitted = ta_tools.linreg(line, 11, offset)
+        # A line fitted to a line is the line; evaluated `offset` bars back it gives that bar's value.
+        np.testing.assert_allclose(fitted.iloc[10:], line.shift(offset).iloc[10:], rtol=1e-10,
+                                   equal_nan=True, err_msg=f"offset={offset}")
+
+
+def test_linreg_matches_numpy_polyfit():
+    values = CLOSE.to_numpy()
+    for offset in (0, 2, 5):
+        fitted = ta_tools.linreg(CLOSE, 14, offset).to_numpy()
+        for bar in (13, 150, 399):
+            slope, intercept = np.polyfit(np.arange(14), values[bar - 13:bar + 1], 1)
+            assert fitted[bar] == pytest.approx(intercept + slope * (14 - 1 - offset), rel=1e-10)
+
+
+def test_linreg_is_equivariant():
+    base = ta_tools.linreg(CLOSE, 11, 2)
+    np.testing.assert_allclose(ta_tools.linreg(3 * CLOSE + 7, 11, 2), 3 * base + 7,
+                               rtol=1e-10, equal_nan=True)
+
+
+def test_linreg_accepts_its_own_output():
+    once = ta_tools.linreg(CLOSE, 11)
+    twice = ta_tools.linreg(once, 11)
+    assert leading_nans(once) == 10 and leading_nans(twice) == 20
+    assert twice.iloc[20:].notna().all()
+
+
+def test_rma_matches_pine_definition():
+    np.testing.assert_allclose(ta_tools.rma(CLOSE, 14), pine_seeded(CLOSE, 14, 1 / 14),
+                               rtol=1e-12, equal_nan=True)
+
+
+def test_rma_seeds_from_the_first_valid_value():
+    gappy = CLOSE.copy()
+    gappy.iloc[:5] = np.nan
+    out = ta_tools.rma(gappy, 14)
+    assert leading_nans(out) == 5 + 13
+    assert out.iloc[18] == pytest.approx(CLOSE.iloc[5:19].mean())
+
+
+def test_length_one_linreg_and_rma_return_the_input():
+    np.testing.assert_array_equal(ta_tools.linreg(CLOSE, 1), CLOSE)
+    np.testing.assert_allclose(ta_tools.rma(CLOSE, 1), CLOSE)
+
+
+def pivot_oracle(values, left, right, high=True):
+    """Brute force: a pivot is >= every bar on its left and > every bar on its right."""
+    values = np.asarray(values, dtype=float) * (1 if high else -1)
+    out = np.full(len(values), np.nan)
+    for i in range(left, len(values) - right):
+        centre = values[i]
+        if (all(centre >= v for v in values[i - left:i])
+                and all(centre > v for v in values[i + 1:i + right + 1])):
+            out[i + right] = centre
+    return out * (1 if high else -1)
+
+
+@pytest.mark.parametrize("left,right", [(1, 1), (3, 2), (5, 5), (14, 14)])
+def test_pivots_match_brute_force_including_ties(left, right):
+    tied = (CLOSE * 2).round() / 2        # half-point steps force plenty of equal values
+    np.testing.assert_array_equal(ta_tools.pivot_high(tied, left, right),
+                                  pivot_oracle(tied, left, right, high=True))
+    np.testing.assert_array_equal(ta_tools.pivot_low(tied, left, right),
+                                  pivot_oracle(tied, left, right, high=False))
+
+
+def test_pivots_are_published_right_bars_after_the_pivot():
+    left, right = 4, 3
+    published = ta_tools.pivot_high(HIGH, left, right)
+    for position in np.flatnonzero(published.notna().to_numpy()):
+        pivot_bar = position - right
+        assert published.iloc[position] == HIGH.iloc[pivot_bar]
+        assert HIGH.iloc[pivot_bar] == HIGH.iloc[pivot_bar - left:pivot_bar + right + 1].max()
+
+
+def test_a_flat_top_yields_one_pivot_at_its_last_bar():
+    top = pd.Series([1, 2, 5, 5, 5, 2, 1, 0, 0, 0, 0, 0], index=INDEX, dtype=float)
+    published = ta_tools.pivot_high(top, 2, 2)
+    assert published.notna().sum() == 1
+    assert published.iloc[4 + 2] == 5
+
+
+NO_LOOKAHEAD = {
+    "sma": lambda b: ta_tools.sma(b["close"], 10),
+    "ema": lambda b: ta_tools.ema(b["close"], 10),
+    "wma": lambda b: ta_tools.wma(b["close"], 10),
+    "rsi": lambda b: ta_tools.rsi(b["close"], 14),
+    "stdev": lambda b: ta_tools.stdev(b["close"], 10),
+    "atr": lambda b: ta_tools.atr(b["high"], b["low"], b["close"], 14),
+    "true_range": lambda b: ta_tools.true_range(b["high"], b["low"], b["close"]),
+    "bb_upper": lambda b: ta_tools.bb(b["close"], 20)["bb_upper_20"],
+    "hma": lambda b: ta_tools.hma(b["close"], 16),
+    "alma": lambda b: ta_tools.alma(b["close"], 9),
+    "linreg": lambda b: ta_tools.linreg(b["close"], 11, 3),
+    "rma": lambda b: ta_tools.rma(b["close"], 14),
+    "pivot_high": lambda b: ta_tools.pivot_high(b["high"], 5, 5),
+    "pivot_low": lambda b: ta_tools.pivot_low(b["low"], 5, 5),
+}
+
+
+@pytest.mark.parametrize("label", list(NO_LOOKAHEAD))
+def test_no_lookahead(label):
+    """Values up to bar t must not change when the bars after t are removed."""
+    if label in ("hma", "alma"):
+        pytest.importorskip("pandas_ta")
+    full = NO_LOOKAHEAD[label](BARS)
+    for cut in (60, 150, 299):
+        truncated = NO_LOOKAHEAD[label](BARS.iloc[:cut + 1])
+        np.testing.assert_allclose(truncated, full.iloc[:cut + 1], rtol=1e-10, equal_nan=True,
+                                   err_msg=f"{label} changed at or before bar {cut}")
+
+
+def test_crossover_and_crossunder():
+    a = pd.Series([1, 2, 3, 2, 1, 2, 5, 1, 1, 3, 3, 0], index=INDEX, dtype=float)
+    assert ta_tools.crossover(a, 1.5).astype(int).tolist() == [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0]
+    assert ta_tools.crossunder(a, 1.5).astype(int).tolist() == [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1]
+    # Against a series: 2 -> 3 is a cross over 2, but rising from 1 to exactly 2 is not.
+    b = pd.Series(2.0, index=INDEX)
+    assert ta_tools.crossover(a, b).astype(int).tolist() == [0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0]
+
+
+def test_barssince():
+    flags = pd.Series([False, True, False, False, True, False], index=INDEX[:6])
+    assert ta_tools.barssince(flags).tolist()[1:] == [0, 1, 2, 0, 1]
+    assert np.isnan(ta_tools.barssince(flags).iloc[0])
+    assert ta_tools.barssince(pd.Series(False, index=INDEX)).isna().all()
+
+
+def test_change_and_nz():
+    x = pd.Series(np.arange(12, dtype=float) ** 2, index=INDEX)
+    pd.testing.assert_series_equal(ta_tools.change(x, 2), (x - x.shift(2)).rename("change_2"))
+    assert ta_tools.nz(ta_tools.change(x, 2)).iloc[:2].tolist() == [0.0, 0.0]
+
+
+def test_recurse_runs_bar_by_bar_state():
+    frame = pd.DataFrame({"v": [1, 2, 3, 2, 1, 2, 5, 1]}, index=INDEX[:8], dtype=float)
+    run = ta_tools.recurse(frame, lambda s, bar: {"run": s["run"] + 1 if bar.v > 1 else 0},
+                           {"run": 0})
+    assert run["run"].tolist() == [0, 1, 2, 3, 0, 1, 2, 0]
+
+
+def test_recurse_is_safe_against_in_place_mutation():
+    frame = pd.DataFrame({"v": [1.0, 2.0, 3.0]}, index=INDEX[:3])
+
+    def mutating(state, bar):
+        state["total"] += bar.v          # mutates the dict it was given
+        return state
+
+    assert ta_tools.recurse(frame, mutating, {"total": 0.0})["total"].tolist() == [1.0, 3.0, 6.0]
+
+
+def test_recurse_reproduces_rma():
+    alpha = 1 / 14
+    seed = CLOSE.iloc[:14].mean()
+    frame = pd.DataFrame({"x": CLOSE, "i": np.arange(len(CLOSE))})
+
+    def step(state, bar):
+        if bar.i < 13:
+            return {"rma": np.nan}
+        if bar.i == 13:
+            return {"rma": seed}
+        return {"rma": alpha * bar.x + (1 - alpha) * state["rma"]}
+
+    np.testing.assert_allclose(ta_tools.recurse(frame, step, {"rma": np.nan})["rma"],
+                               ta_tools.rma(CLOSE, 14), rtol=1e-12, equal_nan=True)
+
+
+def test_capabilities_record_phase_four_sources():
+    assert ta_tools.CAPABILITIES["linreg"] == "derived"
+    for name in ("rma", "pivot_high", "pivot_low", "change", "crossover", "crossunder",
+                 "barssince", "nz", "recurse"):
+        assert ta_tools.CAPABILITIES[name] == "custom", name

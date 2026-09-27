@@ -149,8 +149,9 @@ quant_dev/
 │       │   ├── backend.py                 the only TA-Lib / pandas_ta import site
 │       │   ├── data.py                    seeded OHLC bars for offline use
 │       │   ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
-│       │   ├── volatility.py              stdev, atr, bb (TA-Lib)
-│       │   └── momentum.py                rsi (TA-Lib)
+│       │   ├── volatility.py              stdev, bb (TA-Lib); true_range, atr (Pine-exact)
+│       │   ├── momentum.py                rsi (TA-Lib)
+│       │   └── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
 ├── notebooks/                             tracked, promoted notebooks
@@ -338,6 +339,16 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   `rsi` match Pine exactly, except that on a perfectly flat window TA-Lib's RSI is 0 where
   TradingView's built-in RSI script gives 100. Multi-output indicators return a DataFrame
   with named columns (`bb` gives `bb_mid_20`, `bb_upper_20`, `bb_lower_20`).
+- Pine primitives that no library supplies with Pine's semantics, in `pine.py`: `linreg`
+  with Pine's `offset` (built from TA-Lib's `LINEARREG` and `LINEARREG_SLOPE`), `rma`,
+  `pivot_high`/`pivot_low` published `right` bars after the pivot, `change`, `crossover`,
+  `crossunder`, `barssince`, `nz`, and `recurse` for Pine `var` state that depends on its
+  own previous bar. Pine does not document how pivots break ties; here a flat top of
+  equal highs yields one pivot, at its last bar. A no-look-ahead test now covers every
+  indicator: removing the bars after any point never changes the values before it.
+- `atr` rebuilt as `rma(true_range)`, matching Pine's `ta.atr` exactly, with a new
+  `true_range` (Pine's `ta.tr`). TA-Lib's ATR is no longer used: it has no true range
+  for the first bar, so it started a bar later and was 1-4% off Pine early on.
 
 ### 2026-09-24
 - Evaluated `pandas_ta`, `ta` and `TA-Lib` on coverage and API shape; chose TA-Lib to

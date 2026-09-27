@@ -2,6 +2,7 @@
 import pandas as pd
 
 from .backend import as_float_series, provides, talib
+from .pine import rma
 
 
 @provides('talib')
@@ -13,14 +14,21 @@ def stdev(series, length):
     return talib.STDDEV(series, timeperiod=length, nbdev=1).rename(f'stdev_{length}')
 
 
-@provides('talib')
+@provides('custom')
+def true_range(high, low, close):
+    """Pine's ta.tr(true): the largest of high - low and the gaps from the previous close."""
+    high, low, close = as_float_series(high), as_float_series(low), as_float_series(close)
+    prev = close.shift(1)
+    out = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
+    return out.rename('true_range')   # bar 0 has no previous close, so it is high - low, as in Pine
+
+
+@provides('custom')
 def atr(high, low, close, length):
-    """Wilder-smoothed average true range; the first `length` values are NaN."""
-    # Starts one bar later than Pine's ta.atr, which counts bar 0's true range as high - low.
-    # The two differ by ~4% at the first value and converge (under 0.01% by bar 100 at length 14).
-    out = talib.ATR(as_float_series(high), as_float_series(low), as_float_series(close),
-                    timeperiod=length)
-    return out.rename(f'atr_{length}')
+    """Pine's ta.atr: rma of the true range; the first length-1 values are NaN."""
+    # Built here rather than on TA-Lib's ATR, which has no bar-0 true range and so starts a bar
+    # later, seeded from a different window: 1-4% off Pine at first, converging over ~250 bars.
+    return rma(true_range(high, low, close), length).rename(f'atr_{length}')
 
 
 @provides('talib')
