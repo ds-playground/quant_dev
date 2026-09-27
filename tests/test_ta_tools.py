@@ -402,6 +402,11 @@ NO_LOOKAHEAD = {
     "rma": lambda b: ta_tools.rma(b["close"], 14),
     "pivot_high": lambda b: ta_tools.pivot_high(b["high"], 5, 5),
     "pivot_low": lambda b: ta_tools.pivot_low(b["low"], 5, 5),
+    # Whole frames, as float so lrc_bull compares alongside the price columns.
+    "linreg_candles_sma": lambda b: ta_tools.linreg_candles(
+        b["open"], b["high"], b["low"], b["close"]).astype(float),
+    "linreg_candles_ema": lambda b: ta_tools.linreg_candles(
+        b["open"], b["high"], b["low"], b["close"], 14, 9, sma_signal=False).astype(float),
 }
 
 
@@ -477,3 +482,92 @@ def test_capabilities_record_phase_four_sources():
     for name in ("rma", "pivot_high", "pivot_low", "change", "crossover", "crossunder",
                  "barssince", "nz", "recurse"):
         assert ta_tools.CAPABILITIES[name] == "custom", name
+
+
+# ── Phase 5: LinReg Candles and Slope ────────────────────────────────────────
+OHLC = [BARS["open"], HIGH, LOW, CLOSE]
+LRC_COLUMNS = ["lrc_open", "lrc_high", "lrc_low", "lrc_close", "lrc_signal", "lrc_slope",
+               "lrc_bull"]
+
+
+def pine_linreg_candles(bars, linreg_length, signal_length, sma_signal):
+    """The Pine script written out with numpy.polyfit and a hand-rolled SMA / seeded EMA."""
+    out = {}
+    for column in ("open", "high", "low", "close"):
+        values = bars[column].to_numpy()
+        fitted = np.full(len(values), np.nan)
+        for i in range(linreg_length - 1, len(values)):
+            slope, intercept = np.polyfit(np.arange(linreg_length),
+                                          values[i - linreg_length + 1:i + 1], 1)
+            fitted[i] = intercept + slope * (linreg_length - 1)
+        out[column] = fitted
+    lclose = out["close"]
+    if sma_signal:
+        signal = pd.Series(lclose).rolling(signal_length).mean().to_numpy()
+    else:
+        signal = pine_seeded(lclose, signal_length, 2 / (signal_length + 1))
+    return out, signal
+
+
+def test_linreg_candles_frame_and_warmup():
+    out = ta_tools.linreg_candles(*OHLC, linreg_length=11, signal_length=7)
+    assert list(out.columns) == LRC_COLUMNS
+    assert out.index.equals(BARS.index)
+    assert out["lrc_bull"].dtype == bool
+    for column in LRC_COLUMNS[:6]:
+        assert out[column].dtype == "float64", column
+    for column, warmup in [("lrc_open", 10), ("lrc_close", 10), ("lrc_signal", 16),
+                           ("lrc_slope", 17)]:
+        assert leading_nans(out[column]) == warmup, column
+        assert out[column].iloc[warmup:].notna().all(), column
+    assert not out["lrc_bull"].iloc[:10].any()
+
+
+@pytest.mark.parametrize("sma_signal", [True, False], ids=["sma", "ema"])
+def test_linreg_candles_match_the_pine_script(sma_signal):
+    out = ta_tools.linreg_candles(*OHLC, linreg_length=11, signal_length=9, sma_signal=sma_signal)
+    candles, signal = pine_linreg_candles(BARS, 11, 9, sma_signal)
+    for column, expected in candles.items():
+        np.testing.assert_allclose(out[f"lrc_{column}"], expected, rtol=1e-10, equal_nan=True)
+    np.testing.assert_allclose(out["lrc_signal"], signal, rtol=1e-10, equal_nan=True)
+    np.testing.assert_allclose(out["lrc_slope"], np.diff(signal, prepend=np.nan), rtol=1e-8,
+                               atol=1e-10, equal_nan=True)
+    np.testing.assert_array_equal(out["lrc_bull"], candles["open"] < candles["close"])
+
+
+def test_linreg_candles_of_straight_lines():
+    t = np.arange(80, dtype=float)
+    line = {c: pd.Series(base + 0.25 * t, index=BARS.index[:80])
+            for c, base in zip(("open", "high", "low", "close"), (10.0, 11.0, 9.0, 10.5))}
+    out = ta_tools.linreg_candles(line["open"], line["high"], line["low"], line["close"], 11, 5)
+    # LinReg of a line is the line; its SMA lags by (5-1)/2 bars, so the slope is the line's.
+    np.testing.assert_allclose(out["lrc_close"].iloc[10:], line["close"].iloc[10:], rtol=1e-10)
+    np.testing.assert_allclose(out["lrc_signal"].iloc[14:], line["close"].iloc[12:-2], rtol=1e-10)
+    np.testing.assert_allclose(out["lrc_slope"].iloc[15:], 0.25, rtol=1e-8)
+    assert out["lrc_bull"].iloc[10:].all()
+
+
+def test_linreg_candles_without_linear_regression_pass_the_raw_candles():
+    out = ta_tools.linreg_candles(*OHLC, signal_length=5, lin_reg=False)
+    np.testing.assert_array_equal(out[["lrc_open", "lrc_high", "lrc_low", "lrc_close"]],
+                                  BARS[["open", "high", "low", "close"]])
+    np.testing.assert_allclose(out["lrc_signal"], ta_tools.sma(CLOSE, 5), equal_nan=True)
+    np.testing.assert_array_equal(out["lrc_bull"], BARS["open"] < BARS["close"])
+
+
+def test_linreg_candles_at_length_one():
+    # Pine accepts 1 for both lengths (minval = 1): raw candles, and a signal equal to the close.
+    for sma_signal in (True, False):
+        out = ta_tools.linreg_candles(*OHLC, linreg_length=1, signal_length=1,
+                                      sma_signal=sma_signal)
+        np.testing.assert_array_equal(out["lrc_close"], CLOSE)
+        np.testing.assert_array_equal(out["lrc_signal"], CLOSE)
+
+
+def test_linreg_candles_join_onto_the_bars():
+    joined = BARS.join(ta_tools.linreg_candles(*OHLC))
+    assert len(joined.columns) == len(BARS.columns) + len(LRC_COLUMNS)
+
+
+def test_capabilities_record_phase_five_sources():
+    assert ta_tools.CAPABILITIES["linreg_candles"] == "derived"
