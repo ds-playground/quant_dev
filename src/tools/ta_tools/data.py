@@ -140,7 +140,9 @@ def read_bars(path, columns=None, daily=False, tz=None):
     Times without an offset are taken as UTC, and `tz` converts them. `daily=True` keeps only
     each bar's calendar date in `tz`, the date index load_bars gives daily bars.
     """
-    frame = pd.read_csv(path)
+    # round_trip parses each number to the exact float that was written; pandas' default parser
+    # can be one unit off in the last digit, which would blur a parity check against the file.
+    frame = pd.read_csv(path, float_precision='round_trip')
     if columns:
         frame = frame.rename(columns=columns)
     known = ['time'] + PRICES + ['volume']

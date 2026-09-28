@@ -373,6 +373,14 @@ indicator column, in both time formats.
 - Seeded mutations, each caught: no `dropna` in `load_bars`; no gap check; no Yahoo limit check;
   `tz` ignored in `read_bars`; no index resolution fix.
 - Suite: 153 tests (130 before + 23).
+- **Added after the phase, at the owner's request:** `notebooks/ta_tools_read_data.ipynb`, a
+  hands-on check of every reader against the contract (✓/✗ per check, total at the end),
+  committed without outputs for the owner to run. It covers the two items above that could
+  not be verified here: live intraday Yahoo, including one request just inside each history
+  limit, and a real TradingView export (section 7 prints its header and first row, which
+  settles the time-format question). Run under a stubbed yfinance here: 88 of 88 checks pass.
+  Its round-trip check found `read_bars` parsing CSV floats up to one unit off in the last
+  digit; it now uses `float_precision='round_trip'` (154 tests).
 
 ## Verification
 

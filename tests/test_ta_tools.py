@@ -995,6 +995,14 @@ def test_read_bars_daily_gives_load_bars_dates(tmp_path):
     assert local.index[0] == pd.Timestamp("2024-01-02 09:30", tz="America/New_York")
 
 
+def test_read_bars_gives_back_exactly_the_floats_written(tmp_path):
+    bars = ta_tools.make_bars(n=300, seed=1)
+    path = tmp_path / "bars.csv"
+    bars.to_csv(path, index_label="time")
+    pd.testing.assert_frame_equal(ta_tools.read_bars(path, daily=True), bars, check_exact=True,
+                                  check_freq=False)
+
+
 def test_read_bars_daily_takes_the_date_in_the_exchange_timezone(tmp_path):
     # A Tokyo daily bar stamped at midnight local time is 15:00 UTC the day before.
     text = "time,open,high,low,close\n2024-01-03T15:00:00Z,1,2,0.5,1.5\n"
