@@ -155,6 +155,8 @@ quant_dev/
 │       │   └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
+├── docs/
+│   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
 │   ├── price_return_analysis_v0.1.ipynb   frozen reference monolith
 │   ├── price_return_analysis_v0.5.ipynb   current single-ticker analysis
@@ -254,7 +256,8 @@ simply be deleted.
 ## Technical analysis
 
 `src/tools/ta_tools/` wraps TA-Lib, with pandas_ta for breadth, behind a consistent
-API, and is where the Pine indicators below are being ported to Python.
+API, and is where the Pine indicators below are being ported to Python. Its phased
+plan, with the status of each phase, is `docs/ta_tools_plan.md`.
 
 **Which library, and why.** `notebooks/ta_package_evaluation.ipynb` compares
 `pandas_ta`, `ta` and `TA-Lib` on a seeded offline OHLC fixture, judged on coverage
