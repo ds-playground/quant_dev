@@ -366,7 +366,8 @@ indicator column, in both time formats.
   dates is caught as repeated timestamps. Non-price columns pass through untouched.
 - **Export time formats, settled by two real exports** (the owner's `NASDAQ:AAPL` 1D and 30m, 2026-09-28):
   the daily export writes `time` as a **plain date** (`2007-06-22`), the intraday one as **Unix
-  seconds**. The 30m export includes extended hours (04:00–19:30 New York, 32 bars a day), unlike
+  seconds**. A third export (15m) wrote **ISO times with the owner's local offset**
+  (`2026-05-14T16:30:00+01:00`), so the format varies between exports; `read_bars` takes all three. The 30m export includes extended hours (04:00–19:30 New York, 32 bars a day), unlike
   Yahoo's regular session. Repeated plot titles arrive as `Plot`, `Plot.1`, ... and untitled ones as
   `Unnamed: 7`; they pass through as extra columns.
 - **Bug they exposed, fixed:** a time without an offset was read as UTC, so a plain date with
@@ -443,6 +444,31 @@ The chart runs LinReg Candles at 14/3, not the script's 11/11 defaults; a search
 2–60 and both signal types found no other setting within 0.4%. The candle columns are empty
 (the chart hides the candles), so `lrc_open/high/low/close` and `lrc_bull` are still unchecked,
 as is `trendlines`, which is not on the chart. The files stay out of the repo (open call 3).
+
+**Second Tier 3 run (2026-09-28)**, a 15m `NASDAQ:AAPL` export (5,977 bars, 14 May – 28 Sep) with
+the owner's stated settings:
+
+| Series | Settings | `ta_tools` | Result |
+|---|---|---|---|
+| EMA | 9 | `ema(close, 9)` | identical |
+| Plot.1 | EMA 15 | `ema(close, 15)` | identical |
+| ZLSMA | 14 | `2*linreg(close, 14) - linreg(linreg(close, 14), 14)` | 3.6e-13 |
+| Signal Line | LinReg 14/3 | `linreg_candles(..., 14, 3)` | 3.0e-13 |
+| Basis / Upper / Lower | BB, EMA basis, 1 SD | `ema(close, 100)` ± `stdev(close, 100)` | exact after bar 795 (EMA(100) warm-up; TradingView had earlier history) |
+| Plot | HMA 15 | `hma(close, 15)` | **no match**: 2.5% max, correlation 0.999 |
+| ParabolicSAR | 0.02, 0.02, 0.2 | TA-Lib `SAR(0.02, 0.2)` (not wrapped) | **differs** on 1,048 bars, to the end of the file |
+
+- **ZLSMA** needs nothing new: composed from `linreg` it already matches Pine, so the deferred
+  port is a thin wrapper.
+- **`bb` has no EMA basis**; the match above is composed by hand. An `ma=` option on `bb` would be
+  a change to this plan (TradingView's BB offers SMA, EMA, SMMA/RMA, WMA and VWMA).
+- **HMA 15 unresolved.** Tried: both roundings of `length/2` and `sqrt(length)`; lengths 4–60 on
+  close, hl2, hlc3, ohlc4 and open; shifts of ±5 bars; EHMA and THMA (the "Hull Suite" variants).
+  Nothing within 0.5%. Next step is to confirm which indicator draws that plot (built-in *Hull
+  Moving Average*, or a community script) and its source. Until then `hma` is unverified against
+  TradingView, and its Phase 3 check (against the WMA definition) is the only one.
+- **SAR** is not a `ta_tools` primitive. TA-Lib's differs from TradingView's, so a SAR, if wanted,
+  would have to be built Pine-exact, like `atr`.
 
 `pytest` stays green and `import src.tools.ta_tools` must work from outside the repo, as
 `price_return` does.
