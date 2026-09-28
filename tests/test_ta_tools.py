@@ -66,6 +66,39 @@ def test_make_bars_are_valid_ohlc():
     assert (bars["low"] > 0).all()
 
 
+def fake_yfinance(monkeypatch, frame):
+    """Stand in for yfinance so load_bars is tested offline."""
+    calls = []
+
+    def download(ticker, **kwargs):
+        calls.append((ticker, kwargs))
+        return frame
+
+    monkeypatch.setitem(sys.modules, "yfinance", type(sys)("yfinance"))
+    monkeypatch.setattr(sys.modules["yfinance"], "download", download, raising=False)
+    return calls
+
+
+def test_load_bars_matches_the_make_bars_shape(monkeypatch):
+    dates = pd.to_datetime(["2023-01-03", "2023-01-04"])
+    columns = pd.MultiIndex.from_product([["Adj Close", "Close", "High", "Low", "Open", "Volume"],
+                                          ["AAPL"]], names=["Price", "Ticker"])
+    raw = pd.DataFrame([[1.0, 2.0, 3.0, 1.5, 2.5, 100], [1.1, 2.1, 3.1, 1.6, 2.6, 200]],
+                       index=pd.DatetimeIndex(dates, name="Date"), columns=columns)
+    calls = fake_yfinance(monkeypatch, raw)
+    bars = ta_tools.load_bars("AAPL", "2023-01-01")
+    assert list(bars.columns) == list(ta_tools.make_bars(n=5).columns)
+    assert bars.index.name == "date" and (bars.dtypes == "float64").all()
+    assert bars["close"].tolist() == [2.0, 2.1]            # the traded close, not Adj Close
+    assert calls[0][1]["auto_adjust"] is False
+
+
+def test_load_bars_rejects_an_unknown_ticker(monkeypatch):
+    fake_yfinance(monkeypatch, pd.DataFrame())
+    with pytest.raises(ValueError, match="No price data"):
+        ta_tools.load_bars("NOPE", "2023-01-01")
+
+
 # ── Phase 3: wrapped primitives ──────────────────────────────────────────────
 import numpy as np
 
@@ -407,6 +440,11 @@ NO_LOOKAHEAD = {
         b["open"], b["high"], b["low"], b["close"]).astype(float),
     "linreg_candles_ema": lambda b: ta_tools.linreg_candles(
         b["open"], b["high"], b["low"], b["close"], 14, 9, sma_signal=False).astype(float),
+    # Realtime trendlines only: backpaint looks ahead by design (tested separately).
+    "trendlines_atr": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"],
+                                                    10).astype(float),
+    "trendlines_linreg": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"], 7,
+                                                       calc_method="linreg").astype(float),
 }
 
 
@@ -571,3 +609,162 @@ def test_linreg_candles_join_onto_the_bars():
 
 def test_capabilities_record_phase_five_sources():
     assert ta_tools.CAPABILITIES["linreg_candles"] == "derived"
+
+
+# ── Phase 6: Trendlines with Breaks ──────────────────────────────────────────
+TL_COLUMNS = ["tl_upper", "tl_lower", "tl_upper_slope", "tl_lower_slope", "tl_pivot_high",
+              "tl_pivot_low", "tl_upos", "tl_dnos", "tl_upper_break", "tl_lower_break"]
+TL_LINES = TL_COLUMNS[:6]
+
+
+def pine_trendline_slope(bars, length, mult, method):
+    """Pine's three slope formulas, written out literally (n is bar_index)."""
+    close = bars["close"]
+    if method == "atr":
+        return pine_atr(bars["high"], bars["low"], close, length) / length * mult
+    if method == "stdev":
+        return close.rolling(length).std(ddof=0).to_numpy() / length * mult
+    n = pd.Series(np.arange(len(close), dtype=float), index=close.index)
+    mean = lambda x: x.rolling(length).mean()
+    variance = n.rolling(length).var(ddof=0)
+    return (abs(mean(close * n) - mean(close) * mean(n)) / variance / 2 * mult).to_numpy()
+
+
+def pine_trendlines(bars, length, mult, method):
+    """Realtime Trendlines with Breaks in closed form, with no bar-by-bar recursion.
+
+    Between pivots each line is anchored at its latest pivot k, so Pine's `upper` is
+    ph[k] - slope[k] * (t - k); a latch is set by the first break after its pivot.
+    """
+    close = bars["close"].to_numpy()
+    slope = np.asarray(pine_trendline_slope(bars, length, mult, method))
+    t = np.arange(len(close))
+    out = {}
+    for side, pivots, sign, broke in (
+            ("upper", pivot_oracle(bars["high"], length, length, high=True), -1, np.greater),
+            ("lower", pivot_oracle(bars["low"], length, length, high=False), 1, np.less)):
+        is_pivot = ~np.isnan(pivots)
+        k = pd.Series(np.where(is_pivot, t, np.nan)).ffill().to_numpy()
+        seen = ~np.isnan(k)
+        anchor, held = np.full(len(t), np.nan), np.full(len(t), np.nan)
+        anchor[seen] = pivots[k[seen].astype(int)]
+        held[seen] = slope[k[seen].astype(int)]
+        realtime = anchor + sign * held * (t - k) + sign * held * length
+        with np.errstate(invalid="ignore"):
+            # Before the first pivot Pine's line is its var initial value, 0.
+            crossed = broke(close, np.where(seen, realtime, 0.0)) & ~is_pivot
+        latch = pd.Series(crossed).groupby(np.cumsum(is_pivot)).cummax().astype("int64").to_numpy()
+        out[side] = realtime
+        out[f"{side}_slope"] = held
+        out[f"{side}_latch"] = latch
+        out[f"{side}_break"] = np.diff(latch, prepend=latch[0]) > 0
+    return out
+
+
+def trendlines(bars, **kwargs):
+    return ta_tools.trendlines(bars["high"], bars["low"], bars["close"], **kwargs)
+
+
+def test_trendlines_frame():
+    out = trendlines(BARS)
+    assert list(out.columns) == TL_COLUMNS
+    assert out.index.equals(BARS.index)
+    assert (out[TL_LINES].dtypes == "float64").all()
+    assert (out[["tl_upos", "tl_dnos"]].dtypes == "int64").all()
+    assert (out[["tl_upper_break", "tl_lower_break"]].dtypes == bool).all()
+
+
+@pytest.mark.parametrize("method,mult", [("atr", 1.0), ("stdev", 1.0), ("linreg", 1.0),
+                                         ("atr", 2.5)])
+def test_trendlines_match_the_pine_script(method, mult):
+    out = trendlines(BARS, length=10, mult=mult, calc_method=method)
+    ref = pine_trendlines(BARS, 10, mult, method)
+    for side in ("upper", "lower"):
+        np.testing.assert_allclose(out[f"tl_{side}"], ref[side], rtol=1e-9, equal_nan=True)
+        np.testing.assert_allclose(out[f"tl_{side}_slope"], ref[f"{side}_slope"], rtol=1e-7,
+                                   equal_nan=True)
+        np.testing.assert_array_equal(out[f"tl_{side}_break"], ref[f"{side}_break"])
+    np.testing.assert_array_equal(out["tl_upos"], ref["upper_latch"])
+    np.testing.assert_array_equal(out["tl_dnos"], ref["lower_latch"])
+    assert out["tl_upper_break"].sum() > 0 and out["tl_lower_break"].sum() > 0
+
+
+def test_trendlines_rails_move_by_the_slope_between_pivots():
+    out = trendlines(BARS, length=10)
+    between = out["tl_upper"].notna() & out["tl_pivot_high"].isna()
+    np.testing.assert_allclose(out["tl_upper"].diff()[between],
+                               -out["tl_upper_slope"][between], rtol=1e-9)
+    between = out["tl_lower"].notna() & out["tl_pivot_low"].isna()
+    np.testing.assert_allclose(out["tl_lower"].diff()[between],
+                               out["tl_lower_slope"][between], rtol=1e-9)
+    assert (out["tl_upper_slope"].dropna() >= 0).all()
+
+
+def test_a_break_fires_at_most_once_per_pivot():
+    out = trendlines(BARS, length=5)
+    for pivot, event, latch in (("tl_pivot_high", "tl_upper_break", "tl_upos"),
+                                ("tl_pivot_low", "tl_lower_break", "tl_dnos")):
+        segment = out[pivot].notna().cumsum()
+        assert out[event].groupby(segment).sum().max() == 1
+        assert set(out[latch].unique()) <= {0, 1}
+    breaks = out["tl_upper_break"]
+    assert (BARS["close"][breaks] > out["tl_upper"][breaks]).all()
+    breaks = out["tl_lower_break"]
+    assert (BARS["close"][breaks] < out["tl_lower"][breaks]).all()
+
+
+def test_trendlines_before_the_first_pivot():
+    out = trendlines(BARS, length=10)
+    first = out["tl_pivot_high"].first_valid_index()
+    before = out.loc[:first].iloc[:-1]
+    assert before["tl_upper"].isna().all() and before["tl_upper_slope"].isna().all()
+    # Pine's `var upper = 0.` puts the line at zero, so the latch sets on bar 0 without a break.
+    assert (before["tl_upos"] == 1).all() and not before["tl_upper_break"].any()
+
+
+def test_backpaint_draws_the_same_lines_from_the_pivot_bar():
+    length = 10
+    realtime = trendlines(BARS, length=length)
+    backpaint = trendlines(BARS, length=length, backpaint=True)
+    # Backpaint plots Pine's `upper` itself, `length` bars earlier; realtime plots it projected
+    # `length` bars on, so undoing the projection and the shift must recover the backpaint line.
+    upper = realtime["tl_upper"] + realtime["tl_upper_slope"] * length
+    lower = realtime["tl_lower"] - realtime["tl_lower_slope"] * length
+    np.testing.assert_allclose(backpaint["tl_upper"], upper.shift(-length), rtol=1e-12,
+                               equal_nan=True)
+    np.testing.assert_allclose(backpaint["tl_lower"], lower.shift(-length), rtol=1e-12,
+                               equal_nan=True)
+    for column in ("tl_upper_slope", "tl_lower_slope", "tl_pivot_high", "tl_pivot_low"):
+        np.testing.assert_array_equal(backpaint[column], realtime[column].shift(-length))
+    # Each backpainted line starts on the pivot bar, at the pivot's own high or low.
+    at = backpaint["tl_pivot_high"].notna()
+    np.testing.assert_array_equal(backpaint["tl_upper"][at], HIGH[at])
+    at = backpaint["tl_pivot_low"].notna()
+    np.testing.assert_array_equal(backpaint["tl_lower"][at], LOW[at])
+    assert backpaint[TL_LINES].iloc[-length:].isna().all().all()
+    # Breaks and latches are plotted without an offset in Pine, so they never move.
+    pd.testing.assert_frame_equal(backpaint[TL_COLUMNS[6:]], realtime[TL_COLUMNS[6:]])
+
+
+def test_backpaint_looks_ahead_by_design():
+    full = trendlines(BARS, length=10, backpaint=True)["tl_upper"]
+    changed = []
+    for cut in (60, 150, 299):
+        truncated = trendlines(BARS.iloc[:cut + 1], length=10, backpaint=True)["tl_upper"]
+        changed.append(not np.allclose(truncated, full.iloc[:cut + 1], equal_nan=True))
+    assert any(changed)
+
+
+def test_zero_mult_gives_flat_lines_at_the_pivot_price():
+    out = trendlines(BARS, length=10, mult=0.0)
+    np.testing.assert_array_equal(out["tl_upper"], out["tl_pivot_high"].ffill())
+    np.testing.assert_array_equal(out["tl_lower"], out["tl_pivot_low"].ffill())
+
+
+def test_trendlines_reject_unknown_methods():
+    with pytest.raises(ValueError, match="calc_method must be one of"):
+        trendlines(BARS, calc_method="Atr")
+
+
+def test_capabilities_record_phase_six_sources():
+    assert ta_tools.CAPABILITIES["trendlines"] == "derived"
