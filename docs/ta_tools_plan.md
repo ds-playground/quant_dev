@@ -502,6 +502,12 @@ of the chart with the settings stated); after a TA-Lib or pandas_ta upgrade, sin
 not pinned; and before an indicator is relied on in a backtest. Each revisit updates the row's
 status and date below.
 
+**Scheduled review:** a Claude routine, *ta_tools bi-monthly review*, runs every two months on
+the 1st of Jan, Mar, May, Jul, Sep and Nov at 08:52 London time, first on 2026-11-01. Each run
+starts a fresh session that runs the tests, checks library versions, reports this register and
+the revisit list, and proposes at most three new features as plan changes. It reports only;
+changes wait for the owner. Edit or pause it in the claude.ai Routines list.
+
 ### To revisit
 
 | # | Indicator | Why | Next step |
