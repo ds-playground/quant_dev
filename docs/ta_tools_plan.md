@@ -59,7 +59,7 @@ Decisions already made (do not revisit):
 | **4** ✅ | Primitives — Pine gaps | 4.1 `linreg(series, length, offset)` · 4.2 `rma` (custom, for Pine seeding) · 4.3 `pivot_high/low(left, right)` with publication delay · 4.4 `change/crossover/crossunder/barssince/nz` · 4.5 stateful-recursion harness · 4.6 `true_range` + Pine-exact `atr` on `rma` (added) | `ta_tools/pine.py` — **done, `d03c717`** (+ notebook `af67f54`) | 3 |
 | **5** ✅ | Port: vectorisable indicator | 5.1 LinReg Candles + Slope | `ta_tools/indicators.py` — **done, `7b24c0f`** | 4 |
 | **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `18572ce`** | 4, 5 |
-| **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, not yet committed** | 3–6 |
+| **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, `d770d17`** | 3–6 |
 | **8** | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests | 2 |
 | **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · `basic.py` removal · old-notebook removal | documented only | — |
 
