@@ -49,7 +49,8 @@ That puts `src.tools` on the import path permanently, so notebooks and scripts c
 manipulation required.
 
 The technical-analysis libraries are optional extras, because `TA-Lib` needs a C
-toolchain and would otherwise block a clean install:
+toolchain and would otherwise block a clean install. `pandas_ta` needs Python 3.12 or
+newer, so the project requires 3.12:
 
 ```bash
 pip install -e ".[dev]"   # pytest, ipywidgets, nbformat, matplotlib
@@ -147,7 +148,7 @@ quant_dev/
 │       │   └── pipeline.py                per-ticker run + cross-ticker comparison
 │       ├── ta_tools/                      technical analysis (in progress)
 │       │   ├── backend.py                 the only TA-Lib / pandas_ta import site
-│       │   ├── data.py                    OHLC bars: Yahoo (load_bars) or seeded (make_bars)
+│       │   ├── data.py                    bars: Yahoo (load_bars), CSV (read_bars), seeded (make_bars)
 │       │   ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
 │       │   ├── volatility.py              stdev, bb (TA-Lib); true_range, atr (Pine-exact)
 │       │   ├── momentum.py                rsi (TA-Lib)
@@ -164,6 +165,7 @@ quant_dev/
 │   ├── ta_package_evaluation.ipynb        TA-Lib vs pandas_ta vs ta
 │   ├── ta_tools_primitives.ipynb          how the ta_tools primitives are wrapped
 │   ├── ta_tools_exploration.ipynb         every ta_tools indicator on AAPL
+│   ├── ta_tools_read_data.ipynb           checks every ta_tools data reader
 │   └── test_es / test_ko / test_ta_packages.ipynb
 │
 ├── pine_scripts/                          TradingView indicators
@@ -211,6 +213,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 | `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
 | `ta_tools_primitives.ipynb` | Committed with outputs. How each `ta_tools` primitive is wrapped, and how it compares with Pine. |
 | `ta_tools_exploration.ipynb` | Current. AAPL since January 2023: moving averages, Bollinger Bands, both Pine ports, RSI and ATR. |
+| `ta_tools_read_data.ipynb` | Current, committed without outputs. Runs `make_bars`, `load_bars` (daily and intraday, with Yahoo's history limits) and `read_bars` (TradingView exports, other layouts, your own file), checking each against the shared output contract; ends with a pass/fail count. |
 | `test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` | Exploratory, built on the older `basic.py`. |
 
 **Two config mechanisms, deliberately.** `config.py` serves the `dev/` scratch
@@ -323,6 +326,30 @@ bars into the past and are NaN for the last `length` rows. Breakout signals neve
 move, in either mode. Use `backpaint=True` to reproduce the TradingView chart, never
 in a backtest.
 
+**Where bars come from.** Three loaders return the same frame: `open/high/low/close`,
+then `volume` when the source has one, float64, indexed by `date` oldest first.
+`make_bars` simulates them offline. `load_bars(ticker, start, end=None, interval='1d')`
+fetches Yahoo Finance bars as traded (not dividend-adjusted); intraday intervals from
+`'1m'` to `'1h'` keep exchange time, and a request older than Yahoo keeps (30 days for
+1m, 60 for 5m–30m, 730 for 1h) raises instead of coming back empty.
+`read_bars(path, columns=None, daily=False, tz=None)` reads a CSV, including a
+TradingView *Export chart data* file as it comes, with its plotted indicator columns
+kept after the prices, since those are what a port is compared against. Every loader
+rejects repeated or unsorted timestamps and a price missing after its first value,
+because TA-Lib turns everything after such a gap into NaN.
+
+```python
+bars = ta_tools.load_bars('AAPL', '2023-01-01')
+tv = ta_tools.read_bars('export.csv', daily=True, tz='America/New_York')
+```
+
+TradingView bars can also come from the TradingView connector, but only inside a Claude
+session: it cannot be called from Python, a notebook or Colab. Ask Claude to fetch the
+bars and write them as a CSV in the export layout (`time` in Unix seconds, lower-case
+prices, `Volume`), then read that with `read_bars`. For AAPL, the connector's daily
+closes matched Yahoo's exactly. Each bar is written out by Claude, so this suits small,
+one-off pulls, not a routine feed.
+
 Unlike the other notebooks here, the evaluation notebook is committed **with its
 outputs**. The decision is the deliverable, and the previous comparison notebook was
 useless precisely because it saved none.
@@ -357,6 +384,26 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-28
+- The project now requires Python 3.12 or newer: pandas_ta, in the `ta` extra, publishes
+  nothing for 3.11, so `pip install -e ".[ta]"` failed there.
+- `ta_tools` tests now check that every indicator moves with its input: shifting and
+  scaling prices shifts and scales price-level outputs, only scales spreads such as ATR,
+  and leaves RSI, breaks and latches unchanged.
+- Data sources: `load_bars` takes an `interval` for intraday Yahoo bars and refuses
+  requests older than Yahoo keeps; new `read_bars` reads CSV files, including
+  TradingView chart exports with their indicator columns. All loaders share one output
+  contract and reject unsorted or repeated timestamps and gaps in prices. `load_bars`
+  still drops Yahoo's occasional incomplete row, as before.
+- `notebooks/ta_tools_read_data.ipynb` runs every data reader and checks its output. It
+  found that `read_bars` could read a number one unit off in its last digit (pandas'
+  default CSV parser); it now reads back exactly the floats written.
+- `read_bars` kept a time with no offset, such as the plain dates in TradingView's daily
+  export, as UTC, so with `tz='America/New_York'` every daily bar landed a day early. Such
+  times are now read as already local to `tz`. Found with two real TradingView exports,
+  which also gave the first TradingView parity check: `linreg_candles`' signal line, `rsi`,
+  `bb` and `ema` match the chart to within 1e-10.
 
 ### 2026-09-27
 - `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
