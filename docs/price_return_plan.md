@@ -1,0 +1,197 @@
+# Remove legacy code, revamp price-return analysis (`dev/legacy_code_removal`)
+
+This is the working plan for retiring the notebook-era code and extending `src/tools/price_return/`,
+kept in the repo so work can continue from any machine or session. Update it as phases finish:
+mark the phase ✅ with its commit hash in the table, and add a "Phase N notes" section with anything
+a later phase needs to know.
+
+## Picking this up
+
+- **Setup:** Python 3.12 or newer. `pip install -e ".[ta,dev]"` from the repo root (add `stats`
+  once Phase 4 exists), then `pytest`; all tests should pass offline.
+- **Phases are the unit of work.** Do one phase when asked, then stop; do not start the next one
+  unprompted. Commit and push at the end of each phase.
+- **Stay within the plan.** Propose new deliverables as changes to this plan.
+- **Statistics are checked against independent references** (hand formulas, closed forms, seeded
+  simulations with known answers), never against the code under test.
+
+## Context
+
+`ta_tools` is finished and merged (`master` at `0051b6d`, archived as `archive/02_ta_tools`). The
+repo still carries the notebook-era code it grew out of: `src/tools/basic.py` and three `test_*`
+notebooks built on it, plus the frozen `price_return_analysis_v0.1.ipynb`. The owner wants legacy
+code removed wherever something equivalent already exists, and the price-return analysis
+reviewed, fixed and extended with more detailed statistics.
+
+The review found that almost all of the legacy code has a successor. The exception is the
+**option helpers** in `basic.py` and the P&L grids in `test_es`, which exist nowhere else; per the
+owner's choice these are **ported first, then deleted**. The review also found inconsistencies in
+the existing `price_return` methods, which are fixed before new statistics are built on them.
+
+**Owner's decisions (2026-09-28):** port the option helpers, then delete · keep v0.5 and add a
+**new statistics notebook** · include all four statistics areas (distribution and tails,
+dependence and volatility clustering, drawdowns and risk-adjusted returns, uncertainty on
+probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's local, gitignored
+`dev/` notebooks).
+
+## Legacy coverage map (what replaces what)
+
+| Legacy | Successor | Action |
+|---|---|---|
+| `basic.px_plot` (Plotly layout helper) | `price_return/viz.py` styling | delete |
+| `basic.consecutive_analysis` (prints, returns formatted strings) | `price_return.analysis.consecutive_analysis` (numeric, `n_obs`, `last_occurred`) | delete |
+| `basic.sd_and_cond`, `profit_estimate`, `accepted_min_max`, `projected_min_max` | **none**, so port to `price_return/options.py` (Phase 1) | port, then delete |
+| `test_es` cells 0–32, `test_ko` (the same notebook for KO) | `price_return_analysis_v0.5.ipynb` + `rare_case_run.ipynb` (ES=F is in `configs/tickers.yaml`; KO runs in v0.5 with `ticker='KO'`) | delete |
+| `test_es` cells 33–36 (hand-tuned option P&L grids) | **none**, so it becomes the P&L example in the new notebook (Phase 5) | port, then delete |
+| `test_ta_packages.ipynb` (SMA-20 in 3 libraries) | `ta_package_evaluation.ipynb` | delete |
+| `price_return_analysis_v0.1.ipynb` (frozen monolith) | the `price_return` package + v0.5 + `tests/test_smoke.py` | delete |
+| `matplotlib` dependency | used only by `basic.py` and `test_es`/`test_ko` | drop from `requirements.txt` and the `dev` extra |
+
+## Methodology issues found in `price_return` (fixed in Phase 3)
+
+1. **Three definitions of an n-day return.** `add_rolling_stats` (`PCT Change {d}`, annualised
+   return) and `consecutive_analysis` (cumulative) *sum* simple daily returns;
+   `analyze_cumulative` *compounds* them. They disagree most for large or long moves.
+2. **Inconsistent frequency denominators.** Streak frequency divides by all days (`len(df)`, in
+   `summarize_streaks` and `plot_streak_frequency`), cumulative frequency by complete windows
+   (`n − w + 1`), and `consecutive_analysis` by the whole lookback, including the first
+   `n_days − 1` windows that cannot be complete.
+3. **Overlapping windows are counted as separate events.** One 6-day run is counted as five
+   2-day streaks, so the "probabilities" overstate how often something *distinct* happens, and
+   carry no uncertainty (a 0.4% probability from 500 days is 2 events).
+4. **Mixed units in `Params`:** percent (`win_threshold`, `cum_thresholds`) next to decimals
+   (`return_thresholds`). Renaming would break `configs/tickers.yaml`, so this is **documented,
+   not changed**.
+
+## Phases at a glance
+
+| # | Phase | Deliverable |
+|---|---|---|
+| **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `0051b6d`; this plan as `docs/price_return_plan.md` |
+| **1** | Port the option helpers | `src/tools/price_return/options.py` + tests |
+| **2** | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated |
+| **3** | Fix existing methods | issues 1–3 above, each with a test that fails on the old code |
+| **4** | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra |
+| **5** | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed |
+| **6** | Docs | README methodology, notebooks table, changelog; plan statuses |
+
+Working rules carried over from `docs/ta_tools_plan.md`: one phase per request, then stop;
+statistical code is checked against **independent references** (hand formulas, closed forms,
+seeded simulations with known answers), never against itself; each new test group is
+mutation-checked; tests stay offline (`data_source='simulated'`); commit and push at the end of
+each phase.
+
+## Phase 1: port the option helpers (`price_return/options.py`)
+
+Rebuilt as pure functions that **return tables instead of printing**, reusing
+`add_rolling_stats` columns and `Params` (`trade_days`):
+
+- `price_range(price, daily_vol, days=None, hours=None, session_hours=6.5, tick=None)`: one
+  function for both `projected_min_max` (days ahead, `σ√d`) and `accepted_min_max` (hours left in
+  the session, `σ√(h/6.5)`). Lognormal band `p·e^{±σ_t}`; `tick=0.1` reproduces the legacy
+  ceil/floor rounding. Rejects `hours > session_hours`, as the legacy assert did.
+- `move_probabilities(df, p, horizons=(1, 5, 10), fixed=None, scaled=None)`: replaces
+  `sd_and_cond` plus the probability half of `profit_estimate`. For each horizon and each
+  threshold method (**scaled**: a daily threshold × √n; **actual**: the latest rolling n-day std;
+  **fixed**: a constant), it gives the share of the trailing `trade_days` windows moving above,
+  below, or beyond ± the threshold. One tidy DataFrame instead of nested dicts.
+- `expected_pnl(probabilities, pnl, contract_size)`: `(1 − p)·win + p·loss` per contract.
+  `pnl` uses the legacy `{horizon: {direction: [win, loss]}}` shape, so the `test_es` grids paste
+  in unchanged.
+- **Tests:** closed-form values for `price_range`; `move_probabilities` against a hand-counted
+  small series; `expected_pnl` arithmetic. A one-off **parity check against `basic.py`** on
+  simulated data (same numbers, run before `basic.py` is deleted, recorded in the plan notes).
+
+## Phase 2: remove legacy
+
+- Delete `src/tools/basic.py`, `notebooks/test_es.ipynb`, `test_ko.ipynb`,
+  `test_ta_packages.ipynb`, `price_return_analysis_v0.1.ipynb`.
+- Remove `matplotlib` from `requirements.txt` and the `dev` extra in `pyproject.toml`, after a
+  `grep` confirms nothing else uses it.
+- README: repo layout, the notebooks table, and the "`src/tools/basic.py` is superseded" section
+  (replaced by a changelog entry pointing to `options.py`). The "two config mechanisms" section
+  stays, since `config.py` stays.
+- `docs/ta_tools_plan.md` → "Deferred, with reasons": mark the `basic.py` and old-notebook items
+  resolved, pointing to this plan.
+- **Check:** `grep` finds no reference to the removed files outside the changelogs, and `pytest`
+  stays green.
+
+## Phase 3: fix existing methods (numbers in v0.5 and `rare_case_run` will change)
+
+- **Issue 1:** a single helper for the n-day return, **compounded** (what a position actually
+  earns, and what `analyze_cumulative` already does), used by `add_rolling_stats`,
+  `consecutive_analysis` and the annualised figures.
+- **Issue 2:** every frequency divides by the number of **complete windows**.
+- **Issue 3 (additive):** an `episodes` column alongside `count`, giving the number of distinct,
+  non-overlapping occurrences, in `consecutive_analysis` and the streak and cumulative summaries.
+- **Issue 4:** `Params` docstring and README state each field's unit.
+- **Tests:** each fix gets a hand-built series where the old code gives the wrong answer and the
+  new one the right answer; existing smoke tests updated where their expected numbers were built
+  on the old definitions.
+
+## Phase 4: statistics module (`price_return/stats.py`)
+
+Optional extra `stats = ["scipy"]` in `pyproject.toml` (also added to `requirements.txt` for
+Colab). No `statsmodels`: the three tests it would supply are a few lines each and are easier to
+verify written out.
+
+- **Distribution and tails:** moments (mean, sd, skew, excess kurtosis); Jarque–Bera; Q-Q data
+  against a normal and a fitted Student-t; Hill tail index for each tail; VaR and CVaR
+  (historical, parametric normal, Cornish–Fisher) at 95/99% over 1/5/10-day compounded horizons.
+- **Dependence and volatility clustering:** autocorrelation of returns and of squared returns;
+  Ljung–Box Q; Lo–MacKinlay variance ratio with heteroskedasticity-robust z (trend vs mean
+  reversion, the question v0.5's volatility chart already raises); Engle's ARCH-LM test.
+- **Drawdowns and risk-adjusted returns:** drawdown series, maximum drawdown, its duration and
+  recovery; Sharpe, Sortino and Calmar, plus their rolling `trade_days` versions.
+- **Uncertainty on probabilities:** stationary block-bootstrap confidence intervals for the
+  rare-event, streak and cumulative probabilities (block bootstrap because returns are
+  dependent); model-implied probabilities from an i.i.d. normal and a fitted Student-t,
+  compared with the empirical ones.
+- **Tests (independent references):** moments and JB on data with known values; Ljung–Box against
+  the formula written out on a short series; variance ratio ≈ 1 and ARCH-LM not rejecting on
+  i.i.d. data, but rejecting on a seeded GARCH(1,1); Hill recovering α on a Pareto sample; VaR on
+  a normal sample against its quantile; drawdowns on a hand-built path; bootstrap intervals
+  covering the true probability at roughly the nominal rate on seeded i.i.d. data.
+
+## Phase 5: charts and notebooks
+
+- `viz.py` additions, in the existing Plotly style: Q-Q plot, ACF bars with confidence bands, an
+  underwater (drawdown) chart, rolling Sharpe and volatility, empirical vs model probabilities
+  with bootstrap error bars.
+- **New `notebooks/price_return_statistics.ipynb`**, one ticker at a time via `Params`: data →
+  distribution and tails → dependence → drawdowns → probabilities with uncertainty → **option
+  P&L** (the `test_es` grids through `move_probabilities` + `expected_pnl`, plus `price_range`).
+  Each section opens with the question it answers, in v0.5's style. It is committed without
+  outputs for the owner to run on Yahoo data, and executed here on simulated data as a check.
+- **v0.5:** fix its stale links (`src/tools/price_return.py` is now a package), show the new
+  `episodes` column, and point to the statistics notebook.
+
+## Phase 6: docs
+
+README: methodology sections for the new statistics and the fixed definitions, layout, the
+notebooks table (now without v0.1 and the `test_*` notebooks), setup (`.[stats]`), changelog.
+Plan statuses and commit hashes, as in the `ta_tools` plan.
+
+## Critical files
+
+- New: `src/tools/price_return/options.py`, `src/tools/price_return/stats.py`,
+  `notebooks/price_return_statistics.ipynb`, `docs/price_return_plan.md`,
+  `tests/test_price_return_stats.py` (Phases 1, 3 and 4 tests).
+- Modified: `src/tools/price_return/{analysis,data,viz,params,__init__}.py`,
+  `tests/test_smoke.py`, `notebooks/price_return_analysis_v0.5.ipynb`, `pyproject.toml`,
+  `requirements.txt`, `README.md`, `docs/ta_tools_plan.md`.
+- Deleted: `src/tools/basic.py`, `notebooks/test_{es,ko,ta_packages}.ipynb`,
+  `notebooks/price_return_analysis_v0.1.ipynb`.
+
+## Verification
+
+- `pip install -e ".[ta,stats,dev]"` on Python 3.12, then `pytest`: all green offline, with
+  counts recorded per phase.
+- Seeded mutations for each new test group (as in `ta_tools` Phases 7–8).
+- The Phase 1 parity check against `basic.py` runs before the deletion in Phase 2.
+- After Phase 2: `grep -rn "basic\|test_es\|test_ko\|test_ta_packages\|v0.1"` is clean outside
+  the changelogs.
+- Notebooks: executed here on simulated data; the owner runs the statistics notebook, v0.5 and
+  `rare_case_run` on Yahoo data. Numbers that change in Phase 3 are listed in the plan notes, so
+  the change is explained rather than surprising.
+- A pull request into `master` when all phases are done, or earlier if the owner wants.

@@ -157,6 +157,7 @@ quant_dev/
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
 ├── docs/
+│   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
 │   ├── price_return_analysis_v0.1.ipynb   frozen reference monolith
