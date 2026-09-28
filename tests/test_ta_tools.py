@@ -443,6 +443,8 @@ NO_LOOKAHEAD = {
     # Realtime trendlines only: backpaint looks ahead by design (tested separately).
     "trendlines_atr": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"],
                                                     10).astype(float),
+    "trendlines_stdev": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"], 12,
+                                                      calc_method="stdev").astype(float),
     "trendlines_linreg": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"], 7,
                                                        calc_method="linreg").astype(float),
 }
@@ -768,3 +770,282 @@ def test_trendlines_reject_unknown_methods():
 
 def test_capabilities_record_phase_six_sources():
     assert ta_tools.CAPABILITIES["trendlines"] == "derived"
+
+
+# ── Phase 7: equivariance ────────────────────────────────────────────────────
+# Prices mapped by x -> K*x + C (K > 0, so order and validity are kept). A price-level output
+# maps the same way; a spread (a distance between prices) only scales by K; an oscillator or a
+# signal does not change at all.
+K, C = 3.0, 7.0
+MOVED = BARS.copy()
+MOVED[["open", "high", "low", "close"]] = BARS[["open", "high", "low", "close"]] * K + C
+
+
+def expect(base, kind):
+    return {"level": base * K + C, "spread": base * K, "invariant": base}[kind]
+
+
+def assert_equivariant(moved, base, kind, label):
+    # atol covers outputs that pass through zero (slopes); rtol the rest.
+    np.testing.assert_allclose(moved, expect(base, kind), rtol=1e-9, atol=1e-9,
+                               equal_nan=True, err_msg=label)
+
+
+EQUIVARIANCE = [
+    ("sma", lambda b: ta_tools.sma(b["close"], 20), "level"),
+    ("ema", lambda b: ta_tools.ema(b["close"], 20), "level"),
+    ("wma", lambda b: ta_tools.wma(b["close"], 20), "level"),
+    ("hma", lambda b: ta_tools.hma(b["close"], 16), "level"),
+    ("alma", lambda b: ta_tools.alma(b["close"], 9), "level"),
+    ("rma", lambda b: ta_tools.rma(b["close"], 14), "level"),
+    ("bb_mid", lambda b: ta_tools.bb(b["close"], 20)["bb_mid_20"], "level"),
+    ("bb_upper", lambda b: ta_tools.bb(b["close"], 20)["bb_upper_20"], "level"),
+    ("bb_lower", lambda b: ta_tools.bb(b["close"], 20)["bb_lower_20"], "level"),
+    ("stdev", lambda b: ta_tools.stdev(b["close"], 20), "spread"),
+    ("true_range", lambda b: ta_tools.true_range(b["high"], b["low"], b["close"]), "spread"),
+    ("atr", lambda b: ta_tools.atr(b["high"], b["low"], b["close"], 14), "spread"),
+    ("rsi", lambda b: ta_tools.rsi(b["close"], 14), "invariant"),
+]
+
+
+@pytest.mark.parametrize("label,call,kind", EQUIVARIANCE, ids=[e[0] for e in EQUIVARIANCE])
+def test_primitives_are_equivariant(label, call, kind):
+    if label in ("hma", "alma"):
+        pytest.importorskip("pandas_ta")
+    assert_equivariant(call(MOVED), call(BARS), kind, label)
+
+
+LRC_KINDS = {"lrc_open": "level", "lrc_high": "level", "lrc_low": "level", "lrc_close": "level",
+             "lrc_signal": "level", "lrc_slope": "spread"}
+
+
+@pytest.mark.parametrize("sma_signal", [True, False])
+def test_linreg_candles_are_equivariant(sma_signal):
+    base = ta_tools.linreg_candles(*OHLC, 11, 7, sma_signal=sma_signal)
+    moved = ta_tools.linreg_candles(MOVED["open"], MOVED["high"], MOVED["low"], MOVED["close"],
+                                    11, 7, sma_signal=sma_signal)
+    for column, kind in LRC_KINDS.items():
+        assert_equivariant(moved[column], base[column], kind, column)
+    pd.testing.assert_series_equal(moved["lrc_bull"], base["lrc_bull"])
+
+
+TL_KINDS = {"tl_upper": "level", "tl_lower": "level", "tl_pivot_high": "level",
+            "tl_pivot_low": "level", "tl_upper_slope": "spread", "tl_lower_slope": "spread"}
+
+
+@pytest.mark.parametrize("method", ["atr", "stdev", "linreg"])
+@pytest.mark.parametrize("backpaint", [False, True])
+def test_trendlines_are_equivariant(method, backpaint):
+    base = trendlines(BARS, length=10, calc_method=method, backpaint=backpaint)
+    moved = trendlines(MOVED, length=10, calc_method=method, backpaint=backpaint)
+    for column, kind in TL_KINDS.items():
+        assert_equivariant(moved[column], base[column], kind, f"{method}: {column}")
+    # Pivots, breaks and latches are decided by comparing prices, which the map preserves.
+    pd.testing.assert_frame_equal(moved[TL_COLUMNS[6:]], base[TL_COLUMNS[6:]])
+
+
+# ── Phase 8: data sources ────────────────────────────────────────────────────
+from src.tools.ta_tools.data import YAHOO_LOOKBACK_DAYS, _normalise
+
+
+def raw_bars(n=4, **extra):
+    index = pd.bdate_range("2024-01-02", periods=n)
+    columns = {"open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, **extra}
+    return pd.DataFrame({k: np.full(n, v) if np.isscalar(v) else v for k, v in columns.items()},
+                        index=index)
+
+
+def test_normalise_orders_columns_and_casts():
+    frame = raw_bars(plot=[1, 2, 3, 4], volume=[5, 6, 7, 8])
+    frame["open"] = frame["open"].astype(int)
+    bars = _normalise(frame)
+    assert list(bars.columns) == ["open", "high", "low", "close", "volume", "plot"]
+    assert (bars[["open", "high", "low", "close", "volume"]].dtypes == "float64").all()
+    assert bars.index.name == "date"
+    assert bars.index.dtype == ta_tools.make_bars(n=2).index.dtype
+
+
+def test_normalise_keeps_volume_optional():
+    assert list(_normalise(raw_bars()).columns) == ["open", "high", "low", "close"]
+
+
+def test_normalise_accepts_leading_nan_and_nan_outside_prices():
+    frame = raw_bars(close=[np.nan, 10.0, 10.5, 11.0], plot=[1.0, np.nan, 2.0, np.nan])
+    bars = _normalise(frame)
+    assert bars["close"].isna().sum() == 1 and bars["plot"].isna().sum() == 2
+
+
+@pytest.mark.parametrize("close,match", [
+    ([10.0, np.nan, 10.5, 11.0], "NaN at 1 bars after its first value"),
+    ([10.0, 10.5, 11.0, np.nan], "NaN at 1 bars after its first value"),
+    ([np.nan] * 4, "no values"),
+])
+def test_normalise_rejects_price_gaps(close, match):
+    with pytest.raises(ValueError, match=match):
+        _normalise(raw_bars(close=close))
+
+
+def test_normalise_rejects_unsorted_and_repeated_timestamps():
+    frame = raw_bars()
+    with pytest.raises(ValueError, match="oldest first"):
+        _normalise(frame.iloc[::-1])
+    with pytest.raises(ValueError, match="1 repeated timestamps"):
+        _normalise(frame.iloc[[0, 1, 1, 2]])
+
+
+def test_normalise_rejects_missing_prices_and_non_time_index():
+    with pytest.raises(ValueError, match=r"missing \['low'\]"):
+        _normalise(raw_bars().drop(columns="low"))
+    with pytest.raises(TypeError, match="DatetimeIndex"):
+        _normalise(raw_bars().reset_index(drop=True))
+
+
+def yahoo_frame(index, rows):
+    return pd.DataFrame(rows, index=index, columns=["Open", "High", "Low", "Close", "Volume"])
+
+
+def test_load_bars_still_drops_an_incomplete_yahoo_row(monkeypatch):
+    index = pd.to_datetime(["2023-01-03", "2023-01-04", "2023-01-05"])
+    fake_yfinance(monkeypatch, yahoo_frame(index, [[1, 2, 0.5, 1.5, 10],
+                                                   [np.nan, np.nan, np.nan, 1.6, np.nan],
+                                                   [1.6, 2.1, 1.1, 1.7, 30]]))
+    bars = ta_tools.load_bars("AAPL", "2023-01-01")
+    assert bars.index.tolist() == [index[0], index[2]]
+
+
+def test_load_bars_passes_the_interval_and_keeps_intraday_timezone(monkeypatch):
+    start = pd.Timestamp.today().normalize() - pd.Timedelta(days=3)
+    index = pd.date_range(start + pd.Timedelta(hours=9.5), periods=3, freq="5min",
+                          tz="America/New_York")
+    calls = fake_yfinance(monkeypatch, yahoo_frame(index, [[1, 2, 0.5, 1.5, 10]] * 3))
+    bars = ta_tools.load_bars("AAPL", start, interval="5m")
+    assert calls[0][1]["interval"] == "5m"
+    assert str(bars.index.tz) == "America/New_York" and bars.index.name == "date"
+    assert ta_tools.load_bars("AAPL", "2023-01-01") is not None     # daily: no limit
+    assert calls[1][1]["interval"] == "1d"
+
+
+def days_ago(days):
+    return (pd.Timestamp.today().normalize() - pd.Timedelta(days=days)).date().isoformat()
+
+
+@pytest.mark.parametrize("interval,start,end,match", [
+    ("5m", days_ago(90), None, "last 60 days only"),
+    ("1h", days_ago(800), None, "last 730 days only"),
+    ("1m", days_ago(45), None, "last 30 days only"),
+    ("1m", days_ago(20), days_ago(5), "7 days per request"),
+    ("3m", days_ago(2), None, "interval must be one of"),
+])
+def test_load_bars_refuses_what_yahoo_does_not_serve(monkeypatch, interval, start, end, match):
+    calls = fake_yfinance(monkeypatch, pd.DataFrame())
+    with pytest.raises(ValueError, match=match):
+        ta_tools.load_bars("AAPL", start, end, interval=interval)
+    assert calls == [], "refused before calling Yahoo"
+
+
+def test_load_bars_accepts_requests_inside_yahoo_limits(monkeypatch):
+    index = pd.date_range("2024-01-02 09:30", periods=2, freq="1min", tz="America/New_York")
+    fake_yfinance(monkeypatch, yahoo_frame(index, [[1, 2, 0.5, 1.5, 10]] * 2))
+    for interval, days in YAHOO_LOOKBACK_DAYS.items():
+        ta_tools.load_bars("AAPL", days_ago(min(days - 1, 5)), interval=interval)
+
+
+# A TradingView "Export chart data" file with Unix-second times (as its intraday exports have; its
+# daily exports write plain dates, tested below): daily bars at the 09:30 New York open,
+# one plotted series with gaps (as a backpainted line has), then Volume. Values are made up.
+TV_EXPORT = """time,open,high,low,close,Upper,Volume
+1704205800,187.15,188.44,183.89,185.64,,82488700
+1704292200,184.22,185.88,183.43,184.25,190.5,58414500
+1704378600,182.15,183.09,180.88,181.91,,71983600
+1704465000,181.99,182.76,180.17,181.18,188.1,62303300
+"""
+TV_EXPORT_ISO = TV_EXPORT.replace("1704205800", "2024-01-02T09:30:00-05:00") \
+    .replace("1704292200", "2024-01-03T09:30:00-05:00") \
+    .replace("1704378600", "2024-01-04T09:30:00-05:00") \
+    .replace("1704465000", "2024-01-05T09:30:00-05:00")
+
+
+def write(tmp_path, text, name="bars.csv"):
+    path = tmp_path / name
+    path.write_text(text)
+    return path
+
+
+def test_read_bars_reads_a_tradingview_export(tmp_path):
+    bars = ta_tools.read_bars(write(tmp_path, TV_EXPORT))
+    assert list(bars.columns) == ["open", "high", "low", "close", "volume", "Upper"]
+    assert (bars.dtypes == "float64").all()
+    assert bars.index.name == "date" and str(bars.index.tz) == "UTC"
+    assert bars.index[0] == pd.Timestamp("2024-01-02 14:30", tz="UTC")
+    assert bars["close"].tolist() == [185.64, 184.25, 181.91, 181.18]
+    assert bars["Upper"].isna().tolist() == [True, False, True, False]
+
+
+def test_read_bars_reads_unix_and_iso_times_alike(tmp_path):
+    unix = ta_tools.read_bars(write(tmp_path, TV_EXPORT, "unix.csv"))
+    iso = ta_tools.read_bars(write(tmp_path, TV_EXPORT_ISO, "iso.csv"))
+    pd.testing.assert_frame_equal(unix, iso)
+
+
+def test_read_bars_daily_gives_load_bars_dates(tmp_path):
+    bars = ta_tools.read_bars(write(tmp_path, TV_EXPORT), daily=True, tz="America/New_York")
+    assert bars.index.tz is None
+    assert bars.index.equals(pd.DatetimeIndex(pd.bdate_range("2024-01-02", periods=4),
+                                              name="date"))
+    local = ta_tools.read_bars(write(tmp_path, TV_EXPORT), tz="America/New_York")
+    assert local.index[0] == pd.Timestamp("2024-01-02 09:30", tz="America/New_York")
+
+
+def test_read_bars_gives_back_exactly_the_floats_written(tmp_path):
+    bars = ta_tools.make_bars(n=300, seed=1)
+    path = tmp_path / "bars.csv"
+    bars.to_csv(path, index_label="time")
+    pd.testing.assert_frame_equal(ta_tools.read_bars(path, daily=True), bars, check_exact=True,
+                                  check_freq=False)
+
+
+def test_read_bars_daily_takes_the_date_in_the_exchange_timezone(tmp_path):
+    # A Tokyo daily bar stamped at midnight local time is 15:00 UTC the day before.
+    text = "time,open,high,low,close\n2024-01-03T15:00:00Z,1,2,0.5,1.5\n"
+    utc = ta_tools.read_bars(write(tmp_path, text), daily=True)
+    tokyo = ta_tools.read_bars(write(tmp_path, text), daily=True, tz="Asia/Tokyo")
+    assert utc.index[0] == pd.Timestamp("2024-01-03")
+    assert tokyo.index[0] == pd.Timestamp("2024-01-04")
+
+
+def test_read_bars_keeps_plain_dates_as_written(tmp_path):
+    # TradingView writes daily bars as plain dates. They are New York dates already: reading
+    # them as UTC midnight and converting would move every bar to the evening before.
+    text = "time,open,high,low,close\n2026-09-25,1,2,0.5,1.5\n2026-09-28,1.5,2,1,1.8\n"
+    dates = [pd.Timestamp("2026-09-25"), pd.Timestamp("2026-09-28")]
+    for tz in (None, "America/New_York", "Asia/Tokyo"):
+        bars = ta_tools.read_bars(write(tmp_path, text), daily=True, tz=tz)
+        assert bars.index.tolist() == dates, tz
+
+
+def test_read_bars_takes_times_without_an_offset_as_local(tmp_path):
+    text = "time,open,high,low,close\n2024-01-02 09:30:00,1,2,0.5,1.5\n"
+    local = ta_tools.read_bars(write(tmp_path, text), tz="America/New_York")
+    assert local.index[0] == pd.Timestamp("2024-01-02 09:30", tz="America/New_York")
+    assert ta_tools.read_bars(write(tmp_path, text)).index[0] == pd.Timestamp("2024-01-02 09:30",
+                                                                               tz="UTC")
+
+
+def test_read_bars_maps_another_layout(tmp_path):
+    text = ("Date,Open,High,Low,Close,Adj Close\n"
+            "2024-01-02,1,2,0.5,1.5,1.4\n"
+            "2024-01-03,1.5,2,1,1.8,1.7\n")
+    bars = ta_tools.read_bars(write(tmp_path, text), columns={"Date": "time"}, daily=True)
+    assert list(bars.columns) == ["open", "high", "low", "close", "Adj Close"]
+    assert bars.index.tolist() == [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]
+
+
+def test_read_bars_needs_a_time_column(tmp_path):
+    with pytest.raises(ValueError, match="no time column"):
+        ta_tools.read_bars(write(tmp_path, "Date,open,high,low,close\n2024-01-02,1,2,0.5,1.5\n"))
+
+
+def test_read_bars_rejects_intraday_bars_squeezed_to_dates(tmp_path):
+    text = "time,open,high,low,close\n1704205800,1,2,0.5,1.5\n1704206100,1,2,0.5,1.5\n"
+    with pytest.raises(ValueError, match="repeated timestamps"):
+        ta_tools.read_bars(write(tmp_path, text), daily=True)

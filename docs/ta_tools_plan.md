@@ -6,8 +6,12 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
 
 ## Picking this up
 
-- **Setup:** `pip install -e ".[ta,dev]"` from the repo root, then `pytest`; all tests should pass
-  offline. Notebooks that fetch prices need network access to Yahoo Finance.
+- **Setup:** Python 3.12 or newer, since pandas_ta publishes nothing for 3.11 (the owner's
+  `quant_env` is 3.13). `pip install -e ".[ta,dev]"` from the repo root, then `pytest`; all tests
+  should pass offline. Notebooks that fetch prices need network access to Yahoo Finance.
+- **Versions are not pinned.** The Phase 1 and Phase 3 figures were measured on TA-Lib 0.6.8
+  and pandas_ta 0.4.71b0; a fresh install may pull newer versions (TA-Lib 0.8.1 as of
+  2026-09-28). The tests are the check that still holds; the quoted counts may drift.
 - **Phases are the unit of work.** Do one phase when asked, then stop; do not start the next
   one unprompted. Commit and push only when asked.
 - **Stay within the plan.** Don't offer or add deliverables the plan doesn't list, such as
@@ -19,6 +23,8 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
   don't display.
 - **Pine parity** is checked against independent implementations written out from Pine's
   definitions, never against the code under test.
+- **Indicators are revisited regularly** against TradingView; the open items and the routine
+  are in *Indicator revisits*, near the end. Check it at the start of a session.
 
 ## Context
 
@@ -55,8 +61,8 @@ Decisions already made (do not revisit):
 | **4** ✅ | Primitives — Pine gaps | 4.1 `linreg(series, length, offset)` · 4.2 `rma` (custom, for Pine seeding) · 4.3 `pivot_high/low(left, right)` with publication delay · 4.4 `change/crossover/crossunder/barssince/nz` · 4.5 stateful-recursion harness · 4.6 `true_range` + Pine-exact `atr` on `rma` (added) | `ta_tools/pine.py` — **done, `d03c717`** (+ notebook `af67f54`) | 3 |
 | **5** ✅ | Port: vectorisable indicator | 5.1 LinReg Candles + Slope | `ta_tools/indicators.py` — **done, `7b24c0f`** | 4 |
 | **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `18572ce`** | 4, 5 |
-| **7** | Tests and docs | 7.1 property tests, incl. **no-look-ahead** · 7.2 pivot oracle + polyfit reference · 7.3 README section · 7.4 changelog entry | `tests/test_ta_tools.py`, README | 3–6 |
-| **8** | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests | 2 |
+| **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, `550ac82`** | 3–6 |
+| **8** ✅ | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests — **done, `ba40bf2`** (8.5 stays deferred) | 2 |
 | **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · `basic.py` removal · old-notebook removal | documented only | — |
 
 ## Phase 1 — Evaluate the three libraries
@@ -183,9 +189,8 @@ Measured against independent implementations of Pine's definitions:
 | `rsi` | exact, **except a perfectly flat window**: TA-Lib gives 0, TradingView's built-in RSI script 100 — TA-Lib's kept, documented |
 | length 1 | TA-Lib rejects it for SMA/EMA/WMA/STDDEV/BBANDS/RSI; Pine accepts it — wrappers return Pine's answer |
 
-**Decision for Phase 4:** once `rma` exists, a Pine-exact `atr = rma(true_range)` is a few lines.
-Trendlines' `Atr` slope method (Phase 6) uses ATR, so whether `atr` stays TA-Lib-backed or
-becomes `derived` for exact parity is worth deciding before Phase 6.
+**Decided in Phase 4:** `atr` became Pine-exact `rma(true_range)`, before Trendlines' `Atr`
+slope method needed it (see Phase 4 notes).
 
 ### Phase 4 notes
 
@@ -197,7 +202,8 @@ becomes `derived` for exact parity is worth deciding before Phase 6.
   Tier 3 (TradingView export) is what would settle it; matters for Trendlines on tick-sized data.
 - `recurse` is the `var` harness; it copies state per bar, so a step function that mutates its
   argument cannot corrupt earlier rows. It reproduces `rma` exactly.
-- The no-look-ahead test now covers all 13 Series primitives from Phases 3 and 4.
+- The no-look-ahead test covers every Series primitive from Phases 3 and 4 (14, counting
+  `true_range`); Phases 5 and 6 added the indicators.
 - **`atr` rebuilt (owner's decision):** `atr = rma(true_range)`, with `true_range` = Pine's `ta.tr(true)`.
   Exact to 1e-12, warm-up `length-1` like Pine; now `custom`. `rma` stays ours — pandas_ta's has
   no SMA seed (values from bar 0, 0.7% off at bar 13), and TA-Lib does not expose one.
@@ -223,8 +229,9 @@ becomes `derived` for exact parity is worth deciding before Phase 6.
 **LinReg Candles + Slope** — `linreg` on each of O/H/L/C, then
 `signal = sma_or_ema(linreg_close, signal_length)`, `slope = signal.diff()`. Fully vectorised.
 
-**ZLSMA + Slope** — `lsma = linreg(src, n, off)`, `lsma2 = linreg(lsma, n, off)`,
-`zlsma = 2*lsma - lsma2`. Watch NaN propagation across the first `2*length` bars.
+**ZLSMA + Slope** *(deferred — see Deferred, with reasons)* — `lsma = linreg(src, n, off)`,
+`lsma2 = linreg(lsma, n, off)`, `zlsma = 2*lsma - lsma2`. Watch NaN propagation across the first
+`2*length` bars.
 
 **Trendlines with Breaks** — the hard one, and the reason it gets its own phase. Pivot detection,
 then a per-bar slope from one of three methods, then genuinely recursive rails
@@ -256,6 +263,40 @@ not chart objects.
   realtime shift identity; no-look-ahead in realtime; backpaint shown to look ahead. Three seeded
   mutations of the implementation were each caught.
 
+## Phase 7 — Close the test gaps
+
+The original Phase 7 (property tests, pivot oracle, polyfit reference, README section, changelog)
+was built alongside Phases 3–6 and is **already in place**: no-look-ahead over the 14 Series
+primitives, both `linreg_candles` signals and the `atr`/`linreg` `trendlines` methods; the
+brute-force pivot oracle with ties; `linreg` vs `numpy.polyfit`; warm-up counts; the
+backpaint-equals-shifted-realtime identity; `__all__` and `CAPABILITIES` coverage; the README
+"Technical analysis" section; changelog entries through 2026-09-27. What is left:
+
+- **7.1 Equivariance beyond `linreg`** — adding `c` / scaling by `k` for the price-level
+  primitives (`sma`, `ema`, `wma`, `hma`, `alma`, `rma`, `bb`) and for `linreg_candles`;
+  `trendlines` rails likewise. The spread measures differ: `atr`, `stdev` and `true_range` are
+  unchanged by `+c` and scale by `k`; `rsi` is unchanged by both.
+- **7.2 No-look-ahead for `trendlines(calc_method='stdev')`**, the one slope method not in the set.
+
+Tier 2 needs nothing further: it covers `sma` and `ema`, and `atr` is no longer on its list (see
+Verification).
+
+### Phase 7 notes
+
+- Equivariance uses one map, `x -> 3x + 7` on open/high/low/close (volume untouched), and sorts
+  each output into one of three kinds: a **level** maps the same way; a **spread** (`stdev`,
+  `true_range`, `atr`, `lrc_slope`, the trendline slopes) only scales by 3; a **signal** (`rsi`,
+  `lrc_bull`, breaks, latches) is unchanged. `k > 0` keeps every price comparison, so pivots land
+  on the same bars (their prices are levels) and breaks and latches must match exactly.
+- Tolerance `rtol=1e-9, atol=1e-9`; the worst case on the primitives is `stdev`, 6e-13 relative.
+  The `atol` is there for outputs that cross zero (the slopes).
+- Covered: 13 primitives (`linreg` already had its own test), `linreg_candles` with both signals,
+  and `trendlines` for all three methods in both backpaint and realtime modes.
+- Seeded mutations, each caught: a constant added to the `stdev` slope; `lrc_slope` expressed as a
+  percentage of the signal; `atr` wrongly labelled a level in the table; the new `stdev`
+  no-look-ahead case switched to `backpaint=True`.
+- Suite: 130 tests (108 before + 21 equivariance + 1 no-look-ahead).
+
 ## Phase 8 — Data sources
 
 **Done ahead of this phase:** `load_bars(ticker, start, end=None)` was added with the AAPL
@@ -268,17 +309,26 @@ source has its own arguments (a symbol and dates vs a path and column layout), d
 authentication and limits; a single function would collect mode-specific arguments and `if`
 branches. What keeps the sources interchangeable is a shared output contract, enforced in one place.
 
-- **8.1 `_normalise(frame)`** — every loader ends with it: lower-case `open/high/low/close/volume`,
-  index named `date`, sorted oldest first, duplicate timestamps rejected, float64, and interior NaN
-  rejected (TA-Lib turns everything after an interior NaN into NaN; leading NaN is fine).
-  `load_bars` is refactored onto it.
+- **8.1 `_normalise(frame)`** — every loader ends with it: lower-case `open/high/low/close`, plus
+  `volume` **when the source has it** (index symbols such as SPX have none; the column is then
+  absent, not NaN), index named `date`, sorted oldest first, duplicate timestamps rejected,
+  float64, and interior NaN in the price columns rejected (TA-Lib turns everything after an
+  interior NaN into NaN; leading NaN is fine). Other columns pass through (see 8.3).
+  `load_bars` is refactored onto it **without changing its behaviour**: it keeps dropping
+  Yahoo's incomplete rows before calling `_normalise`, as its `.dropna()` does today, so a real
+  ticker never starts raising. The rejection is for files, where a gap is a data problem to
+  surface.
 - **8.2 Intraday** — `load_bars(ticker, start, end=None, interval='1d')`, passed to yfinance.
   Yahoo's history limits: 1m ≈ 7 days, 5m–30m ≈ 60 days, 1h ≈ 730 days; raise or warn when the
   request exceeds them rather than silently returning fewer bars. Intraday index is tz-aware
   (exchange time); daily stays date-only.
 - **8.3 `read_bars(path, ...)`** — CSV into the same frame, with a column mapping and time parsing.
-  Must read a TradingView *Export chart data* CSV directly (`time` in Unix seconds, lower-case
-  prices), since that is the Tier 3 parity format.
+  Must read a TradingView *Export chart data* CSV directly, since that is the Tier 3 parity format:
+  lower-case prices, optional `Volume`, and `time` in Unix seconds or ISO 8601 (accept both;
+  confirm which the export dialog offers when making the first fixture). The export also carries
+  **every plotted indicator series as extra columns** — the values Tier 3 compares against — so
+  `read_bars` keeps them, after the price columns, rather than cutting the frame to OHLCV. They may
+  have interior NaN (a backpainted line is `na` between segments), so the NaN check stays on prices.
 - **8.4 TradingView connector → CSV** — tested 2026-09-28: 20 daily `NASDAQ:AAPL` bars matched
   Yahoo's closes exactly on all 20 days, volumes within Yahoo's rounding to 100 shares (the latest,
   still-updating bar differed by 52k). Bars are split-adjusted only (same basis as
@@ -291,35 +341,89 @@ branches. What keeps the sources interchangeable is a shared output contract, en
   be a thin loader ending in `_normalise`, with its dependency optional. TradingView has no official
   data API; unofficial websocket scrapers are fragile and sit badly with its terms, so not used.
 
-Tests: `_normalise` rejections (unsorted, duplicates, interior NaN), the `interval` pass-through and
-limit check with stubbed yfinance, and `read_bars` on a small TradingView-format fixture.
+Tests: `_normalise` rejections (unsorted, duplicates, interior NaN in prices), a frame without
+volume, `load_bars` still dropping an incomplete Yahoo row, the `interval` pass-through and limit
+check with stubbed yfinance, and `read_bars` on a small TradingView-format fixture with an
+indicator column, in both time formats.
+
+### Phase 8 notes
+
+- `_normalise` also fixes the index **resolution** to microseconds (pandas 3's default, as in
+  `make_bars`): Unix seconds otherwise parse to `datetime64[s]` and ISO strings to `[us]`, and
+  frames from two sources would not compare equal. Missing price columns raise `ValueError`, a
+  non-datetime index `TypeError`, and an all-NaN price column counts as a gap. Trailing NaN is
+  rejected like interior NaN.
+- Yahoo limits, refined from the plan's "1m ≈ 7 days": Yahoo keeps **1m for 30 days** and serves
+  it **7 days per request**; 2m–90m 60 days; 60m/1h 730 days, counted back from today. Checked
+  before calling yfinance, which otherwise only logs an error and returns an empty frame (which
+  `load_bars` would misreport as an unknown ticker). Unknown intervals are refused too.
+- **Verified against live Yahoo by the owner (2026-09-28)**, by running
+  `notebooks/ta_tools_read_data.ipynb`, with all checks passing: the interval pass-through,
+  exchange-time index and bar spacing for 1m/5m/15m/1h, and one request just inside each history
+  limit served in full. (The unit tests still stub yfinance, since this session's network blocks
+  Yahoo.)
+- `read_bars(path, columns=None, daily=False, tz=None)`: times without an offset are taken as UTC;
+  `tz` converts; `daily=True` keeps the calendar date in `tz`, which matters outside US hours (a
+  Tokyo bar at local midnight is the previous day in UTC — tested). Intraday data squeezed to
+  dates is caught as repeated timestamps. Non-price columns pass through untouched.
+- **Export time formats, settled by two real exports** (the owner's `NASDAQ:AAPL` 1D and 30m, 2026-09-28):
+  the daily export writes `time` as a **plain date** (`2007-06-22`), the intraday one as **Unix
+  seconds**. A third export (15m) wrote **ISO times with the owner's local offset**
+  (`2026-05-14T16:30:00+01:00`), so the format varies between exports; `read_bars` takes all three. The 30m export includes extended hours (04:00–19:30 New York, 32 bars a day), unlike
+  Yahoo's regular session. Repeated plot titles arrive as `Plot`, `Plot.1`, ... and untitled ones as
+  `Unnamed: 7`; they pass through as extra columns.
+- **Bug they exposed, fixed:** a time without an offset was read as UTC, so a plain date with
+  `tz='America/New_York'` became 20:00 the evening before, and `daily=True` put every bar a day
+  early. Such times are now wall-clock times already in `tz` (UTC if none) and are never shifted;
+  Unix seconds and times with an offset are still converted. Two tests fail on the old code, and
+  the notebook now checks the plain-date form as well.
+- 8.4 run on 2026-09-28: 10 daily `NASDAQ:AAPL` bars from the connector, written as an
+  export-layout CSV and read with `read_bars(daily=True, tz='America/New_York')`. The connector's
+  `t` is Unix seconds at the 09:30 New York open, so the file needs no conversion. The frame
+  matched the connector's own summary (volume total, range, last close) and gave the ten business
+  days 14–25 September. Not committed (open judgment call 3); not compared with `load_bars`,
+  as Yahoo is blocked here.
+- Seeded mutations, each caught: no `dropna` in `load_bars`; no gap check; no Yahoo limit check;
+  `tz` ignored in `read_bars`; no index resolution fix.
+- Suite: 153 tests (130 before + 23).
+- **Added after the phase, at the owner's request:** `notebooks/ta_tools_read_data.ipynb`, a
+  hands-on check of every reader against the contract (✓/✗ per check, total at the end),
+  committed without outputs for the owner to run. It covers the two items above that could
+  not be verified here: live intraday Yahoo, including one request just inside each history
+  limit, and a real TradingView export (section 7 prints its header and first row, which
+  settles the time-format question). Run under a stubbed yfinance here: 88 of 88 checks pass.
+  Its round-trip check found `read_bars` parsing CSV floats up to one unit off in the last
+  digit; it now uses `float_precision='round_trip'` (154 tests).
 
 ## Verification
 
 The Pine originals run on TradingView and cannot be executed locally, so there is **no reference
 implementation to diff against**. Verification therefore runs in three tiers.
 
-**Tier 1 — property tests** in a new `tests/test_ta_tools.py`, offline and seeded, following the
-existing suite's conventions (`tests/test_smoke.py` stays untouched):
+**Tier 1 — property tests** in `tests/test_ta_tools.py`, offline and seeded, following the
+existing suite's conventions (`tests/test_smoke.py` stays untouched). All in place; the ZLSMA
+items wait on ZLSMA itself (deferred):
 
 - *No look-ahead* — the highest-value test. Truncate the input at bar `i`, recompute, and assert
   every value at bars ≤ `i` is unchanged. Run it against every indicator in `backpaint=False`
   mode. An indicator that silently peeks is the failure mode that matters most here.
 - *Analytic exactness* — `linreg` of a perfect straight line returns that line; of a constant,
-  the constant with slope 0; ZLSMA of a linear series is the series.
+  the constant with slope 0; *(deferred)* ZLSMA of a linear series is the series.
 - *Independent reference* — `linreg` at a chosen bar against `numpy.polyfit` over the same window,
   which is a genuine second implementation rather than a restatement.
-- *Equivariance* — adding `c` shifts the output by `c`; scaling by `k` scales it by `k`.
+- *Equivariance* — adding `c` shifts the output by `c`; scaling by `k` scales it by `k` (spreads
+  only scale; oscillators and signals are unchanged; see Phase 7 notes).
 - *Pivots* — a brute-force `O(n·length)` oracle versus the production implementation, and assert
   the published index is exactly `pivot index + right`.
 - *Trendlines* — rails reset to the pivot price at a pivot and decay monotonically between;
   `upos`/`dnos` ∈ {0,1}; and `backpaint=True` output equals realtime output shifted by `length`.
-- *Warm-up contract* — exact leading-NaN counts (`length-1`, and ~`2*length-2` for ZLSMA), since
+- *Warm-up contract* — exact leading-NaN counts (`length-1`; *(deferred)* ~`2*length-2` for ZLSMA), since
   warm-up is precisely where the three libraries disagree.
 - *API* — every `__all__` name resolves; `CAPABILITIES` covers every primitive.
 
-**Tier 2 — cross-library agreement** for the standard primitives only (`sma`, `ema`, `atr`), where
-a second library is a free second opinion.
+**Tier 2 — cross-library agreement** for the standard primitives only (`sma`, `ema`, against
+pandas_ta's own code), where a second library is a free second opinion. Not `atr`: it is now
+Pine-exact and differs from TA-Lib's by design, which a test already shows.
 
 **Tier 3 — TradingView parity**, the only true check of a port. Add the indicator to a chart on
 one fixed symbol, timeframe and date range, use *Export chart data* to get a CSV of the plotted
@@ -327,8 +431,49 @@ series, commit a trimmed copy under `tests/fixtures/`, and compare with a stated
 fixtures keep the suite offline. Until that exists, parity rests on a manual visual overlay —
 which is the owner's to do, and should be stated as such rather than implied.
 
-`pytest` stays green (108 tests today: 14 existing + 94 in `test_ta_tools.py`) and `import src.tools.ta_tools` must work from outside the
-repo, as `price_return` does.
+**First Tier 3 run (2026-09-28), not yet a committed fixture:** on the owner's two `NASDAQ:AAPL`
+exports (1D, 4,847 bars from 2007; 30m, 7,169 bars), computed from the exported OHLC after a
+300-bar warm-up:
+
+| Series on the chart | `ta_tools` | max relative difference |
+|---|---|---|
+| LinReg Candles *Signal Line* | `linreg_candles(..., linreg_length=14, signal_length=3)`, SMA signal | 1.6e-13 (1D), 3.1e-13 (30m) |
+| RSI | `rsi(close, 14)` | 3.3e-11 |
+| Bollinger Bands basis / upper | `bb(close, 200, 2.0)` | 3.5e-15 / 1.6e-13 |
+| an EMA | `ema(close, 15)` | 0 |
+
+The chart runs LinReg Candles at 14/3, not the script's 11/11 defaults; a search over lengths
+2–60 and both signal types found no other setting within 0.4%. The candle columns are empty
+(the chart hides the candles), so `lrc_open/high/low/close` and `lrc_bull` are still unchecked,
+as is `trendlines`, which is not on the chart. The files stay out of the repo (open call 3).
+
+**Second Tier 3 run (2026-09-28)**, a 15m `NASDAQ:AAPL` export (5,977 bars, 14 May – 28 Sep) with
+the owner's stated settings:
+
+| Series | Settings | `ta_tools` | Result |
+|---|---|---|---|
+| EMA | 9 | `ema(close, 9)` | identical |
+| Plot.1 | EMA 15 | `ema(close, 15)` | identical |
+| ZLSMA | 14 | `2*linreg(close, 14) - linreg(linreg(close, 14), 14)` | 3.6e-13 |
+| Signal Line | LinReg 14/3 | `linreg_candles(..., 14, 3)` | 3.0e-13 |
+| Basis / Upper / Lower | BB, EMA basis, 1 SD | `ema(close, 100)` ± `stdev(close, 100)` | exact after bar 795 (EMA(100) warm-up; TradingView had earlier history) |
+| Plot | HMA 15 | `hma(close, 15)` | **no match**: 2.5% max, correlation 0.999 |
+| ParabolicSAR | 0.02, 0.02, 0.2 | TA-Lib `SAR(0.02, 0.2)` (not wrapped) | **differs** on 1,048 bars, to the end of the file |
+
+- **ZLSMA** needs nothing new: composed from `linreg` it already matches Pine, so the deferred
+  port is a thin wrapper.
+- **`bb` has no EMA basis**; the match above is composed by hand. An `ma=` option on `bb` would be
+  a change to this plan (TradingView's BB offers SMA, EMA, SMMA/RMA, WMA and VWMA).
+- **HMA 15 unresolved.** Tried: both roundings of `length/2` and `sqrt(length)`; lengths 4–60 on
+  close, hl2, hlc3, ohlc4 and open; shifts of ±5 bars; EHMA and THMA (the "Hull Suite" variants).
+  Nothing within 0.5%. Next step is to confirm which indicator draws that plot (built-in *Hull
+  Moving Average*, or a community script) and its source. Until then `hma` is unverified against
+  TradingView, and its Phase 3 check (against the WMA definition) is the only one.
+- **SAR** is not a `ta_tools` primitive. TA-Lib's differs from TradingView's, so a SAR, if wanted,
+  would have to be built Pine-exact, like `atr`.
+
+`pytest` stays green and `import src.tools.ta_tools` must work from outside the repo, as
+`price_return` does.
 
 ## Open judgment calls
 
@@ -346,10 +491,55 @@ These are genuinely the owner's to decide, and the plan does not presume them:
    named columns (e.g. `bb_mid_20`, `bb_upper_20`, `bb_lower_20`), matching what pandas_ta's
    multi-output indicators already return. Single-output ones stay a named Series.
 
+## Indicator revisits
+
+A standing register of how each indicator compares with TradingView, so parity is rechecked
+regularly rather than once. Each item on the revisit list is its own piece of work: pick one up
+when asked, and do not start it unprompted.
+
+**When to revisit:** whenever the owner exports a new TradingView file (the fastest route: a CSV
+of the chart with the settings stated); after a TA-Lib or pandas_ta upgrade, since versions are
+not pinned; and before an indicator is relied on in a backtest. Each revisit updates the row's
+status and date below.
+
+**Scheduled review:** a Claude routine, *ta_tools bi-monthly review*, runs every two months on
+the 1st of Jan, Mar, May, Jul, Sep and Nov at 08:52 London time, first on 2026-11-01. Each run
+starts a fresh session that runs the tests, checks library versions, reports this register and
+the revisit list, and proposes at most three new features as plan changes. It reports only;
+changes wait for the owner. Edit or pause it in the claude.ai Routines list.
+
+### To revisit
+
+| # | Indicator | Why | Next step |
+|---|---|---|---|
+| R1 | **HMA** (`hma`, pandas_ta) | Does not match TradingView's HMA 15 on the 15m export: up to 2.5% off, correlation 0.999. No Hull variant tried matched (both roundings, lengths 4–60, five sources, ±5-bar shifts, EHMA, THMA). | Owner to confirm which indicator draws it (built-in *Hull Moving Average* or a script) and its source; then fit it and decide whether `hma` must become `custom`. |
+| R2 | **Parabolic SAR** | Not in `ta_tools`. TA-Lib's `SAR(0.02, 0.2)` differs from TradingView's (0.02, 0.02, 0.2) on 1,048 of 5,977 bars, to the end of the file. | If SAR is wanted, build it Pine-exact (as `atr` was), `custom`, and test it against the 15m export. |
+| R3 | **ZLSMA** | Deferred from Phase 5. Composed as `2*linreg(src, n) - linreg(linreg(src, n), n)` it already matches TradingView's ZLSMA 14 to 3.6e-13, so the port is a thin wrapper plus its slope. | Port `zlsma` into `indicators.py` with the Phase 5 warm-up and no-look-ahead tests, and a check against the export's values. |
+
+### Status
+
+| Indicator | Against TradingView | Last checked |
+|---|---|---|
+| `ema` | identical (EMA 9, EMA 15) | 2026-09-28, 15m and 1D |
+| `linreg_candles` signal | ≤ 3.1e-13 at 14/3, SMA signal | 2026-09-28, 1D, 30m, 15m |
+| `linreg_candles` candles, `lrc_bull` | **unchecked**: the chart hides the candles | — |
+| `rsi` | 3.3e-11 (RSI 14) | 2026-09-28, 1D |
+| `bb` (SMA basis) | ≤ 1.6e-13 (200, 2) | 2026-09-28, 1D |
+| BB with EMA basis | exact after warm-up, composed by hand; `bb` has no EMA option | 2026-09-28, 15m |
+| ZLSMA (composed) | 3.6e-13 (14) | 2026-09-28, 15m |
+| `hma` | **mismatch**, R1 | 2026-09-28, 15m |
+| Parabolic SAR (TA-Lib, not wrapped) | **mismatch**, R2 | 2026-09-28, 15m |
+| `trendlines` | **unchecked**: not on the charts exported | — |
+| `sma`, `wma`, `alma`, `stdev`, `atr`, `rma` | unchecked against TradingView; Pine-definition checks only (Phases 3–4) | — |
+
+The next export that would close the most gaps: a chart with **Trendlines with Breaks** on it, and
+LinReg Candles with the candles shown.
+
 ## Deferred, with reasons
 
 - **ZLSMA + Slope** — deferred from Phase 5 by the owner. Nothing else depends on it; it
-  needs only `linreg` (Phase 4), so it can be picked up any time after that.
+  needs only `linreg` (Phase 4), so it can be picked up any time after that. Now on the revisit
+  list as R3: its composition already matches TradingView.
 
 - **Lorentzian Classification** — 577 Pine lines importing `MLExtensions` and `KernelFunctions`,
   neither vendored here. Needs normalised RSI/WaveTrend/CCI/ADX, regime and volatility filters,
