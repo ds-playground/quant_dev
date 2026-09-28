@@ -7,7 +7,7 @@ name = "quant-dev"
 version = "0.1.0"
 description = "Historical price & return analysis framework, plus TradingView Pine scripts"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"   # pandas_ta (the ta extra) publishes nothing for 3.11
 authors = [{ name = "Jones Wan" }]
 dependencies = [
     "pandas",
