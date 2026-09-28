@@ -59,7 +59,7 @@ Decisions already made (do not revisit):
 | **4** ✅ | Primitives — Pine gaps | 4.1 `linreg(series, length, offset)` · 4.2 `rma` (custom, for Pine seeding) · 4.3 `pivot_high/low(left, right)` with publication delay · 4.4 `change/crossover/crossunder/barssince/nz` · 4.5 stateful-recursion harness · 4.6 `true_range` + Pine-exact `atr` on `rma` (added) | `ta_tools/pine.py` — **done, `d03c717`** (+ notebook `af67f54`) | 3 |
 | **5** ✅ | Port: vectorisable indicator | 5.1 LinReg Candles + Slope | `ta_tools/indicators.py` — **done, `7b24c0f`** | 4 |
 | **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `18572ce`** | 4, 5 |
-| **7** | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). Left: 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` | 3–6 |
+| **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, not yet committed** | 3–6 |
 | **8** | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests | 2 |
 | **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · `basic.py` removal · old-notebook removal | documented only | — |
 
@@ -279,6 +279,22 @@ backpaint-equals-shifted-realtime identity; `__all__` and `CAPABILITIES` coverag
 Tier 2 needs nothing further: it covers `sma` and `ema`, and `atr` is no longer on its list (see
 Verification).
 
+### Phase 7 notes
+
+- Equivariance uses one map, `x -> 3x + 7` on open/high/low/close (volume untouched), and sorts
+  each output into one of three kinds: a **level** maps the same way; a **spread** (`stdev`,
+  `true_range`, `atr`, `lrc_slope`, the trendline slopes) only scales by 3; a **signal** (`rsi`,
+  `lrc_bull`, breaks, latches) is unchanged. `k > 0` keeps every price comparison, so pivots land
+  on the same bars (their prices are levels) and breaks and latches must match exactly.
+- Tolerance `rtol=1e-9, atol=1e-9`; the worst case on the primitives is `stdev`, 6e-13 relative.
+  The `atol` is there for outputs that cross zero (the slopes).
+- Covered: 13 primitives (`linreg` already had its own test), `linreg_candles` with both signals,
+  and `trendlines` for all three methods in both backpaint and realtime modes.
+- Seeded mutations, each caught: a constant added to the `stdev` slope; `lrc_slope` expressed as a
+  percentage of the signal; `atr` wrongly labelled a level in the table; the new `stdev`
+  no-look-ahead case switched to `backpaint=True`.
+- Suite: 130 tests (108 before + 21 equivariance + 1 no-look-ahead).
+
 ## Phase 8 — Data sources
 
 **Done ahead of this phase:** `load_bars(ticker, start, end=None)` was added with the AAPL
@@ -334,8 +350,8 @@ The Pine originals run on TradingView and cannot be executed locally, so there i
 implementation to diff against**. Verification therefore runs in three tiers.
 
 **Tier 1 — property tests** in `tests/test_ta_tools.py`, offline and seeded, following the
-existing suite's conventions (`tests/test_smoke.py` stays untouched). All in place except the
-Phase 7 gaps; the ZLSMA items wait on ZLSMA itself (deferred):
+existing suite's conventions (`tests/test_smoke.py` stays untouched). All in place; the ZLSMA
+items wait on ZLSMA itself (deferred):
 
 - *No look-ahead* — the highest-value test. Truncate the input at bar `i`, recompute, and assert
   every value at bars ≤ `i` is unchanged. Run it against every indicator in `backpaint=False`
@@ -344,7 +360,8 @@ Phase 7 gaps; the ZLSMA items wait on ZLSMA itself (deferred):
   the constant with slope 0; *(deferred)* ZLSMA of a linear series is the series.
 - *Independent reference* — `linreg` at a chosen bar against `numpy.polyfit` over the same window,
   which is a genuine second implementation rather than a restatement.
-- *Equivariance* — adding `c` shifts the output by `c`; scaling by `k` scales it by `k`.
+- *Equivariance* — adding `c` shifts the output by `c`; scaling by `k` scales it by `k` (spreads
+  only scale; oscillators and signals are unchanged; see Phase 7 notes).
 - *Pivots* — a brute-force `O(n·length)` oracle versus the production implementation, and assert
   the published index is exactly `pivot index + right`.
 - *Trendlines* — rails reset to the pivot price at a pivot and decay monotonically between;

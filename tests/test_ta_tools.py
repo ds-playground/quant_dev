@@ -443,6 +443,8 @@ NO_LOOKAHEAD = {
     # Realtime trendlines only: backpaint looks ahead by design (tested separately).
     "trendlines_atr": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"],
                                                     10).astype(float),
+    "trendlines_stdev": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"], 12,
+                                                      calc_method="stdev").astype(float),
     "trendlines_linreg": lambda b: ta_tools.trendlines(b["high"], b["low"], b["close"], 7,
                                                        calc_method="linreg").astype(float),
 }
@@ -768,3 +770,75 @@ def test_trendlines_reject_unknown_methods():
 
 def test_capabilities_record_phase_six_sources():
     assert ta_tools.CAPABILITIES["trendlines"] == "derived"
+
+
+# ── Phase 7: equivariance ────────────────────────────────────────────────────
+# Prices mapped by x -> K*x + C (K > 0, so order and validity are kept). A price-level output
+# maps the same way; a spread (a distance between prices) only scales by K; an oscillator or a
+# signal does not change at all.
+K, C = 3.0, 7.0
+MOVED = BARS.copy()
+MOVED[["open", "high", "low", "close"]] = BARS[["open", "high", "low", "close"]] * K + C
+
+
+def expect(base, kind):
+    return {"level": base * K + C, "spread": base * K, "invariant": base}[kind]
+
+
+def assert_equivariant(moved, base, kind, label):
+    # atol covers outputs that pass through zero (slopes); rtol the rest.
+    np.testing.assert_allclose(moved, expect(base, kind), rtol=1e-9, atol=1e-9,
+                               equal_nan=True, err_msg=label)
+
+
+EQUIVARIANCE = [
+    ("sma", lambda b: ta_tools.sma(b["close"], 20), "level"),
+    ("ema", lambda b: ta_tools.ema(b["close"], 20), "level"),
+    ("wma", lambda b: ta_tools.wma(b["close"], 20), "level"),
+    ("hma", lambda b: ta_tools.hma(b["close"], 16), "level"),
+    ("alma", lambda b: ta_tools.alma(b["close"], 9), "level"),
+    ("rma", lambda b: ta_tools.rma(b["close"], 14), "level"),
+    ("bb_mid", lambda b: ta_tools.bb(b["close"], 20)["bb_mid_20"], "level"),
+    ("bb_upper", lambda b: ta_tools.bb(b["close"], 20)["bb_upper_20"], "level"),
+    ("bb_lower", lambda b: ta_tools.bb(b["close"], 20)["bb_lower_20"], "level"),
+    ("stdev", lambda b: ta_tools.stdev(b["close"], 20), "spread"),
+    ("true_range", lambda b: ta_tools.true_range(b["high"], b["low"], b["close"]), "spread"),
+    ("atr", lambda b: ta_tools.atr(b["high"], b["low"], b["close"], 14), "spread"),
+    ("rsi", lambda b: ta_tools.rsi(b["close"], 14), "invariant"),
+]
+
+
+@pytest.mark.parametrize("label,call,kind", EQUIVARIANCE, ids=[e[0] for e in EQUIVARIANCE])
+def test_primitives_are_equivariant(label, call, kind):
+    if label in ("hma", "alma"):
+        pytest.importorskip("pandas_ta")
+    assert_equivariant(call(MOVED), call(BARS), kind, label)
+
+
+LRC_KINDS = {"lrc_open": "level", "lrc_high": "level", "lrc_low": "level", "lrc_close": "level",
+             "lrc_signal": "level", "lrc_slope": "spread"}
+
+
+@pytest.mark.parametrize("sma_signal", [True, False])
+def test_linreg_candles_are_equivariant(sma_signal):
+    base = ta_tools.linreg_candles(*OHLC, 11, 7, sma_signal=sma_signal)
+    moved = ta_tools.linreg_candles(MOVED["open"], MOVED["high"], MOVED["low"], MOVED["close"],
+                                    11, 7, sma_signal=sma_signal)
+    for column, kind in LRC_KINDS.items():
+        assert_equivariant(moved[column], base[column], kind, column)
+    pd.testing.assert_series_equal(moved["lrc_bull"], base["lrc_bull"])
+
+
+TL_KINDS = {"tl_upper": "level", "tl_lower": "level", "tl_pivot_high": "level",
+            "tl_pivot_low": "level", "tl_upper_slope": "spread", "tl_lower_slope": "spread"}
+
+
+@pytest.mark.parametrize("method", ["atr", "stdev", "linreg"])
+@pytest.mark.parametrize("backpaint", [False, True])
+def test_trendlines_are_equivariant(method, backpaint):
+    base = trendlines(BARS, length=10, calc_method=method, backpaint=backpaint)
+    moved = trendlines(MOVED, length=10, calc_method=method, backpaint=backpaint)
+    for column, kind in TL_KINDS.items():
+        assert_equivariant(moved[column], base[column], kind, f"{method}: {column}")
+    # Pivots, breaks and latches are decided by comparing prices, which the map preserves.
+    pd.testing.assert_frame_equal(moved[TL_COLUMNS[6:]], base[TL_COLUMNS[6:]])
