@@ -23,6 +23,8 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
   don't display.
 - **Pine parity** is checked against independent implementations written out from Pine's
   definitions, never against the code under test.
+- **Indicators are revisited regularly** against TradingView; the open items and the routine
+  are in *Indicator revisits*, near the end. Check it at the start of a session.
 
 ## Context
 
@@ -489,10 +491,49 @@ These are genuinely the owner's to decide, and the plan does not presume them:
    named columns (e.g. `bb_mid_20`, `bb_upper_20`, `bb_lower_20`), matching what pandas_ta's
    multi-output indicators already return. Single-output ones stay a named Series.
 
+## Indicator revisits
+
+A standing register of how each indicator compares with TradingView, so parity is rechecked
+regularly rather than once. Each item on the revisit list is its own piece of work: pick one up
+when asked, and do not start it unprompted.
+
+**When to revisit:** whenever the owner exports a new TradingView file (the fastest route: a CSV
+of the chart with the settings stated); after a TA-Lib or pandas_ta upgrade, since versions are
+not pinned; and before an indicator is relied on in a backtest. Each revisit updates the row's
+status and date below.
+
+### To revisit
+
+| # | Indicator | Why | Next step |
+|---|---|---|---|
+| R1 | **HMA** (`hma`, pandas_ta) | Does not match TradingView's HMA 15 on the 15m export: up to 2.5% off, correlation 0.999. No Hull variant tried matched (both roundings, lengths 4–60, five sources, ±5-bar shifts, EHMA, THMA). | Owner to confirm which indicator draws it (built-in *Hull Moving Average* or a script) and its source; then fit it and decide whether `hma` must become `custom`. |
+| R2 | **Parabolic SAR** | Not in `ta_tools`. TA-Lib's `SAR(0.02, 0.2)` differs from TradingView's (0.02, 0.02, 0.2) on 1,048 of 5,977 bars, to the end of the file. | If SAR is wanted, build it Pine-exact (as `atr` was), `custom`, and test it against the 15m export. |
+| R3 | **ZLSMA** | Deferred from Phase 5. Composed as `2*linreg(src, n) - linreg(linreg(src, n), n)` it already matches TradingView's ZLSMA 14 to 3.6e-13, so the port is a thin wrapper plus its slope. | Port `zlsma` into `indicators.py` with the Phase 5 warm-up and no-look-ahead tests, and a check against the export's values. |
+
+### Status
+
+| Indicator | Against TradingView | Last checked |
+|---|---|---|
+| `ema` | identical (EMA 9, EMA 15) | 2026-09-28, 15m and 1D |
+| `linreg_candles` signal | ≤ 3.1e-13 at 14/3, SMA signal | 2026-09-28, 1D, 30m, 15m |
+| `linreg_candles` candles, `lrc_bull` | **unchecked**: the chart hides the candles | — |
+| `rsi` | 3.3e-11 (RSI 14) | 2026-09-28, 1D |
+| `bb` (SMA basis) | ≤ 1.6e-13 (200, 2) | 2026-09-28, 1D |
+| BB with EMA basis | exact after warm-up, composed by hand; `bb` has no EMA option | 2026-09-28, 15m |
+| ZLSMA (composed) | 3.6e-13 (14) | 2026-09-28, 15m |
+| `hma` | **mismatch**, R1 | 2026-09-28, 15m |
+| Parabolic SAR (TA-Lib, not wrapped) | **mismatch**, R2 | 2026-09-28, 15m |
+| `trendlines` | **unchecked**: not on the charts exported | — |
+| `sma`, `wma`, `alma`, `stdev`, `atr`, `rma` | unchecked against TradingView; Pine-definition checks only (Phases 3–4) | — |
+
+The next export that would close the most gaps: a chart with **Trendlines with Breaks** on it, and
+LinReg Candles with the candles shown.
+
 ## Deferred, with reasons
 
 - **ZLSMA + Slope** — deferred from Phase 5 by the owner. Nothing else depends on it; it
-  needs only `linreg` (Phase 4), so it can be picked up any time after that.
+  needs only `linreg` (Phase 4), so it can be picked up any time after that. Now on the revisit
+  list as R3: its composition already matches TradingView.
 
 - **Lorentzian Classification** — 577 Pine lines importing `MLExtensions` and `KernelFunctions`,
   neither vendored here. Needs normalised RSI/WaveTrend/CCI/ADX, regime and volatility filters,
