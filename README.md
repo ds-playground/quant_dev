@@ -165,6 +165,7 @@ quant_dev/
 │   ├── ta_package_evaluation.ipynb        TA-Lib vs pandas_ta vs ta
 │   ├── ta_tools_primitives.ipynb          how the ta_tools primitives are wrapped
 │   ├── ta_tools_exploration.ipynb         every ta_tools indicator on AAPL
+│   ├── ta_tools_read_data.ipynb           checks every ta_tools data reader
 │   └── test_es / test_ko / test_ta_packages.ipynb
 │
 ├── pine_scripts/                          TradingView indicators
@@ -212,6 +213,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 | `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
 | `ta_tools_primitives.ipynb` | Committed with outputs. How each `ta_tools` primitive is wrapped, and how it compares with Pine. |
 | `ta_tools_exploration.ipynb` | Current. AAPL since January 2023: moving averages, Bollinger Bands, both Pine ports, RSI and ATR. |
+| `ta_tools_read_data.ipynb` | Current, committed without outputs. Runs `make_bars`, `load_bars` (daily and intraday, with Yahoo's history limits) and `read_bars` (TradingView exports, other layouts, your own file), checking each against the shared output contract; ends with a pass/fail count. |
 | `test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` | Exploratory, built on the older `basic.py`. |
 
 **Two config mechanisms, deliberately.** `config.py` serves the `dev/` scratch
@@ -394,6 +396,9 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   TradingView chart exports with their indicator columns. All loaders share one output
   contract and reject unsorted or repeated timestamps and gaps in prices. `load_bars`
   still drops Yahoo's occasional incomplete row, as before.
+- `notebooks/ta_tools_read_data.ipynb` runs every data reader and checks its output. It
+  found that `read_bars` could read a number one unit off in its last digit (pandas'
+  default CSV parser); it now reads back exactly the floats written.
 
 ### 2026-09-27
 - `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
