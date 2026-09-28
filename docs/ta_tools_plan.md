@@ -355,9 +355,11 @@ indicator column, in both time formats.
   it **7 days per request**; 2m–90m 60 days; 60m/1h 730 days, counted back from today. Checked
   before calling yfinance, which otherwise only logs an error and returns an empty frame (which
   `load_bars` would misreport as an unknown ticker). Unknown intervals are refused too.
-- **Not exercised against live Yahoo:** this session's network blocks it (403), so the interval
-  pass-through, limits and exchange-time index are tested with stubbed yfinance only. Worth one
-  real intraday call from the owner's machine.
+- **Verified against live Yahoo by the owner (2026-09-28)**, by running
+  `notebooks/ta_tools_read_data.ipynb`, with all checks passing: the interval pass-through,
+  exchange-time index and bar spacing for 1m/5m/15m/1h, and one request just inside each history
+  limit served in full. (The unit tests still stub yfinance, since this session's network blocks
+  Yahoo.)
 - `read_bars(path, columns=None, daily=False, tz=None)`: times without an offset are taken as UTC;
   `tz` converts; `daily=True` keeps the calendar date in `tz`, which matters outside US hours (a
   Tokyo bar at local midnight is the previous day in UTC — tested). Intraday data squeezed to
