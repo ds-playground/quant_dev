@@ -49,7 +49,8 @@ That puts `src.tools` on the import path permanently, so notebooks and scripts c
 manipulation required.
 
 The technical-analysis libraries are optional extras, because `TA-Lib` needs a C
-toolchain and would otherwise block a clean install:
+toolchain and would otherwise block a clean install. `pandas_ta` needs Python 3.12 or
+newer, so the project requires 3.12:
 
 ```bash
 pip install -e ".[dev]"   # pytest, ipywidgets, nbformat, matplotlib
@@ -357,6 +358,10 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-28
+- The project now requires Python 3.12 or newer: pandas_ta, in the `ta` extra, publishes
+  nothing for 3.11, so `pip install -e ".[ta]"` failed there.
 
 ### 2026-09-27
 - `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
