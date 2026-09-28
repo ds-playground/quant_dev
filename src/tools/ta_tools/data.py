@@ -137,8 +137,10 @@ def read_bars(path, columns=None, daily=False, tz=None):
     series, kept after the prices. Other layouts pass `columns`, a mapping from their names to
     time/open/high/low/close/volume; those names are otherwise matched ignoring case.
 
-    Times without an offset are taken as UTC, and `tz` converts them. `daily=True` keeps only
-    each bar's calendar date in `tz`, the date index load_bars gives daily bars.
+    Unix seconds and times with an offset are instants, converted to `tz` (else left in UTC).
+    Times without an offset, such as the plain dates TradingView writes for daily bars, are
+    wall-clock times already local to `tz`, so they are kept as written. `daily=True` keeps only
+    each bar's calendar date, the date index load_bars gives daily bars.
     """
     # round_trip parses each number to the exact float that was written; pandas' default parser
     # can be one unit off in the last digit, which would blur a parity check against the file.
@@ -154,11 +156,17 @@ def read_bars(path, columns=None, daily=False, tz=None):
     times = frame.pop('time')
     if pd.api.types.is_numeric_dtype(times):
         times = pd.to_datetime(times, unit='s', utc=True)
-    else:
+    elif times.astype(str).str.contains(r'(?:Z|[+-]\d{2}:?\d{2})$').any():
         times = pd.to_datetime(times, utc=True, format='ISO8601')
-    if tz is not None:
-        times = times.dt.tz_convert(tz)
+    else:
+        times = pd.to_datetime(times, format='ISO8601')      # wall-clock, no offset
+    if times.dt.tz is not None:
+        times = times.dt.tz_convert(tz or 'UTC')
+        if daily:
+            times = times.dt.tz_localize(None)
+    elif not daily:
+        times = times.dt.tz_localize(tz or 'UTC')
     if daily:
-        times = times.dt.tz_localize(None).dt.normalize()
+        times = times.dt.normalize()
     frame.index = pd.DatetimeIndex(times)
     return _normalise(frame)

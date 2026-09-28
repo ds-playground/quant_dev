@@ -364,8 +364,16 @@ indicator column, in both time formats.
   `tz` converts; `daily=True` keeps the calendar date in `tz`, which matters outside US hours (a
   Tokyo bar at local midnight is the previous day in UTC — tested). Intraday data squeezed to
   dates is caught as repeated timestamps. Non-price columns pass through untouched.
-- Which time formats TradingView's export dialog offers is **still unconfirmed** (no export was
-  made); `read_bars` accepts Unix seconds and ISO 8601 either way.
+- **Export time formats, settled by two real exports** (the owner's `NASDAQ:AAPL` 1D and 30m, 2026-09-28):
+  the daily export writes `time` as a **plain date** (`2007-06-22`), the intraday one as **Unix
+  seconds**. The 30m export includes extended hours (04:00–19:30 New York, 32 bars a day), unlike
+  Yahoo's regular session. Repeated plot titles arrive as `Plot`, `Plot.1`, ... and untitled ones as
+  `Unnamed: 7`; they pass through as extra columns.
+- **Bug they exposed, fixed:** a time without an offset was read as UTC, so a plain date with
+  `tz='America/New_York'` became 20:00 the evening before, and `daily=True` put every bar a day
+  early. Such times are now wall-clock times already in `tz` (UTC if none) and are never shifted;
+  Unix seconds and times with an offset are still converted. Two tests fail on the old code, and
+  the notebook now checks the plain-date form as well.
 - 8.4 run on 2026-09-28: 10 daily `NASDAQ:AAPL` bars from the connector, written as an
   export-layout CSV and read with `read_bars(daily=True, tz='America/New_York')`. The connector's
   `t` is Unix seconds at the 09:30 New York open, so the file needs no conversion. The frame
@@ -419,6 +427,22 @@ one fixed symbol, timeframe and date range, use *Export chart data* to get a CSV
 series, commit a trimmed copy under `tests/fixtures/`, and compare with a stated tolerance. Static
 fixtures keep the suite offline. Until that exists, parity rests on a manual visual overlay —
 which is the owner's to do, and should be stated as such rather than implied.
+
+**First Tier 3 run (2026-09-28), not yet a committed fixture:** on the owner's two `NASDAQ:AAPL`
+exports (1D, 4,847 bars from 2007; 30m, 7,169 bars), computed from the exported OHLC after a
+300-bar warm-up:
+
+| Series on the chart | `ta_tools` | max relative difference |
+|---|---|---|
+| LinReg Candles *Signal Line* | `linreg_candles(..., linreg_length=14, signal_length=3)`, SMA signal | 1.6e-13 (1D), 3.1e-13 (30m) |
+| RSI | `rsi(close, 14)` | 3.3e-11 |
+| Bollinger Bands basis / upper | `bb(close, 200, 2.0)` | 3.5e-15 / 1.6e-13 |
+| an EMA | `ema(close, 15)` | 0 |
+
+The chart runs LinReg Candles at 14/3, not the script's 11/11 defaults; a search over lengths
+2–60 and both signal types found no other setting within 0.4%. The candle columns are empty
+(the chart hides the candles), so `lrc_open/high/low/close` and `lrc_bull` are still unchecked,
+as is `trendlines`, which is not on the chart. The files stay out of the repo (open call 3).
 
 `pytest` stays green and `import src.tools.ta_tools` must work from outside the repo, as
 `price_return` does.
