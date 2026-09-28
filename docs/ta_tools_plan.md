@@ -60,7 +60,7 @@ Decisions already made (do not revisit):
 | **5** ✅ | Port: vectorisable indicator | 5.1 LinReg Candles + Slope | `ta_tools/indicators.py` — **done, `7b24c0f`** | 4 |
 | **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `18572ce`** | 4, 5 |
 | **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, `d770d17`** | 3–6 |
-| **8** | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests | 2 |
+| **8** ✅ | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests — **done, not yet committed** (8.5 stays deferred) | 2 |
 | **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · `basic.py` removal · old-notebook removal | documented only | — |
 
 ## Phase 1 — Evaluate the three libraries
@@ -343,6 +343,36 @@ Tests: `_normalise` rejections (unsorted, duplicates, interior NaN in prices), a
 volume, `load_bars` still dropping an incomplete Yahoo row, the `interval` pass-through and limit
 check with stubbed yfinance, and `read_bars` on a small TradingView-format fixture with an
 indicator column, in both time formats.
+
+### Phase 8 notes
+
+- `_normalise` also fixes the index **resolution** to microseconds (pandas 3's default, as in
+  `make_bars`): Unix seconds otherwise parse to `datetime64[s]` and ISO strings to `[us]`, and
+  frames from two sources would not compare equal. Missing price columns raise `ValueError`, a
+  non-datetime index `TypeError`, and an all-NaN price column counts as a gap. Trailing NaN is
+  rejected like interior NaN.
+- Yahoo limits, refined from the plan's "1m ≈ 7 days": Yahoo keeps **1m for 30 days** and serves
+  it **7 days per request**; 2m–90m 60 days; 60m/1h 730 days, counted back from today. Checked
+  before calling yfinance, which otherwise only logs an error and returns an empty frame (which
+  `load_bars` would misreport as an unknown ticker). Unknown intervals are refused too.
+- **Not exercised against live Yahoo:** this session's network blocks it (403), so the interval
+  pass-through, limits and exchange-time index are tested with stubbed yfinance only. Worth one
+  real intraday call from the owner's machine.
+- `read_bars(path, columns=None, daily=False, tz=None)`: times without an offset are taken as UTC;
+  `tz` converts; `daily=True` keeps the calendar date in `tz`, which matters outside US hours (a
+  Tokyo bar at local midnight is the previous day in UTC — tested). Intraday data squeezed to
+  dates is caught as repeated timestamps. Non-price columns pass through untouched.
+- Which time formats TradingView's export dialog offers is **still unconfirmed** (no export was
+  made); `read_bars` accepts Unix seconds and ISO 8601 either way.
+- 8.4 run on 2026-09-28: 10 daily `NASDAQ:AAPL` bars from the connector, written as an
+  export-layout CSV and read with `read_bars(daily=True, tz='America/New_York')`. The connector's
+  `t` is Unix seconds at the 09:30 New York open, so the file needs no conversion. The frame
+  matched the connector's own summary (volume total, range, last close) and gave the ten business
+  days 14–25 September. Not committed (open judgment call 3); not compared with `load_bars`,
+  as Yahoo is blocked here.
+- Seeded mutations, each caught: no `dropna` in `load_bars`; no gap check; no Yahoo limit check;
+  `tz` ignored in `read_bars`; no index resolution fix.
+- Suite: 153 tests (130 before + 23).
 
 ## Verification
 
