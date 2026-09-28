@@ -950,7 +950,8 @@ def test_load_bars_accepts_requests_inside_yahoo_limits(monkeypatch):
         ta_tools.load_bars("AAPL", days_ago(min(days - 1, 5)), interval=interval)
 
 
-# A TradingView "Export chart data" file: daily NASDAQ bars stamped at the 09:30 New York open,
+# A TradingView "Export chart data" file with Unix-second times (as its intraday exports have; its
+# daily exports write plain dates, tested below): daily bars at the 09:30 New York open,
 # one plotted series with gaps (as a backpainted line has), then Volume. Values are made up.
 TV_EXPORT = """time,open,high,low,close,Upper,Volume
 1704205800,187.15,188.44,183.89,185.64,,82488700
@@ -1010,6 +1011,24 @@ def test_read_bars_daily_takes_the_date_in_the_exchange_timezone(tmp_path):
     tokyo = ta_tools.read_bars(write(tmp_path, text), daily=True, tz="Asia/Tokyo")
     assert utc.index[0] == pd.Timestamp("2024-01-03")
     assert tokyo.index[0] == pd.Timestamp("2024-01-04")
+
+
+def test_read_bars_keeps_plain_dates_as_written(tmp_path):
+    # TradingView writes daily bars as plain dates. They are New York dates already: reading
+    # them as UTC midnight and converting would move every bar to the evening before.
+    text = "time,open,high,low,close\n2026-09-25,1,2,0.5,1.5\n2026-09-28,1.5,2,1,1.8\n"
+    dates = [pd.Timestamp("2026-09-25"), pd.Timestamp("2026-09-28")]
+    for tz in (None, "America/New_York", "Asia/Tokyo"):
+        bars = ta_tools.read_bars(write(tmp_path, text), daily=True, tz=tz)
+        assert bars.index.tolist() == dates, tz
+
+
+def test_read_bars_takes_times_without_an_offset_as_local(tmp_path):
+    text = "time,open,high,low,close\n2024-01-02 09:30:00,1,2,0.5,1.5\n"
+    local = ta_tools.read_bars(write(tmp_path, text), tz="America/New_York")
+    assert local.index[0] == pd.Timestamp("2024-01-02 09:30", tz="America/New_York")
+    assert ta_tools.read_bars(write(tmp_path, text)).index[0] == pd.Timestamp("2024-01-02 09:30",
+                                                                               tz="UTC")
 
 
 def test_read_bars_maps_another_layout(tmp_path):

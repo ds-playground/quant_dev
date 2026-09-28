@@ -399,6 +399,11 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - `notebooks/ta_tools_read_data.ipynb` runs every data reader and checks its output. It
   found that `read_bars` could read a number one unit off in its last digit (pandas'
   default CSV parser); it now reads back exactly the floats written.
+- `read_bars` kept a time with no offset, such as the plain dates in TradingView's daily
+  export, as UTC, so with `tz='America/New_York'` every daily bar landed a day early. Such
+  times are now read as already local to `tz`. Found with two real TradingView exports,
+  which also gave the first TradingView parity check: `linreg_candles`' signal line, `rsi`,
+  `bb` and `ema` match the chart to within 1e-10.
 
 ### 2026-09-27
 - `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
