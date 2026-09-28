@@ -17,9 +17,9 @@ dependencies = [
     "pyyaml",
 ]
 
-# TA-Lib needs a C toolchain, so the technical-analysis libraries stay optional
-# rather than blocking a fresh `pip install -e .`. See requirements.txt for the
-# full notebook/Colab list.
+# src.tools.ta_tools needs this extra: TA-Lib is its primary backend, pandas_ta the
+# secondary. `ta` is here only so notebooks/ta_package_evaluation.ipynb re-runs.
+# Optional because TA-Lib has needed a C toolchain on some platforms.
 [project.optional-dependencies]
 dev = ["pytest", "ipywidgets", "nbformat", "matplotlib"]
 ta = ["pandas_ta", "ta", "TA-Lib"]
