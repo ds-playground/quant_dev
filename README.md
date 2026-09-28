@@ -145,12 +145,25 @@ quant_dev/
 │       │   ├── viz.py                     the nine Plotly charts
 │       │   ├── report.py                  formatting, interactive table, CSV export
 │       │   └── pipeline.py                per-ticker run + cross-ticker comparison
+│       ├── ta_tools/                      technical analysis (in progress)
+│       │   ├── backend.py                 the only TA-Lib / pandas_ta import site
+│       │   ├── data.py                    OHLC bars: Yahoo (load_bars) or seeded (make_bars)
+│       │   ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
+│       │   ├── volatility.py              stdev, bb (TA-Lib); true_range, atr (Pine-exact)
+│       │   ├── momentum.py                rsi (TA-Lib)
+│       │   ├── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
+│       │   └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
 │       └── basic.py                       superseded notebook-era draft (see below)
 │
+├── docs/
+│   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
 │   ├── price_return_analysis_v0.1.ipynb   frozen reference monolith
 │   ├── price_return_analysis_v0.5.ipynb   current single-ticker analysis
 │   ├── rare_case_run.ipynb                config-driven multi-ticker run
+│   ├── ta_package_evaluation.ipynb        TA-Lib vs pandas_ta vs ta
+│   ├── ta_tools_primitives.ipynb          how the ta_tools primitives are wrapped
+│   ├── ta_tools_exploration.ipynb         every ta_tools indicator on AAPL
 │   └── test_es / test_ko / test_ta_packages.ipynb
 │
 ├── pine_scripts/                          TradingView indicators
@@ -195,6 +208,9 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 | `price_return_analysis_v0.1.ipynb` | Frozen. Self-contained monolith, no package imports; kept as a reference implementation. |
 | `price_return_analysis_v0.5.ipynb` | Current. The same analysis built on `src/tools/price_return.py`. |
 | `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
+| `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
+| `ta_tools_primitives.ipynb` | Committed with outputs. How each `ta_tools` primitive is wrapped, and how it compares with Pine. |
+| `ta_tools_exploration.ipynb` | Current. AAPL since January 2023: moving averages, Bollinger Bands, both Pine ports, RSI and ATR. |
 | `test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` | Exploratory, built on the older `basic.py`. |
 
 **Two config mechanisms, deliberately.** `config.py` serves the `dev/` scratch
@@ -237,6 +253,80 @@ simply be deleted.
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
 
+## Technical analysis
+
+`src/tools/ta_tools/` wraps TA-Lib, with pandas_ta for breadth, behind a consistent
+API, and is where the Pine indicators below are being ported to Python. Its phased
+plan, with the status of each phase, is `docs/ta_tools_plan.md`.
+
+**Which library, and why.** `notebooks/ta_package_evaluation.ipynb` compares
+`pandas_ta`, `ta` and `TA-Lib` on a seeded offline OHLC fixture, judged on coverage
+and API shape:
+
+| | indicators (ex-patterns) | Pine primitives | DataFrame accessor | risk |
+|---|---|---|---|---|
+| **TA-Lib 0.6.8** | 97 | **7/10** | no | stable; C extension already builds here |
+| pandas_ta 0.4.71b0 | 151 | 6/10 | yes | beta, not validated against pandas 3 |
+| ta 0.11.0 | 80 | 3/10 | no | pure python, stable |
+
+**TA-Lib wins.** Coverage is close once TA-Lib's 61 candlestick pattern recognisers
+are set aside, and all three return a Series with the index preserved. What decides
+it is the Pine primitives: `ta` has no linear regression at all, which rules it out
+given LinReg Candles calls it four times and ZLSMA nests it. TA-Lib alone exposes
+`LINEARREG_SLOPE` and `LINEARREG_INTERCEPT` alongside `LINEARREG`, which is what
+makes Pine's `offset` semantics reconstructible as
+`LINEARREG - LINEARREG_SLOPE * offset`. `pandas_ta` also takes an `offset`, but it
+means a post-shift of the output series — a different operation, and an easy trap.
+
+Two smaller findings from the same run: `ta` returns ATR with **no** warm-up NaNs
+where the other two return 14, so it seeds differently; and TA-Lib's C extension is
+already built in this environment, contrary to the assumption behind keeping these
+libraries in the optional `[ta]` extra.
+
+**The package is part wrapper, part original code.** No library supplies pivot
+high/low with publication delay, or a harness for Pine `var` series that depend on
+their own previous bar. Those are implemented here regardless of which library is
+wrapped.
+
+**Two backends, one import site.** TA-Lib is the primary; pandas_ta is used only
+for indicators TA-Lib has no equivalent for — there are 106 once naming aliases
+are discounted, including `supertrend`, `donchian`, `kc`, `vwap` and `zigzag`. On
+any overlap TA-Lib wins, so the pandas_ta beta is never on the critical path.
+`backend.py` is the only module that imports either library, and loads pandas_ta
+lazily so importing `ta_tools` never touches the beta. A `CAPABILITIES` map records
+each primitive's source as `talib`, `pandas_ta`, `derived` or `custom`.
+
+Two pandas_ta functions are deliberately *not* used. `rma` is a genuine Pine
+primitive TA-Lib lacks, but it is a few lines on the one primitive where
+controlling warm-up matters most, so it is implemented here. And `pivots` computes
+support/resistance levels, not Pine's `pivothigh`/`pivotlow` swing detection.
+
+**Ported indicators** live in `indicators.py` and are built only from the primitives
+above, so they inherit their Pine parity. Arguments keep the Pine input names and
+defaults, and chart-only inputs (colours, line widths, visibility toggles) are dropped:
+an indicator returns data, not a drawing. `linreg_candles` ports
+`Linear_Regression_Candles_and_Slope.pine` and returns `lrc_open/high/low/close`,
+`lrc_signal`, `lrc_slope` and `lrc_bull`:
+
+```python
+from src.tools import ta_tools
+bars = ta_tools.make_bars()
+lrc = ta_tools.linreg_candles(bars['open'], bars['high'], bars['low'], bars['close'])
+tl = ta_tools.trendlines(bars['high'], bars['low'], bars['close'])   # realtime by default
+```
+
+`trendlines` ports `Trendlines_with_Breaks_Style_Options.pine` (LuxAlgo). Its
+`backpaint` defaults to **False**, the realtime series, where every value uses only
+the bars up to it. Pine defaults to `True`, which draws each line from the pivot bar
+itself; that needs `length` bars of future data, so the line columns shift `length`
+bars into the past and are NaN for the last `length` rows. Breakout signals never
+move, in either mode. Use `backpaint=True` to reproduce the TradingView chart, never
+in a backtest.
+
+Unlike the other notebooks here, the evaluation notebook is committed **with its
+outputs**. The decision is the deliverable, and the previous comparison notebook was
+useless precisely because it saved none.
+
 ## Pine scripts
 
 Each script in `pine_scripts/` is a modification of a published TradingView
@@ -267,6 +357,49 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-27
+- `src/tools/ta_tools/` package skeleton: `backend.py` as the single import site
+  for TA-Lib (primary) and pandas_ta (secondary, loaded lazily), a `CAPABILITIES`
+  map, and a seeded OHLC bar simulator whose bars are always valid.
+- First primitives: `sma`, `ema`, `wma`, `stdev`, `atr`, `bb`, `rsi` from TA-Lib, `hma` and
+  `alma` from pandas_ta. Each is checked against an independent implementation of Pine's
+  definition. `ema` and `stdev` match exactly; `atr` starts one bar later than Pine's
+  and differs by ~4% at first, converging within a few hundred bars; `alma` equals
+  Pine's `floor=true` variant, not its default. TA-Lib rejects length 1 for SMA, EMA
+  and STDDEV (and WMA, BBANDS, RSI), so those return Pine's answer directly. `wma`, `bb` and
+  `rsi` match Pine exactly, except that on a perfectly flat window TA-Lib's RSI is 0 where
+  TradingView's built-in RSI script gives 100. Multi-output indicators return a DataFrame
+  with named columns (`bb` gives `bb_mid_20`, `bb_upper_20`, `bb_lower_20`).
+- Pine primitives that no library supplies with Pine's semantics, in `pine.py`: `linreg`
+  with Pine's `offset` (built from TA-Lib's `LINEARREG` and `LINEARREG_SLOPE`), `rma`,
+  `pivot_high`/`pivot_low` published `right` bars after the pivot, `change`, `crossover`,
+  `crossunder`, `barssince`, `nz`, and `recurse` for Pine `var` state that depends on its
+  own previous bar. Pine does not document how pivots break ties; here a flat top of
+  equal highs yields one pivot, at its last bar. A no-look-ahead test now covers every
+  indicator: removing the bars after any point never changes the values before it.
+- `atr` rebuilt as `rma(true_range)`, matching Pine's `ta.atr` exactly, with a new
+  `true_range` (Pine's `ta.tr`). TA-Lib's ATR is no longer used: it has no true range
+  for the first bar, so it started a bar later and was 1-4% off Pine early on.
+- First ported indicator: `linreg_candles` in `indicators.py`, from
+  `Linear_Regression_Candles_and_Slope.pine`. It matches a line-by-line rewrite of the
+  script (built on `numpy.polyfit`) for both the SMA and EMA signal. Because the four
+  prices are fitted separately, about 2% of LinReg candles have a high below the body
+  or a low above it; Pine draws these as they are, and so does the port.
+- `load_bars(ticker, start, end=None)` fetches daily OHLCV from Yahoo Finance in the same
+  shape as `make_bars`, unadjusted like `price_return`. `notebooks/ta_tools_exploration.ipynb`
+  uses it to chart every `ta_tools` indicator on AAPL since January 2023.
+- Second ported indicator: `trendlines`, from `Trendlines_with_Breaks_Style_Options.pine`,
+  with the ATR, Stdev and Linreg slope methods. The lines and breakout latches follow
+  Pine's bar-by-bar `var` logic through `recurse`, checked against a closed-form rewrite
+  of the script. `backpaint` defaults to False (realtime); `True` reproduces Pine's chart
+  and is tested to look ahead. Pine's `Linreg` slope is half the absolute least-squares
+  slope and, unlike the other two, is not divided by `length`; the port keeps this.
+
+### 2026-09-24
+- Evaluated `pandas_ta`, `ta` and `TA-Lib` on coverage and API shape; chose TA-Lib to
+  wrap, on the strength of its linear-regression primitives. See Technical analysis
+  above and `notebooks/ta_package_evaluation.ipynb`.
 
 ### 2026-09-19
 - `price_return` became a package: `params`, `data`, `analysis`, `viz`, `report`,
