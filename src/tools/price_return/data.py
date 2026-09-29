@@ -71,12 +71,25 @@ def load_price_data(p=None, verbose=True):
               f'Std: {df.return_pct.std():.3f}%')
     return df
 
+def compound_returns(returns, n):
+    """The n-day return ending on each day, compounded: (1 + r1)(1 + r2)...(1 + rn) - 1.
+
+    `returns` are decimal daily returns. This is the package's one definition of a multi-day
+    return. Summing the daily returns instead overstates losses and understates gains, by a
+    gap that grows with the horizon and the volatility. NaN until `n` returns are available.
+    """
+    if n == 1:
+        return returns.copy()
+    return np.expm1(np.log1p(returns).rolling(n).sum())
+
 def add_rolling_stats(df, p=None):
     """Add `PCT Change {d}` / `{d} Av` / `{d} STD` columns plus the annualized pair.
 
-    For each holding period `d`, the d-day cumulative return is computed, then its
-    rolling mean and std over `trade_days` days. Returns are decimal fractions here
-    (0.0004), converted from the percent-scale `return_pct` column.
+    For each holding period `d`, the d-day compounded return (`compound_returns`) is computed,
+    then its rolling mean and std over `trade_days` days. The annualized return is the
+    compounded return over the last `trade_days` days; the annualized volatility is the daily
+    std scaled by sqrt(trade_days). Returns are decimal fractions here (0.0004), converted from
+    the percent-scale `return_pct` column.
     """
     p = _params(p)
     trade_d = p.trade_days
@@ -86,13 +99,13 @@ def add_rolling_stats(df, p=None):
     df['PCT Change 1']     = df['return_pct'] / 100
     df['PCT Change 1 Av']  = df['PCT Change 1'].rolling(trade_d).mean()
     df['PCT Change 1 STD'] = df['PCT Change 1'].rolling(trade_d).std()
-    df['PCT Change Annualized']     = df['PCT Change 1'].rolling(trade_d).sum()
+    df['PCT Change Annualized']     = compound_returns(df['PCT Change 1'], trade_d)
     df['PCT Change Annualized STD'] = df['PCT Change 1 STD'] * trade_d ** 0.5
 
     for d in p.roll_windows:
         if d == 1:
             continue    # already computed above
-        df[f'PCT Change {d}']     = df['PCT Change 1'].rolling(d).sum()
+        df[f'PCT Change {d}']     = compound_returns(df['PCT Change 1'], d)
         df[f'PCT Change {d} Av']  = df[f'PCT Change {d}'].rolling(trade_d).mean()
         df[f'PCT Change {d} STD'] = df[f'PCT Change {d}'].rolling(trade_d).std()
 
