@@ -211,6 +211,7 @@ quant_dev/
 │           └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
 │
 ├── docs/
+│   ├── dashboard_plan.md                  React dashboard POC plan, with status
 │   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
