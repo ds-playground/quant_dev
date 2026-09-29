@@ -477,3 +477,49 @@ def test_student_t_model_gives_fat_tails_more_weight():
     model = pr.model_probabilities(r, 1, pr.Params(), thresholds=[0.04], lookback_years=[5])
     row = model.set_index(["change_type", "change"]).loc[("consecutive", "above")]
     assert row["prob_t"] > 3 * row["prob_normal"]
+
+
+# ── Phase 5: statistics charts ──────────────────────────────────────────────
+def test_statistics_charts_build():
+    pytest.importorskip("scipy")
+    params = pr.Params()
+    r = garch_returns(1500, 23)
+    table = pr.probability_intervals(r, 3, params, n_boot=100).merge(
+        pr.model_probabilities(r, 3, params, n_sims=20_000),
+        on=["change_type", "change", "threshold", "n_days", "n_years"])
+    figures = {
+        "qq": pr.plot_qq(r),
+        "acf": pr.plot_autocorrelation(pr.autocorrelation(r)),
+        "drawdown": pr.plot_drawdown(r),
+        "rolling": pr.plot_rolling_risk(pr.rolling_risk(r, 250), window=250),
+        "events": pr.plot_event_probabilities(table, "cumulative", "above", n_years=5),
+    }
+    assert [t.name for t in figures["qq"].data] == ["Normal", "Student-t", "Perfect fit"]
+    assert [t.name for t in figures["events"].data] == ["Observed", "Normal model",
+                                                        "Student-t model"]
+    assert figures["events"].layout.yaxis.type == "log"
+    assert len(figures["drawdown"].layout.annotations) == 3          # deepest troughs labelled
+    for name, fig in figures.items():
+        # One y-scale per plot: panels may sit side by side or stacked, never overlaid.
+        assert not any(getattr(fig.layout[a], "overlaying", None)
+                       for a in fig.layout if a.startswith("yaxis")), name
+
+
+def test_autocorrelation_chart_draws_the_band_in_both_panels():
+    acf = pr.autocorrelation(normal_returns(500, 24))
+    fig = pr.plot_autocorrelation(acf)
+    bands = [s for s in fig.layout.shapes if s.type == "rect"]
+    assert len(bands) == 2
+    assert all(s.y1 == pytest.approx(acf["band"].iloc[0]) for s in bands)
+
+
+def test_event_chart_leaves_out_zero_probabilities():
+    table = pd.DataFrame({"change_type": "cumulative", "change": "above", "n_days": 3,
+                          "n_years": 2, "threshold": [0.01, 0.02, 0.05],
+                          "prob": [0.1, 0.01, 0.0], "lower": [0.08, 0.0, 0.0],
+                          "upper": [0.12, 0.03, 0.0], "prob_normal": [0.09, 0.005, 1e-6],
+                          "prob_t": [0.1, 0.01, 1e-4]})
+    fig = pr.plot_event_probabilities(table)
+    observed = fig.data[0]
+    assert list(observed.x) == [1.0, 2.0] and list(observed.y) == [10.0, 1.0]
+    assert len(fig.data[1].x) == 3                                  # models are never zero
