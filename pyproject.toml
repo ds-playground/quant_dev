@@ -23,6 +23,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "ipywidgets", "nbformat"]
 ta = ["pandas_ta", "ta", "TA-Lib"]
+# src.tools.price_return.stats needs scipy for chi-squared p-values and the Student-t fit.
+stats = ["scipy"]
 
 [tool.setuptools.packages.find]
 where = ["."]

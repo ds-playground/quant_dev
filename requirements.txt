@@ -16,6 +16,9 @@ ipywidgets
 # Data Retrieval Libraries
 yfinance
 
+# Statistics (price_return.stats)
+scipy
+
 # Technical Analysis Libraries
 pandas_ta
 TA-Lib
