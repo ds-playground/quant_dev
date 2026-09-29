@@ -68,7 +68,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | # | Phase | Deliverable |
 |---|---|---|
 | **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `0051b6d`; this plan as `docs/price_return_plan.md` |
-| **1** | Port the option helpers | `src/tools/price_return/options.py` + tests |
+| **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, not yet committed** |
 | **2** | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated |
 | **3** | Fix existing methods | issues 1–3 above, each with a test that fails on the old code |
 | **4** | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra |
@@ -101,6 +101,25 @@ Rebuilt as pure functions that **return tables instead of printing**, reusing
 - **Tests:** closed-form values for `price_range`; `move_probabilities` against a hand-counted
   small series; `expected_pnl` arithmetic. A one-off **parity check against `basic.py`** on
   simulated data (same numbers, run before `basic.py` is deleted, recorded in the plan notes).
+
+### Phase 1 notes
+
+- `price_range`, `move_probabilities` and `expected_pnl` are exported from `price_return`. The
+  legacy method names map as `th` → `scaled`, `act` → `actual`, `fix` → `fixed`; directions keep
+  the legacy names (`above`, `below`, `exceeding`) so the `test_es` grids paste in unchanged.
+- **Parity with `basic.py`, checked before its deletion:** the four `test_es` P&L grids
+  (cells 33–36, verbatim) on 9 simulated series (seeds 1, 7, 42 × daily vol 0.6, 1.2, 2.5%), with
+  `sd_th = 0.01`, `sd_fix = 0.02`, contract size 100. All 972 probabilities and expected P&Ls
+  match `sd_and_cond` + `profit_estimate` exactly (max difference 0). All 108 `price_range`
+  bands (4 prices × 3 vols × 5 day counts and 4 hour counts, `tick=0.1`) match
+  `projected_min_max` / `accepted_min_max` exactly.
+- One deliberate difference: `prob` divides by the **complete** windows in the trailing
+  `trade_days` rows (`n_obs`), where `profit_estimate` always divided by `trade_days`. They agree
+  whenever the history is longer than `trade_days` plus the horizon, as in every check above.
+- `tick` rounding multiplies by `1 / tick` when that is a whole number, as `basic.py` did (`* 10`).
+  Dividing by the tick instead moves a price already on the tick (4.1 → 4.0); a test covers this.
+- Tests: 14 in `tests/test_price_return_stats.py` (closed-form bands, a hand-counted 7-row frame,
+  the P&L arithmetic). Six seeded mutations were each caught. Suite: 170 (156 + 14).
 
 ## Phase 2: remove legacy
 
