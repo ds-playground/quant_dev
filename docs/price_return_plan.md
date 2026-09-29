@@ -7,8 +7,8 @@ a later phase needs to know.
 
 ## Picking this up
 
-- **Setup:** Python 3.12 or newer. `pip install -e ".[ta,dev]"` from the repo root (add `stats`
-  once Phase 4 exists), then `pytest`; all tests should pass offline.
+- **Setup:** Python 3.12 or newer. `pip install -e ".[ta,stats,dev]"` from the repo root, then
+  `pytest`; all tests should pass offline.
 - **Phases are the unit of work.** Do one phase when asked, then stop; do not start the next one
   unprompted. Commit and push at the end of each phase.
 - **Stay within the plan.** Propose new deliverables as changes to this plan.
@@ -71,7 +71,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, `efd3337`** |
 | **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, `8eb2a7c`** |
 | **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `d739cb1`** |
-| **4** | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra |
+| **4** ✅ | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra — **done, not yet committed** |
 | **5** | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed |
 | **6** | Docs | README methodology, notebooks table, changelog; plan statuses |
 
@@ -225,6 +225,47 @@ verify written out.
   i.i.d. data, but rejecting on a seeded GARCH(1,1); Hill recovering α on a Pareto sample; VaR on
   a normal sample against its quantile; drawdowns on a hand-built path; bootstrap intervals
   covering the true probability at roughly the nominal rate on seeded i.i.d. data.
+
+### Phase 4 notes
+
+- `price_return/stats.py`, 19 functions, all exported:
+  - **distribution and tails:** `return_moments`, `jarque_bera`, `fit_student_t`, `qq_points`,
+    `tail_index` (Hill), `value_at_risk` (historical, normal and Cornish–Fisher VaR and ES over
+    1/5/10-day compounded horizons);
+  - **dependence:** `autocorrelation` (returns, squared, absolute, with the 95% band),
+    `ljung_box`, `variance_ratio` (Lo–MacKinlay with robust z*), `arch_lm`;
+  - **drawdowns and ratios:** `drawdown_series`, `drawdown_table`, `max_drawdown`,
+    `risk_ratios`, `rolling_risk`;
+  - **uncertainty:** `stationary_bootstrap`, `bootstrap_interval`, `probability_intervals`
+    (bootstrap bands on the rare-event probabilities), `model_probabilities` (what an i.i.d.
+    normal and a fitted Student-t predict).
+- **scipy is optional and lazy.** Only `fit_student_t`, `qq_points(dist='t')`, `ljung_box`,
+  `arch_lm` and `model_probabilities` need it; they raise an install hint without it. Normal
+  quantiles use the standard library's `NormalDist`, and the Jarque–Bera p-value is `exp(-JB/2)`
+  (chi-squared with 2 df). Verified by importing with scipy blocked.
+- **Bug caught while building:** `variance_ratio` first mixed two presentations of Lo–MacKinlay
+  (the asymptotic δ(j), which carries a factor n, with the finite-sample φ, which has already
+  divided by n), so the robust z* was about 50 times too small. On i.i.d. data it gave z = −0.45
+  against z* = −0.01. Fixed by dropping n from δ(j); a test now requires z ≈ z* on
+  constant-volatility data.
+- `probability_intervals` computes the four event types for all thresholds at once on the
+  bootstrap samples (cumulative sums, no rolling windows). Its point estimate equals
+  `consecutive_analysis`'s `prob` to 1e-12 for 1, 3 and 10 days, which is tested. Default block
+  mean is max(2 × n_days, 10), so most windows are resampled whole.
+- `model_probabilities` fits both models to log returns: the normal is exact (log returns add
+  over n days); the t is exact for consecutive events and simulated for cumulative ones.
+- **Cornish–Fisher overshoots at 99%.** On a t(10) (excess kurtosis 1) it gives 0.0284 against a
+  true 0.0276, still twice as close as the normal (0.0260). This is a property of the expansion,
+  not a bug: the test checks it against the textbook formula with the population moments.
+- **Tests:** 24 more in `tests/test_price_return_stats.py`. References: scipy's own moments and
+  Jarque–Bera; Ljung–Box and the autocorrelation written out in the test; ARCH-LM at one lag equal
+  to (n − 1) × corr²; the variance ratio against 1 + 2Σ(1 − k/q)ρ_k on AR(1) paths; Hill on a
+  Pareto sample; VaR on hand-built and large normal samples; drawdowns and ratios on hand-built
+  paths; bootstrap coverage of 88–99% over 200 datasets. 14 seeded mutations, each caught.
+  Suite: 200.
+- Two test designs were corrected, not loosened: the Hill check first used a *shifted* Pareto
+  (Hill is scale- but not shift-invariant), and the Q-Q check first compared the single most
+  extreme point, which is noise for any fit; it now compares the central 98%.
 
 ## Phase 5: charts and notebooks
 

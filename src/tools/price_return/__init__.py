@@ -14,7 +14,7 @@ that object around::
     df = add_rolling_stats(load_price_data(P), P)
 
 The implementation is split across `params`, `data`, `analysis`, `viz`, `report`,
-`pipeline` and `options`; everything public is re-exported here, so importing from
+`pipeline`, `options` and `stats`; everything public is re-exported here, so importing from
 `src.tools.price_return` works exactly as it did when this was one module.
 """
 
@@ -33,6 +33,11 @@ from .report import (format_probability_table, interactive_low_probability,
                      export_tables)
 from .pipeline import analyze_ticker, compare_tickers
 from .options import price_range, move_probabilities, expected_pnl
+from .stats import (return_moments, jarque_bera, fit_student_t, qq_points, tail_index,
+                    value_at_risk, autocorrelation, ljung_box, variance_ratio, arch_lm,
+                    drawdown_series, drawdown_table, max_drawdown, risk_ratios, rolling_risk,
+                    stationary_bootstrap, bootstrap_interval, probability_intervals,
+                    model_probabilities)
 
 __all__ = [
     'Params',
@@ -54,4 +59,14 @@ __all__ = [
     'load_ticker_config', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
     # option sizing
     'price_range', 'move_probabilities', 'expected_pnl',
+    # statistics: distribution and tails
+    'return_moments', 'jarque_bera', 'fit_student_t', 'qq_points', 'tail_index',
+    'value_at_risk',
+    # statistics: dependence and volatility clustering
+    'autocorrelation', 'ljung_box', 'variance_ratio', 'arch_lm',
+    # statistics: drawdowns and risk-adjusted returns
+    'drawdown_series', 'drawdown_table', 'max_drawdown', 'risk_ratios', 'rolling_risk',
+    # statistics: uncertainty on probabilities
+    'stationary_bootstrap', 'bootstrap_interval', 'probability_intervals',
+    'model_probabilities',
 ]
