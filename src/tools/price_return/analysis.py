@@ -3,8 +3,23 @@
 import numpy as np
 import pandas as pd
 
+from .data import compound_returns
 from .params import _params
 
+
+def _episodes(hit):
+    """Distinct occurrences in a per-window hit mask: runs of consecutive hits count once.
+
+    Rolling windows overlap, so one 6-day run of wins is five 2-day win windows but a single
+    episode. `hit` is indexed by the position of each window's last day.
+    """
+    hit = np.asarray(hit, dtype=bool)
+    return int(hit[0] + (hit[1:] & ~hit[:-1]).sum()) if len(hit) else 0
+
+def _episodes_from_ends(end_positions):
+    """The same count, from the sorted positions of the windows that hit."""
+    ends = np.asarray(end_positions)
+    return int(len(ends) and 1 + (np.diff(ends) > 1).sum())
 
 def detect_streaks(df, p=None):
     """Find every rolling window where *all* days are wins (or all are losses)."""
@@ -23,6 +38,7 @@ def detect_streaks(df, p=None):
             entry = {
                 'start':      pd.Timestamp(dates[i - w + 1]),
                 'end':        pd.Timestamp(dates[i]),
+                'end_pos':    i,
                 'returns':    window_rets.tolist(),
                 'avg_return': round(float(avg), 4),
                 'min_return': round(float(window_rets.min()), 4),
@@ -36,47 +52,54 @@ def detect_streaks(df, p=None):
     return results
 
 def summarize_streaks(df, streaks, p=None):
-    """One row per window: streak counts, frequencies and average returns."""
+    """One row per window: streak counts, distinct runs, frequencies and average returns.
+
+    A frequency is the share of complete `w`-day windows (`len(df) - w + 1`) that are streaks.
+    Streaks overlap, so `Win Episodes` / `Loss Episodes` count each unbroken run once.
+    """
     p = _params(p)
-    total_windows = len(df)
     rows = []
     for w in p.windows:
+        n_windows = max(len(df) - w + 1, 0)
         nw = len(streaks[w]['wins'])
         nl = len(streaks[w]['losses'])
         rows.append({
             'Window': f'{w}d',
             'Win Streaks': nw,
-            'Win Freq %': round(nw / total_windows * 100, 2),
+            'Win Episodes': _episodes_from_ends([s['end_pos'] for s in streaks[w]['wins']]),
+            'Win Freq %': round(nw / n_windows * 100, 2) if n_windows else np.nan,
             'Loss Streaks': nl,
-            'Loss Freq %': round(nl / total_windows * 100, 2),
+            'Loss Episodes': _episodes_from_ends([s['end_pos'] for s in streaks[w]['losses']]),
+            'Loss Freq %': round(nl / n_windows * 100, 2) if n_windows else np.nan,
             'Avg Win Ret %': round(np.mean([s['avg_return'] for s in streaks[w]['wins']]) if nw else 0, 3),
             'Avg Loss Ret %': round(np.mean([s['avg_return'] for s in streaks[w]['losses']]) if nl else 0, 3),
         })
     return pd.DataFrame(rows)
 
 def analyze_cumulative(df, p=None):
-    """Count rolling windows whose *compounded* return clears each threshold."""
+    """Count rolling windows whose *compounded* return clears each threshold.
+
+    `frequency` is the share of complete windows; `episodes` counts each unbroken run of
+    clearing windows once.
+    """
     p = _params(p)
-    rets = df['return_pct'].values
+    rets = df['return_pct'].reset_index(drop=True) / 100
     dates = df['date'].values
     results = {}
 
     for w in p.windows:
         results[w] = {}
+        cum = (compound_returns(rets, w) * 100).to_numpy()    # percent, like cum_thresholds
+        n_windows = max(len(rets) - w + 1, 0)
         for thr in p.cum_thresholds:
-            hits = []
-            for i in range(w - 1, len(rets)):
-                window_rets = rets[i - w + 1 : i + 1]
-                cum_ret = (np.prod(1 + window_rets / 100) - 1) * 100
-                if cum_ret >= thr:
-                    hits.append({
-                        'end_date': pd.Timestamp(dates[i]),
-                        'cum_return': round(float(cum_ret), 4)
-                    })
-            n_windows = len(rets) - w + 1
+            with np.errstate(invalid='ignore'):
+                hit = cum >= thr
+            hits = [{'end_date': pd.Timestamp(dates[i]), 'cum_return': round(float(cum[i]), 4)}
+                    for i in np.flatnonzero(hit)]
             results[w][thr] = {
                 'count': len(hits),
-                'frequency': round(len(hits) / n_windows * 100, 2),
+                'episodes': _episodes(hit),
+                'frequency': round(len(hits) / n_windows * 100, 2) if n_windows else np.nan,
                 'hits': hits
             }
     return results
@@ -89,8 +112,9 @@ def summarize_cumulative(cum_analysis, p=None):
         row = {'Window': f'{w}d'}
         for thr in p.cum_thresholds:
             d = cum_analysis[w][thr]
-            row[f'≥{thr}% Count']  = d['count']
-            row[f'≥{thr}% Freq %'] = d['frequency']
+            row[f'≥{thr}% Count']    = d['count']
+            row[f'≥{thr}% Episodes'] = d['episodes']
+            row[f'≥{thr}% Freq %']   = d['frequency']
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -99,25 +123,30 @@ def consecutive_analysis(pct_change, return_threshold, n_days, n_years, p=None):
 
     Two event types are measured on the trailing window:
       consecutive - every one of the n_days moves beyond the threshold
-      cumulative  - the n_days returns *summed* move beyond the threshold
+      cumulative  - the n_days *compounded* return moves beyond the threshold
     each in both directions ('above' = winning, 'below' = losing).
+
+    `prob` is `count / n_windows`, the share of the complete n_days windows inside the
+    lookback. The windows overlap, so `episodes` also counts each unbroken run of hits once.
 
     Returns a 4-row DataFrame: one row per event type x direction.
     """
     p = _params(p)
     window = pct_change.dropna().iloc[-n_years * p.trade_days:]
-    cum_sum = window.rolling(n_days).sum()
+    cum = compound_returns(window, n_days)
+    n_windows = max(len(window) - n_days + 1, 0)
 
     masks = {
         ('consecutive', 'above'): (window >=  return_threshold).rolling(n_days).sum() == n_days,
         ('consecutive', 'below'): (window <= -return_threshold).rolling(n_days).sum() == n_days,
-        ('cumulative',  'above'): cum_sum >=  return_threshold,
-        ('cumulative',  'below'): cum_sum <= -return_threshold,
+        ('cumulative',  'above'): cum >=  return_threshold,
+        ('cumulative',  'below'): cum <= -return_threshold,
     }
 
     rows = []
     for (change_type, change), mask in masks.items():
         hits = window.index[mask.to_numpy()]
+        count = int(mask.sum())
         rows.append({
             'change_type':   change_type,
             'change':        change,
@@ -125,8 +154,10 @@ def consecutive_analysis(pct_change, return_threshold, n_days, n_years, p=None):
             'n_days':        n_days,
             'n_years':       n_years,
             'n_obs':         len(window),          # trading days actually available
-            'count':         int(mask.sum()),
-            'prob':          mask.sum() / len(window),
+            'n_windows':     n_windows,            # complete n_days windows among them
+            'count':         count,
+            'episodes':      _episodes(mask.to_numpy()),
+            'prob':          count / n_windows if n_windows else np.nan,
             'last_occurred': hits[-1].date() if len(hits) else pd.NaT,
         })
     return pd.DataFrame(rows)

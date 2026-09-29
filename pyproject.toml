@@ -21,8 +21,10 @@ dependencies = [
 # secondary. `ta` is here only so notebooks/ta_package_evaluation.ipynb re-runs.
 # Optional because TA-Lib has needed a C toolchain on some platforms.
 [project.optional-dependencies]
-dev = ["pytest", "ipywidgets", "nbformat", "matplotlib"]
+dev = ["pytest", "ipywidgets", "nbformat"]
 ta = ["pandas_ta", "ta", "TA-Lib"]
+# src.tools.price_return.stats needs scipy for chi-squared p-values and the Student-t fit.
+stats = ["scipy"]
 
 [tool.setuptools.packages.find]
 where = ["."]

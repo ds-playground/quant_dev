@@ -63,7 +63,7 @@ Decisions already made (do not revisit):
 | **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `18572ce`** | 4, 5 |
 | **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, `550ac82`** | 3–6 |
 | **8** ✅ | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests — **done, `ba40bf2`** (8.5 stays deferred) | 2 |
-| **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · `basic.py` removal · old-notebook removal | documented only | — |
+| **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · ~~`basic.py` removal · old-notebook removal~~ (done, see `docs/price_return_plan.md`) | documented only | — |
 
 ## Phase 1 — Evaluate the three libraries
 
@@ -545,9 +545,9 @@ LinReg Candles with the candles shown.
   neither vendored here. Needs normalised RSI/WaveTrend/CCI/ADX, regime and volatility filters,
   and two kernel regressions reimplemented before the classifier itself, whose approximate-NN
   search is `O(bars × maxBarsBack)` and inherently loop-based. A project of its own.
-- **`basic.py` removal** — deferred by the owner. Note for when it resurfaces: `sd_and_cond`,
-  `profit_estimate`, `accepted_min_max` and `projected_min_max` have no successor anywhere, and
-  `profit_estimate` is the repo's only expected-value/position-sizing code — directly relevant to
-  the option-strategy use case.
-- **Old notebooks** (`test_es`, `test_ko`, `test_ta_packages`) — deferred. `test_es.ipynb` cells
-  33–36 hold hand-tuned ES option P&L scenario grids that exist nowhere else.
+- ~~**`basic.py` removal**~~ — **done** on `dev/legacy_code_removal` (`docs/price_return_plan.md`,
+  Phases 1–2). `sd_and_cond`, `profit_estimate`, `accepted_min_max` and `projected_min_max` were
+  first rebuilt in `price_return/options.py` and matched the originals exactly.
+- ~~**Old notebooks**~~ (`test_es`, `test_ko`, `test_ta_packages`) — **removed** in the same work.
+  `test_es.ipynb`'s P&L grids (cells 33–36) run through `options.expected_pnl` unchanged, and move
+  into the price-return statistics notebook (that plan's Phase 5).
