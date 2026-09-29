@@ -70,7 +70,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `0051b6d`; this plan as `docs/price_return_plan.md` |
 | **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, `efd3337`** |
 | **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, `8eb2a7c`** |
-| **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, not yet committed** |
+| **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `d739cb1`** |
 | **4** | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra |
 | **5** | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed |
 | **6** | Docs | README methodology, notebooks table, changelog; plan statuses |
