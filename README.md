@@ -149,7 +149,7 @@ holding period (1 to 30 days) and lookback window (2 or 5 years), this measures 
 often a move of at least that size occurred over that horizon: `prob` is the share of
 complete windows (`n_windows`), with `count` and `episodes` alongside. Filtering to the low
 end — events that did happen but rarely — produces the rare-event table, which is
-browsable interactively in the v0.5 notebook via `interactive_low_probability`.
+browsable interactively in `price_return_analysis.ipynb` via `interactive_low_probability`.
 
 **Statistics (`price_return/stats.py`, `notebooks/price_return_statistics.ipynb`).** Four
 groups of questions about the same daily returns:
@@ -214,7 +214,7 @@ quant_dev/
 │   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
-│   ├── price_return_analysis_v0.5.ipynb   current single-ticker analysis
+│   ├── price_return_analysis.ipynb        single-ticker streak and rare-event analysis
 │   ├── price_return_statistics.ipynb      statistics of one ticker's returns, option sizing
 │   ├── rare_case_run.ipynb                config-driven multi-ticker run
 │   ├── ta_package_evaluation.ipynb        TA-Lib vs pandas_ta vs ta
@@ -263,7 +263,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 
 | Notebook | Status |
 |---|---|
-| `price_return_analysis_v0.5.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
+| `price_return_analysis.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
 | `price_return_statistics.ipynb` | Current, committed without outputs. One ticker (default `ES=F`, thresholds from `configs/tickers.yaml`): distribution and tails, dependence, drawdowns and risk, the rare-event probabilities with bootstrap intervals and model comparisons, and option sizing with the four P&L grids from the retired `test_es`. Needs the `stats` extra. |
 | `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
 | `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
@@ -465,10 +465,11 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   probabilities. Five matching charts in `viz.py`. `scipy` is a new optional extra,
   `stats`. The notebook ends with option sizing, running the four P&L grids from the
   retired `test_es` unchanged.
-- `price_return_analysis_v0.5` and `rare_case_run`: links point to the package, and the
+- `price_return_analysis_v0.5.ipynb` is renamed `price_return_analysis.ipynb`, the one
+  version kept now that v0.1 is gone. It and `rare_case_run` link to the package, and the
   wording matches compounded moves, complete-window frequencies and episodes.
-- Fixed three inconsistencies in `price_return`, so results in v0.5 and
-  `rare_case_run` shift (explained under Methodology). Multi-day returns are now
+- Fixed three inconsistencies in `price_return`, so results in
+  `price_return_analysis` and `rare_case_run` shift (explained under Methodology). Multi-day returns are now
   compounded everywhere; they were added up in the rolling columns, the annualized
   return and the rare-event "cumulative" rows. Every frequency now divides by the
   complete windows, not the days (streak frequencies and rare-event `prob` rise
@@ -482,7 +483,7 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   successor were first rebuilt in `price_return/options.py` as `price_range`,
   `move_probabilities` and `expected_pnl`, which return tables instead of printing and
   match the originals exactly on `test_es`'s P&L grids. The rest is covered by the
-  `price_return` package, `price_return_analysis_v0.5`, `rare_case_run` and
+  `price_return` package, `price_return_analysis`, `rare_case_run` and
   `ta_package_evaluation`. `matplotlib` is no longer a dependency; only the removed
   files used it.
 

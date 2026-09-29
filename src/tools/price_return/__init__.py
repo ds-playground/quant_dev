@@ -1,6 +1,6 @@
 """Historical price & return analysis.
 
-Helpers for the `price_return_analysis` notebooks: loading a price series
+Helpers for the `price_return_analysis` notebook: loading a price series
 (simulated or Yahoo Finance), deriving rolling statistics, detecting win/loss
 streaks, measuring cumulative-threshold and rare-event probabilities, and
 drawing the Plotly charts for each.

@@ -41,7 +41,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | `basic.px_plot` (Plotly layout helper) | `price_return/viz.py` styling | delete |
 | `basic.consecutive_analysis` (prints, returns formatted strings) | `price_return.analysis.consecutive_analysis` (numeric, `n_obs`, `last_occurred`) | delete |
 | `basic.sd_and_cond`, `profit_estimate`, `accepted_min_max`, `projected_min_max` | **none**, so port to `price_return/options.py` (Phase 1) | port, then delete |
-| `test_es` cells 0–32, `test_ko` (the same notebook for KO) | `price_return_analysis_v0.5.ipynb` + `rare_case_run.ipynb` (ES=F is in `configs/tickers.yaml`; KO runs in v0.5 with `ticker='KO'`) | delete |
+| `test_es` cells 0–32, `test_ko` (the same notebook for KO) | `price_return_analysis.ipynb` (was v0.5) + `rare_case_run.ipynb` (ES=F is in `configs/tickers.yaml`; KO runs in v0.5 with `ticker='KO'`) | delete |
 | `test_es` cells 33–36 (hand-tuned option P&L grids) | **none**, so it becomes the P&L example in the new notebook (Phase 5) | port, then delete |
 | `test_ta_packages.ipynb` (SMA-20 in 3 libraries) | `ta_package_evaluation.ipynb` | delete |
 | `price_return_analysis_v0.1.ipynb` (frozen monolith) | the `price_return` package + v0.5 + `tests/test_smoke.py` | delete |
@@ -333,13 +333,21 @@ Plan statuses and commit hashes, as in the `ta_tools` plan.
   run of `price_return_statistics.ipynb` and `rare_case_run` on Yahoo data will show the real-ticker
   numbers that could not be produced here (Yahoo is blocked in this environment).
 
+### After the plan: one price-return analysis notebook
+
+- At the owner's request, `price_return_analysis_v0.5.ipynb` is renamed
+  `price_return_analysis.ipynb`, so there is a single version (v0.1 was removed in Phase 2). "v0.5"
+  in the phase notes above refers to this notebook. References updated in the README (layout,
+  notebooks table, methodology, this work's changelog entry), the statistics notebook's links and
+  text, and the package docstring. The rename is a `git mv`, so the file's history follows it.
+
 ## Critical files
 
 - New: `src/tools/price_return/options.py`, `src/tools/price_return/stats.py`,
   `notebooks/price_return_statistics.ipynb`, `docs/price_return_plan.md`,
   `tests/test_price_return_stats.py` (Phases 1, 3 and 4 tests).
 - Modified: `src/tools/price_return/{analysis,data,viz,params,__init__}.py`,
-  `tests/test_smoke.py`, `notebooks/price_return_analysis_v0.5.ipynb`, `pyproject.toml`,
+  `tests/test_smoke.py`, `notebooks/price_return_analysis.ipynb` (renamed from v0.5), `pyproject.toml`,
   `requirements.txt`, `README.md`, `docs/ta_tools_plan.md`.
 - Deleted: `src/tools/basic.py`, `notebooks/test_{es,ko,ta_packages}.ipynb`,
   `notebooks/price_return_analysis_v0.1.ipynb`.
