@@ -55,7 +55,12 @@ newer, so the project requires 3.12:
 ```bash
 pip install -e ".[dev]"   # pytest, ipywidgets, nbformat
 pip install -e ".[ta]"    # pandas_ta, ta, TA-Lib
+pip install -e ".[stats]" # scipy, for price_return.stats
 ```
+
+`price_return` imports without scipy; only the five statistics functions that need it
+(`fit_student_t`, `qq_points(dist='t')`, `ljung_box`, `arch_lm`, `model_probabilities`)
+raise an install hint.
 
 `requirements.txt` remains the flat list used by Colab.
 
@@ -146,6 +151,32 @@ complete windows (`n_windows`), with `count` and `episodes` alongside. Filtering
 end — events that did happen but rarely — produces the rare-event table, which is
 browsable interactively in the v0.5 notebook via `interactive_low_probability`.
 
+**Statistics (`price_return/stats.py`, `notebooks/price_return_statistics.ipynb`).** Four
+groups of questions about the same daily returns:
+
+- *Distribution and tails.* Moments and the Jarque–Bera test; a maximum-likelihood
+  Student-t fit and Q-Q points against it and a normal; the Hill tail index for each tail
+  (smaller is fatter; below 4, kurtosis is not a stable number); and value at risk and
+  expected shortfall over 1, 5 and 10-day compounded horizons, by three methods:
+  historical, normal, and Cornish–Fisher (the normal quantile corrected for skew and
+  kurtosis). Cornish–Fisher overshoots somewhat at 99% on fat tails; historical is the
+  one to trust when the history is long. Multi-day VaR uses overlapping windows, so
+  longer horizons rest on fewer independent observations than their row counts suggest.
+- *Dependence and volatility clustering.* Autocorrelation of returns and of squared
+  returns with the 95% band, the Ljung–Box test on both, the Lo–MacKinlay variance ratio
+  with its heteroskedasticity-robust z* (above 1: moves persist; below 1: they partly
+  reverse), and Engle's ARCH-LM test. All three tests are written out from their papers.
+- *Drawdowns and risk-adjusted returns.* The drawdown from the running peak (starting
+  capital included), the deepest drawdowns with peak, trough, recovery and durations,
+  and Sharpe, Sortino and Calmar ratios, overall and rolling.
+- *Uncertainty on the rare-event probabilities.* Each probability gets a 95% interval
+  from a stationary block bootstrap: blocks of days are resampled, with a mean length of
+  at least twice the holding period, so volatility clustering and the overlap of windows
+  survive. Each is also set against an i.i.d. normal and a fitted Student-t (both fitted
+  to log returns). Observed well above both means fatter tails or more dependence than an
+  i.i.d. model allows. An interval that spans a multiple of the estimate, or a handful of
+  `episodes`, means the probability is not precise enough to price on alone.
+
 ## Repo layout
 
 ```
@@ -165,10 +196,11 @@ quant_dev/
 │       │   ├── params.py                  Params + the ticker config that builds it
 │       │   ├── data.py                    price loading, rolling statistics
 │       │   ├── analysis.py                streaks, thresholds, rare events
-│       │   ├── viz.py                     the nine Plotly charts
+│       │   ├── viz.py                     the Plotly charts (nine analysis, five statistics)
 │       │   ├── report.py                  formatting, interactive table, CSV export
 │       │   ├── pipeline.py                per-ticker run + cross-ticker comparison
-│       │   └── options.py                 price ranges, move probabilities, expected P&L
+│       │   ├── options.py                 price ranges, move probabilities, expected P&L
+│       │   └── stats.py                   distribution, dependence, drawdowns, probability intervals
 │       └── ta_tools/                      technical analysis (in progress)
 │           ├── backend.py                 the only TA-Lib / pandas_ta import site
 │           ├── data.py                    bars: Yahoo (load_bars), CSV (read_bars), seeded (make_bars)
@@ -183,6 +215,7 @@ quant_dev/
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
 │   ├── price_return_analysis_v0.5.ipynb   current single-ticker analysis
+│   ├── price_return_statistics.ipynb      statistics of one ticker's returns, option sizing
 │   ├── rare_case_run.ipynb                config-driven multi-ticker run
 │   ├── ta_package_evaluation.ipynb        TA-Lib vs pandas_ta vs ta
 │   ├── ta_tools_primitives.ipynb          how the ta_tools primitives are wrapped
@@ -195,7 +228,7 @@ quant_dev/
 │
 ├── tests/
 │   ├── test_smoke.py                      offline end-to-end pipeline check
-│   ├── test_price_return_stats.py         price_return options (and statistics, as they land)
+│   ├── test_price_return_stats.py         price_return options, methods, statistics, charts
 │   └── test_ta_tools.py                   ta_tools, offline
 │
 └── dev/                                   scratch work — gitignored, never tracked
@@ -231,6 +264,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 | Notebook | Status |
 |---|---|
 | `price_return_analysis_v0.5.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
+| `price_return_statistics.ipynb` | Current, committed without outputs. One ticker (default `ES=F`, thresholds from `configs/tickers.yaml`): distribution and tails, dependence, drawdowns and risk, the rare-event probabilities with bootstrap intervals and model comparisons, and option sizing with the four P&L grids from the retired `test_es`. Needs the `stats` extra. |
 | `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
 | `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
 | `ta_tools_primitives.ipynb` | Committed with outputs. How each `ta_tools` primitive is wrapped, and how it compares with Pine. |
@@ -270,9 +304,25 @@ can be retuned without touching the package.
 | `plot_streak_timeline` | Returns with win/loss streak periods shaded |
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
+| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml`, with a built-in fallback |
+| `analyze_ticker`, `compare_tickers` | The whole pipeline for one ticker; cross-ticker streak and distribution tables |
+| `distribution_summary` | One row of return-distribution statistics, using the ticker's thresholds |
 | `price_range` | One-standard-deviation price band some days ahead, or over the hours left in a session |
 | `move_probabilities` | How often the 1/5/10-day return moved above, below or beyond a scaled, actual or fixed threshold |
 | `expected_pnl` | Expected P&L per contract from those probabilities and a `{horizon: {direction: [win, loss]}}` grid |
+| `return_moments`, `jarque_bera` | Moments, and the Jarque–Bera normality test |
+| `fit_student_t`, `qq_points` | Student-t fit; sorted returns against normal or t quantiles |
+| `tail_index` | Hill tail index for losses and gains |
+| `value_at_risk` | VaR and expected shortfall: historical, normal, Cornish–Fisher, over compounded horizons |
+| `autocorrelation`, `ljung_box` | Autocorrelation of returns, squared and absolute returns; Ljung–Box on returns and squares |
+| `variance_ratio`, `arch_lm` | Lo–MacKinlay variance ratio with robust z*; Engle's ARCH-LM test |
+| `drawdown_series`, `drawdown_table`, `max_drawdown` | Drawdown from the running peak; the deepest drawdowns with dates and durations |
+| `risk_ratios`, `rolling_risk` | Annualized return and volatility, Sharpe, Sortino, Calmar; rolling versions |
+| `stationary_bootstrap`, `bootstrap_interval` | Politis–Romano resampling indices; a percentile interval for any statistic |
+| `probability_intervals`, `model_probabilities` | Rare-event probabilities with bootstrap intervals; what i.i.d. normal and Student-t models predict |
+| `plot_qq`, `plot_autocorrelation` | Q-Q against normal and t; autocorrelation panels with the 95% band |
+| `plot_drawdown`, `plot_rolling_risk` | Underwater chart; rolling volatility and Sharpe panels |
+| `plot_event_probabilities` | Observed probabilities with intervals against both models, log scale |
 
 ## Technical analysis
 
@@ -394,16 +444,29 @@ which constrains how that one file may be reused or redistributed.
 pytest
 ```
 
-`tests/test_smoke.py` runs the analysis pipeline end to end against simulated data
-(no network) and checks that every name the v0.5 notebook imports still resolves.
-It is a smoke test, not a correctness suite — the numerical methods are not yet
-verified against independent reference values.
+All tests run offline. `tests/test_smoke.py` runs the analysis pipeline end to end
+against simulated data and checks that every public name resolves.
+`tests/test_price_return_stats.py` checks the numerical methods against independent
+references, never against the code under test: hand-counted and hand-built series,
+closed forms, scipy's own implementations, formulas written out in the test, and
+seeded simulations with known answers (Pareto tails, AR(1) and GARCH paths, bootstrap
+coverage). `tests/test_ta_tools.py` does the same for `ta_tools`. New test groups are
+also checked by seeding deliberate bugs and confirming a test fails on each.
 
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-29
+- New `price_return/stats.py` and `notebooks/price_return_statistics.ipynb`: distribution
+  and tails (Jarque–Bera, Student-t fit, Hill tail index, VaR and expected shortfall three
+  ways), dependence (autocorrelation, Ljung–Box, variance ratio, ARCH-LM), drawdowns and
+  risk-adjusted returns, and bootstrap intervals and model comparisons for the rare-event
+  probabilities. Five matching charts in `viz.py`. `scipy` is a new optional extra,
+  `stats`. The notebook ends with option sizing, running the four P&L grids from the
+  retired `test_es` unchanged.
+- `price_return_analysis_v0.5` and `rare_case_run`: links point to the package, and the
+  wording matches compounded moves, complete-window frequencies and episodes.
 - Fixed three inconsistencies in `price_return`, so results in v0.5 and
   `rare_case_run` shift (explained under Methodology). Multi-day returns are now
   compounded everywhere; they were added up in the rolling columns, the annualized
