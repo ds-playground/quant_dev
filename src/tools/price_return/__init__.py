@@ -28,7 +28,9 @@ from .analysis import (detect_streaks, summarize_streaks, analyze_cumulative,
 from .viz import (plot_rolling_average, plot_rolling_volatility,
                   plot_price_and_returns, plot_return_distribution,
                   plot_streak_counts, plot_streak_frequency, plot_streak_timeline,
-                  plot_cumulative_heatmap, plot_cumulative_counts)
+                  plot_cumulative_heatmap, plot_cumulative_counts, plot_qq,
+                  plot_autocorrelation, plot_drawdown, plot_rolling_risk,
+                  plot_event_probabilities)
 from .report import (format_probability_table, interactive_low_probability,
                      export_tables)
 from .pipeline import analyze_ticker, compare_tickers
@@ -53,6 +55,8 @@ __all__ = [
     'plot_rolling_average', 'plot_rolling_volatility', 'plot_price_and_returns',
     'plot_return_distribution', 'plot_streak_counts', 'plot_streak_frequency',
     'plot_streak_timeline', 'plot_cumulative_heatmap', 'plot_cumulative_counts',
+    'plot_qq', 'plot_autocorrelation', 'plot_drawdown', 'plot_rolling_risk',
+    'plot_event_probabilities',
     # export
     'export_tables',
     # multi-ticker

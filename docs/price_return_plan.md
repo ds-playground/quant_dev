@@ -72,7 +72,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, `8eb2a7c`** |
 | **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `d739cb1`** |
 | **4** ✅ | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra — **done, `c7aea69`** |
-| **5** | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed |
+| **5** ✅ | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed — **done, not yet committed** |
 | **6** | Docs | README methodology, notebooks table, changelog; plan statuses |
 
 Working rules carried over from `docs/ta_tools_plan.md`: one phase per request, then stop;
@@ -279,6 +279,37 @@ verify written out.
   outputs for the owner to run on Yahoo data, and executed here on simulated data as a check.
 - **v0.5:** fix its stale links (`src/tools/price_return.py` is now a package), show the new
   `episodes` column, and point to the statistics notebook.
+
+### Phase 5 notes
+
+- **Five charts in `viz.py`, all exported:** `plot_qq` (normal and Student-t against the
+  45-degree line), `plot_autocorrelation` (returns and squared returns as two panels, with the
+  95% band shaded), `plot_drawdown` (underwater, deepest troughs labelled), `plot_rolling_risk`
+  (volatility and Sharpe as stacked panels), `plot_event_probabilities` (observed with bootstrap
+  error bars against both models, log y axis, zero probabilities left out).
+- **Styling:** the colour-blind-validated categorical palette already used by the `ta_tools`
+  exploration notebook (blue, orange, aqua in fixed order; the validator passes all checks in
+  light mode). Solid hairline gridlines, 2px lines, 8px markers, ink-coloured text, and direct
+  labels on the model lines. Aqua is below 3:1 contrast on white, so its chart carries direct
+  labels and sits next to its table. No chart overlays two y-scales; different units go in
+  separate panels, which a test enforces.
+- **Rendered and inspected** (Chromium screenshots of each chart on a GARCH series with t shocks).
+  That caught three problems, all fixed before commit:
+  1. the Q-Q markers' surface-coloured rings painted over the dense middle of the distribution;
+  2. the autocorrelation band was never drawn, because plotly skips shapes on subplots that do not
+     yet have traces (a regression test now requires the band in both panels);
+  3. the log axis printed cluttered minor tick labels (now decades only, with a % suffix).
+- **`notebooks/price_return_statistics.ipynb`** (28 cells, committed without outputs): parameters
+  from `configs/tickers.yaml` (default `ES=F`), then the four statistics areas and option sizing
+  with the four `test_es` P&L grids verbatim. Each code cell opens with the question it answers.
+  It avoids pandas `.style`, which needs jinja2 (not a dependency). It executes cleanly with a
+  stubbed yfinance; the owner runs it on Yahoo data.
+- **v0.5:** package links fixed (`src/tools/price_return/`), a pointer to the statistics
+  notebook, and comments explaining complete-window frequencies, episodes and compounded
+  cumulative moves. **`rare_case_run`:** "% of all trading days" becomes "% of complete windows".
+  Both were edited in their own JSON layout (12 changed lines), and both execute cleanly.
+- **Tests:** 3 chart tests (trace names, log axis, trough labels, no overlaid y-scales, the band in
+  both panels, zero probabilities left out); 3 seeded mutations caught. Suite: 203.
 
 ## Phase 6: docs
 
