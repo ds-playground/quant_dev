@@ -73,7 +73,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `d739cb1`** |
 | **4** ✅ | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra — **done, `c7aea69`** |
 | **5** ✅ | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed — **done, `fb50ddd`** |
-| **6** | Docs | README methodology, notebooks table, changelog; plan statuses |
+| **6** ✅ | Docs | README methodology, notebooks table, changelog; plan statuses — **done, not yet committed** |
 
 Working rules carried over from `docs/ta_tools_plan.md`: one phase per request, then stop;
 statistical code is checked against **independent references** (hand formulas, closed forms,
@@ -316,6 +316,22 @@ verify written out.
 README: methodology sections for the new statistics and the fixed definitions, layout, the
 notebooks table (now without v0.1 and the `test_*` notebooks), setup (`.[stats]`), changelog.
 Plan statuses and commit hashes, as in the `ta_tools` plan.
+
+### Phase 6 notes
+
+- README: setup gains the `stats` extra, and says which five functions need scipy; the
+  Methodology gains a "Statistics" section (the four groups, with the caveats: Cornish–Fisher's
+  overshoot at 99%, overlapping multi-day windows, the bootstrap's block length, what the i.i.d.
+  models can and cannot say); layout adds `stats.py` and the statistics notebook; the notebooks
+  table adds it; the API table adds the 19 statistics functions and 5 charts, plus 4 older
+  multi-ticker functions it had never listed. A script now confirms the table and `__all__`
+  match exactly. The Tests section, which still said the methods were "not yet verified against
+  independent reference values", describes what the suites now check.
+- **Final verification:** a fresh Python 3.12 environment with `pip install -e ".[ta,stats,dev]"`
+  passes all 203 tests, without matplotlib installed.
+- **All phases done.** Next: a pull request into `master`, when the owner asks. The owner's first
+  run of `price_return_statistics.ipynb` and `rare_case_run` on Yahoo data will show the real-ticker
+  numbers that could not be produced here (Yahoo is blocked in this environment).
 
 ## Critical files
 
