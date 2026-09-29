@@ -13,8 +13,8 @@ that object around::
     P  = Params(ticker='ES=F', start_date='2016-01-01')
     df = add_rolling_stats(load_price_data(P), P)
 
-The implementation is split across `params`, `data`, `analysis`, `viz`, `report`
-and `pipeline`; everything public is re-exported here, so importing from
+The implementation is split across `params`, `data`, `analysis`, `viz`, `report`,
+`pipeline` and `options`; everything public is re-exported here, so importing from
 `src.tools.price_return` works exactly as it did when this was one module.
 """
 
@@ -32,6 +32,7 @@ from .viz import (plot_rolling_average, plot_rolling_volatility,
 from .report import (format_probability_table, interactive_low_probability,
                      export_tables)
 from .pipeline import analyze_ticker, compare_tickers
+from .options import price_range, move_probabilities, expected_pnl
 
 __all__ = [
     'Params',
@@ -51,4 +52,6 @@ __all__ = [
     'export_tables',
     # multi-ticker
     'load_ticker_config', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
+    # option sizing
+    'price_range', 'move_probabilities', 'expected_pnl',
 ]
