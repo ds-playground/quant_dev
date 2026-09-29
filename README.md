@@ -32,7 +32,7 @@ Stage one has three goals:
 2. Basic helper functions for analysis and visualization.
 3. Pine scripts for TradingView.
 
-Goals 1 and 2 live in `src/tools/price_return.py`; goal 3 lives in `pine_scripts/`.
+Goals 1 and 2 live in `src/tools/price_return/`; goal 3 lives in `pine_scripts/`.
 
 ## Setup
 
@@ -53,7 +53,7 @@ toolchain and would otherwise block a clean install. `pandas_ta` needs Python 3.
 newer, so the project requires 3.12:
 
 ```bash
-pip install -e ".[dev]"   # pytest, ipywidgets, nbformat, matplotlib
+pip install -e ".[dev]"   # pytest, ipywidgets, nbformat
 pip install -e ".[ta]"    # pandas_ta, ta, TA-Lib
 ```
 
@@ -145,36 +145,36 @@ quant_dev/
 │       │   ├── analysis.py                streaks, thresholds, rare events
 │       │   ├── viz.py                     the nine Plotly charts
 │       │   ├── report.py                  formatting, interactive table, CSV export
-│       │   └── pipeline.py                per-ticker run + cross-ticker comparison
-│       ├── ta_tools/                      technical analysis (in progress)
-│       │   ├── backend.py                 the only TA-Lib / pandas_ta import site
-│       │   ├── data.py                    bars: Yahoo (load_bars), CSV (read_bars), seeded (make_bars)
-│       │   ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
-│       │   ├── volatility.py              stdev, bb (TA-Lib); true_range, atr (Pine-exact)
-│       │   ├── momentum.py                rsi (TA-Lib)
-│       │   ├── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
-│       │   └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
-│       └── basic.py                       superseded notebook-era draft (see below)
+│       │   ├── pipeline.py                per-ticker run + cross-ticker comparison
+│       │   └── options.py                 price ranges, move probabilities, expected P&L
+│       └── ta_tools/                      technical analysis (in progress)
+│           ├── backend.py                 the only TA-Lib / pandas_ta import site
+│           ├── data.py                    bars: Yahoo (load_bars), CSV (read_bars), seeded (make_bars)
+│           ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
+│           ├── volatility.py              stdev, bb (TA-Lib); true_range, atr (Pine-exact)
+│           ├── momentum.py                rsi (TA-Lib)
+│           ├── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
+│           └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
 │
 ├── docs/
 │   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
-│   ├── price_return_analysis_v0.1.ipynb   frozen reference monolith
 │   ├── price_return_analysis_v0.5.ipynb   current single-ticker analysis
 │   ├── rare_case_run.ipynb                config-driven multi-ticker run
 │   ├── ta_package_evaluation.ipynb        TA-Lib vs pandas_ta vs ta
 │   ├── ta_tools_primitives.ipynb          how the ta_tools primitives are wrapped
 │   ├── ta_tools_exploration.ipynb         every ta_tools indicator on AAPL
-│   ├── ta_tools_read_data.ipynb           checks every ta_tools data reader
-│   └── test_es / test_ko / test_ta_packages.ipynb
+│   └── ta_tools_read_data.ipynb           checks every ta_tools data reader
 │
 ├── pine_scripts/                          TradingView indicators
 │   ├── *.pine                             the modified indicators
 │   └── references/                        their unmodified originals
 │
 ├── tests/
-│   └── test_smoke.py                      offline end-to-end pipeline check
+│   ├── test_smoke.py                      offline end-to-end pipeline check
+│   ├── test_price_return_stats.py         price_return options (and statistics, as they land)
+│   └── test_ta_tools.py                   ta_tools, offline
 │
 └── dev/                                   scratch work — gitignored, never tracked
 ```
@@ -208,30 +208,21 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 
 | Notebook | Status |
 |---|---|
-| `price_return_analysis_v0.1.ipynb` | Frozen. Self-contained monolith, no package imports; kept as a reference implementation. |
-| `price_return_analysis_v0.5.ipynb` | Current. The same analysis built on `src/tools/price_return.py`. |
+| `price_return_analysis_v0.5.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
 | `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
 | `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
 | `ta_tools_primitives.ipynb` | Committed with outputs. How each `ta_tools` primitive is wrapped, and how it compares with Pine. |
 | `ta_tools_exploration.ipynb` | Current. AAPL since January 2023: moving averages, Bollinger Bands, both Pine ports, RSI and ATR. |
 | `ta_tools_read_data.ipynb` | Current, committed without outputs. Runs `make_bars`, `load_bars` (daily and intraday, with Yahoo's history limits) and `read_bars` (TradingView exports, other layouts, your own file), checking each against the shared output contract; ends with a pass/fail count. |
-| `test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` | Exploratory, built on the older `basic.py`. |
 
 **Two config mechanisms, deliberately.** `config.py` serves the `dev/` scratch
 notebooks. Everything under `src/` uses the `Params` dataclass instead, which is
 authoritative for the package. They overlap; that is intentional, so scratch work
 can be retuned without touching the package.
 
-**`src/tools/basic.py` is superseded.** It is the earlier notebook-era draft, kept
-because the three `test_*` notebooks still import it. It has no docstrings and its
-own older `consecutive_analysis` with a different signature from the one in
-`price_return.py`. Four of its functions — `profit_estimate`, `sd_and_cond`,
-`accepted_min_max`, `projected_min_max` — have no successor yet, so it cannot
-simply be deleted.
-
 ## API
 
-`src/tools/price_return.py`, grouped as it is in `__all__`:
+`src/tools/price_return/`, grouped as it is in `__all__`:
 
 | Function | Purpose |
 |---|---|
@@ -256,6 +247,9 @@ simply be deleted.
 | `plot_streak_timeline` | Returns with win/loss streak periods shaded |
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
+| `price_range` | One-standard-deviation price band some days ahead, or over the hours left in a session |
+| `move_probabilities` | How often the 1/5/10-day return moved above, below or beyond a scaled, actual or fixed threshold |
+| `expected_pnl` | Expected P&L per contract from those probabilities and a `{horizon: {direction: [win, loss]}}` grid |
 
 ## Technical analysis
 
@@ -385,6 +379,18 @@ verified against independent reference values.
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-29
+- Removed the notebook-era code, now that everything in it has a successor
+  (`docs/price_return_plan.md` maps each piece): `src/tools/basic.py`,
+  `notebooks/test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` and the frozen
+  `price_return_analysis_v0.1.ipynb`. The four `basic.py` functions that had no
+  successor were first rebuilt in `price_return/options.py` as `price_range`,
+  `move_probabilities` and `expected_pnl`, which return tables instead of printing and
+  match the originals exactly on `test_es`'s P&L grids. The rest is covered by the
+  `price_return` package, `price_return_analysis_v0.5`, `rare_case_run` and
+  `ta_package_evaluation`. `matplotlib` is no longer a dependency; only the removed
+  files used it.
 
 ### 2026-09-28
 - The project now requires Python 3.12 or newer: pandas_ta, in the `ta` extra, publishes

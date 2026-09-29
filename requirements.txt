@@ -4,7 +4,6 @@
 # Standard Libraries
 pandas
 numpy
-matplotlib
 plotly
 
 # Configuration
