@@ -69,7 +69,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 |---|---|---|
 | **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `0051b6d`; this plan as `docs/price_return_plan.md` |
 | **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, `efd3337`** |
-| **2** | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated |
+| **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, not yet committed** |
 | **3** | Fix existing methods | issues 1–3 above, each with a test that fails on the old code |
 | **4** | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra |
 | **5** | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed |
@@ -134,6 +134,23 @@ Rebuilt as pure functions that **return tables instead of printing**, reusing
   resolved, pointing to this plan.
 - **Check:** `grep` finds no reference to the removed files outside the changelogs, and `pytest`
   stays green.
+
+### Phase 2 notes
+
+- Deleted: `src/tools/basic.py`, `notebooks/test_es.ipynb`, `test_ko.ipynb`,
+  `test_ta_packages.ipynb`, `price_return_analysis_v0.1.ipynb`. They remain in git history and on
+  `archive/02_ta_tools`.
+- `matplotlib` dropped from `requirements.txt` and the `dev` extra; a `grep` of `src/`, `tests/`
+  and `notebooks/` finds no remaining import.
+- README: layout (adds `options.py` and the two newer test files, drops the removed files), the
+  notebooks table, the API table (adds the three `options` functions), the stale
+  `src/tools/price_return.py` paths (now a package), and a 2026-09-29 changelog entry. The
+  "`basic.py` is superseded" section is gone; the "two config mechanisms" section stays.
+- `docs/ta_tools_plan.md`: the `basic.py` and old-notebook deferred items are marked done.
+- Remaining mentions of the removed files are history: the changelogs, both plans, `options.py`'s
+  provenance line, and one comment in `ta_package_evaluation.ipynb` (committed with outputs, left
+  as is).
+- Suite unchanged at 170; nothing imported the removed code.
 
 ## Phase 3: fix existing methods (numbers in v0.5 and `rare_case_run` will change)
 
