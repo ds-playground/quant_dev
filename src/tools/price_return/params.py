@@ -15,6 +15,16 @@ class Params:
     Defaults reproduce the notebook's out-of-the-box configuration, so
     ``Params()`` is a valid starting point and individual fields can be
     overridden by keyword.
+
+    Units differ between groups, for historical reasons (renaming would break
+    configs/tickers.yaml):
+
+      percent  - win_threshold, loss_threshold, cum_thresholds, sim_drift, sim_vol
+                 (0.5 means 0.5%, matching the `return_pct` column)
+      decimal  - return_thresholds, prob_max, prob_min (0.01 means 1%, matching the
+                 `PCT Change` columns and `daily_returns_series`)
+      days     - trade_days, windows, roll_windows, chart_windows, timeline_window,
+                 streak_days; lookback_years is in years
     """
 
     # ── Price data ───────────────────────────────────────────────────────

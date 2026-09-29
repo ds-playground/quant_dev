@@ -70,7 +70,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `0051b6d`; this plan as `docs/price_return_plan.md` |
 | **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, `efd3337`** |
 | **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, `8eb2a7c`** |
-| **3** | Fix existing methods | issues 1–3 above, each with a test that fails on the old code |
+| **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, not yet committed** |
 | **4** | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra |
 | **5** | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed |
 | **6** | Docs | README methodology, notebooks table, changelog; plan statuses |
@@ -164,6 +164,43 @@ Rebuilt as pure functions that **return tables instead of printing**, reusing
 - **Tests:** each fix gets a hand-built series where the old code gives the wrong answer and the
   new one the right answer; existing smoke tests updated where their expected numbers were built
   on the old definitions.
+
+### Phase 3 notes
+
+- **One n-day return:** `data.compound_returns(returns, n)` (exported), computed as
+  `expm1(rolling_sum(log1p(r)))`; exact pass-through at `n = 1`. Used by `add_rolling_stats`
+  (`PCT Change {d}` and `PCT Change Annualized`), `consecutive_analysis` (cumulative rows) and
+  `analyze_cumulative`, which already compounded. Its results are unchanged: 48
+  window/threshold cells on three simulated series match the old loop exactly, rounded values
+  included. The annualized *volatility* is unchanged (daily std × √`trade_days`).
+- **Complete-window denominators:** `summarize_streaks` and `plot_streak_frequency` divide by
+  `len(df) − w + 1`; `consecutive_analysis` has a new `n_windows` column and `prob = count /
+  n_windows`. `n_obs` keeps its meaning (trading days in the lookback). `options.
+  move_probabilities` already worked this way.
+- **Episodes:** `episodes` in `consecutive_analysis` and `analyze_cumulative`, `Win Episodes` /
+  `Loss Episodes` in `summarize_streaks`, `≥x% Episodes` in `summarize_cumulative`. A run of
+  consecutive qualifying window ends counts once. `detect_streaks` entries gain `end_pos`.
+- **Units:** in the `Params` docstring and the README methodology, not renamed.
+- **Tests:** six in `tests/test_price_return_stats.py`, each on a hand-built series. All six fail
+  on the pre-Phase-3 code and pass now. Six seeded mutations were each caught. Suite: 176.
+- **What shifts, measured on simulated series shaped like the configured asset classes** (seed
+  11, drift 0.03%/day, thresholds as in `configs/tickers.yaml`). Real tickers could not be used,
+  since Yahoo is blocked in this environment; the owner's next run of `rare_case_run` shows them.
+
+  | series | annualized return | 3d win-streak freq | 3d drill rows | rare rows (all periods) | rare-event probs changed |
+  |---|---|---|---|---|---|
+  | FX-like, 0.5% vol, thr 0.1 | 17.83% → 19.17% | 8.67 → 8.68% | 27 → 27 | 176 → 173 | 346 of 832 |
+  | index-like, 1.1%, thr 0.2 | 30.24% → 33.39% | 8.35 → 8.35% | 37 → 37 | 182 → 181 | 440 of 832 |
+  | crude-like, 2.5%, thr 0.2 | 59.17% → 68.02% | 10.70 → 10.71% | 26 → 26 | 144 → 144 | 498 of 832 |
+  | gas-like, 3.5%, thr 0.2 | 79.84% → 92.77% | 11.27 → 11.28% | 34 → 34 | 138 → 138 | 524 of 832 |
+
+  Consecutive rows change only through the denominator (small rises, most at 20–30 days). The
+  largest relative changes are extreme-tail cumulative rows resting on 1–3 windows. Compounding
+  shrinks losses, so a −5%-in-20-days row can go from 2 windows to 0, and gains, so a +5%-in-2-days
+  row from 2 to 3. Those rows were never reliable; Phase 4's bootstrap intervals quantify that.
+- v0.5 and `rare_case_run` execute cleanly (v0.5 on simulated data; `rare_case_run` with a
+  stubbed yfinance). Their markdown still describes frequencies as "% of all trading days" in
+  places; that wording is refreshed in Phase 5.
 
 ## Phase 4: statistics module (`price_return/stats.py`)
 

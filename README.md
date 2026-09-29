@@ -101,16 +101,37 @@ two settings are bit-for-bit identical, since neither pays a dividend or splits
 explicitly because yfinance changed its default, and leaving it implicit meant
 the same notebook could produce different numbers on different machines.
 
-**Rolling statistics.** For each holding period `d`, the `d`-day cumulative return
+**One definition of a multi-day return.** Every `d`-day return in the package is
+*compounded*, `(1 + r1)(1 + r2)…(1 + rd) − 1` (`compound_returns`), which is what a
+position held over those days earns. Adding up the daily returns instead overstates
+losses and understates gains: two −10% days are −19%, not −20%. The gap grows with the
+horizon and the volatility. Until 2026-09-29 the rolling columns and the rare-event
+"cumulative" rows added returns up while the cumulative-threshold table compounded them.
+
+**Frequencies are shares of complete windows, and overlapping windows are also counted
+as episodes.** A `d`-day frequency divides by the `n − d + 1` windows that fit in `n`
+days, not by `n`. Rolling windows overlap, so one 6-day winning run is five 2-day
+streaks. Each table therefore also gives *episodes*: every unbroken run of qualifying
+windows counted once. When episodes are far fewer than the count, the frequency rests
+on fewer independent events than it seems to.
+
+**Units.** Percent: `win_threshold`, `loss_threshold`, `cum_thresholds`, `sim_drift`,
+`sim_vol`, and the `return_pct` column (0.5 means 0.5%). Decimal:
+`return_thresholds`, `prob_max`, `prob_min`, the `PCT Change` columns and
+`daily_returns_series` (0.01 means 1%). The mix is historical; renaming would break
+`configs/tickers.yaml`.
+
+**Rolling statistics.** For each holding period `d`, the `d`-day compounded return
 is computed, then a `trade_days`-long rolling mean and standard deviation over it.
-Annualized figures are derived from the same pair. Default holding periods are
-1, 2, 3, 4, 5, 10 and 250 days.
+The annualized return is the compounded return over the last `trade_days` days; the
+annualized volatility is the daily standard deviation scaled by √`trade_days`. Default
+holding periods are 1, 2, 3, 4, 5, 10 and 250 days.
 
 **Win/loss streaks.** A day is a *win* when its return exceeds `win_threshold`
 (default +0.5%) and a *loss* when it falls below `loss_threshold` (default −0.5%).
 A streak is a rolling window in which *every* day is a win, or every day a loss.
-Streaks are reported as counts, as a share of all trading days, and as an average
-return per streak — then shaded onto a return timeline.
+Streaks are reported as counts, as episodes, as a share of complete windows, and as
+an average return per streak — then shaded onto a return timeline.
 
 **Cumulative thresholds.** Separately from all-win streaks, this counts rolling
 windows whose *compounded* return clears a threshold (default 0.5%, 1%, 2%),
@@ -120,7 +141,8 @@ questions.
 
 **Rare-event probabilities.** For each combination of move size (0.01% up to 5%),
 holding period (1 to 30 days) and lookback window (2 or 5 years), this measures how
-often a move of at least that size occurred over that horizon. Filtering to the low
+often a move of at least that size occurred over that horizon: `prob` is the share of
+complete windows (`n_windows`), with `count` and `episodes` alongside. Filtering to the low
 end — events that did happen but rarely — produces the rare-event table, which is
 browsable interactively in the v0.5 notebook via `interactive_low_probability`.
 
@@ -231,6 +253,7 @@ can be retuned without touching the package.
 | `add_rolling_stats` | Adds `PCT Change {d}` / `{d} Av` / `{d} STD` columns plus the annualized pair |
 | `latest_snapshot`, `show_latest_snapshot` | Latest annualized and daily mean/vol |
 | `daily_returns_series` | Date-indexed decimal daily returns |
+| `compound_returns` | The compounded `n`-day return ending on each day: the package's one definition |
 | `detect_streaks` | Every rolling window where all days are wins, or all losses |
 | `summarize_streaks` | One row per window: counts, frequencies, average returns |
 | `analyze_cumulative` | Rolling windows whose compounded return clears each threshold |
@@ -381,6 +404,14 @@ verified against independent reference values.
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-29
+- Fixed three inconsistencies in `price_return`, so results in v0.5 and
+  `rare_case_run` shift (explained under Methodology). Multi-day returns are now
+  compounded everywhere; they were added up in the rolling columns, the annualized
+  return and the rare-event "cumulative" rows. Every frequency now divides by the
+  complete windows, not the days (streak frequencies and rare-event `prob` rise
+  slightly, most for long holding periods). New `episodes` counts, and `n_windows` in
+  the rare-event table. On simulated series like the configured tickers, the annualized
+  return rises by 1.3 to 13 points, depending on volatility, and 3-day tables barely move.
 - Removed the notebook-era code, now that everything in it has a successor
   (`docs/price_return_plan.md` maps each piece): `src/tools/basic.py`,
   `notebooks/test_es.ipynb`, `test_ko.ipynb`, `test_ta_packages.ipynb` and the frozen

@@ -138,11 +138,12 @@ def plot_streak_counts(streaks, p=None):
     return fig
 
 def plot_streak_frequency(df, streaks, p=None):
-    """The same streaks as a share of all trading days."""
+    """The same streaks as a share of the complete windows of each length."""
     p = _params(p)
     windows_labels = [f'{w}d' for w in p.windows]
-    win_freq  = [round(len(streaks[w]['wins'])   / len(df) * 100, 2) for w in p.windows]
-    loss_freq = [round(len(streaks[w]['losses']) / len(df) * 100, 2) for w in p.windows]
+    n_windows = {w: max(len(df) - w + 1, 1) for w in p.windows}
+    win_freq  = [round(len(streaks[w]['wins'])   / n_windows[w] * 100, 2) for w in p.windows]
+    loss_freq = [round(len(streaks[w]['losses']) / n_windows[w] * 100, 2) for w in p.windows]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -156,7 +157,7 @@ def plot_streak_frequency(df, streaks, p=None):
         text=[f'{v}%' for v in loss_freq], textposition='outside'
     ))
     fig.update_layout(
-        title='Streak Frequency as % of All Trading Days',
+        title='Streak Frequency as % of Windows',
         xaxis_title='Window', yaxis_title='Frequency (%)',
         barmode='group', height=400,
         plot_bgcolor='white', paper_bgcolor='white',

@@ -117,3 +117,84 @@ def test_expected_pnl_is_the_probability_weighted_outcome():
     by_direction = out.set_index("direction")["expected_pnl"]
     assert by_direction["above"] == pytest.approx((0.75 * 0.2 + 0.25 * -1.0) * 100)   # -10
     assert by_direction["below"] == pytest.approx((0.5 * 0.15 + 0.5 * -0.3) * 100)    # -7.5
+
+
+# ── Phase 3: one n-day return, complete-window frequencies, episodes ─────────
+def price_frame(return_pct):
+    """A load_price_data-shaped frame from percent daily returns."""
+    r = np.asarray(return_pct, dtype=float)
+    return pd.DataFrame({"date": pd.bdate_range("2024-01-01", periods=len(r)),
+                         "price": 100 * np.cumprod(1 + r / 100), "return_pct": r})
+
+
+def dated(decimal_returns):
+    r = pd.Series(decimal_returns, dtype=float)
+    r.index = pd.bdate_range("2024-01-01", periods=len(r), name="date")
+    return r
+
+
+def test_compound_returns_multiplies_rather_than_adds():
+    r = pd.Series([0.1, 0.1, -0.5, 0.2])
+    np.testing.assert_allclose(pr.compound_returns(r, 2), [np.nan, 0.21, -0.45, -0.4],
+                               equal_nan=True)                      # summing gives 0.2, -0.4, -0.3
+    np.testing.assert_allclose(pr.compound_returns(r, 3), [np.nan, np.nan, -0.395, -0.34],
+                               equal_nan=True)
+    pd.testing.assert_series_equal(pr.compound_returns(r, 1), r)    # exact at one day
+
+
+def test_add_rolling_stats_compounds_every_horizon():
+    params = pr.Params(trade_days=3, roll_windows=[1, 2, 3])
+    df = pr.add_rolling_stats(price_frame([10, 10, -50, 20]), params)
+    np.testing.assert_allclose(df["PCT Change 2"], [np.nan, 0.21, -0.45, -0.4], equal_nan=True)
+    np.testing.assert_allclose(df["PCT Change Annualized"], [np.nan, np.nan, -0.395, -0.34],
+                               equal_nan=True)
+    # ...and each horizon's return is the price change over it.
+    price = df["price"].to_numpy()
+    assert df["PCT Change 3"].iloc[3] == pytest.approx(price[3] / price[0] - 1)
+
+
+def test_consecutive_analysis_compounds_the_cumulative_move():
+    params = pr.Params()
+    up = pr.consecutive_analysis(dated([0.1, 0.1]), 0.205, 2, 1, params).set_index(
+        ["change_type", "change"])
+    assert up.loc[("cumulative", "above"), "count"] == 1       # +21% compounded; +20% summed
+    down = pr.consecutive_analysis(dated([-0.1, -0.1]), 0.195, 2, 1, params).set_index(
+        ["change_type", "change"])
+    assert down.loc[("cumulative", "below"), "count"] == 0     # -19% compounded; -20% summed
+
+
+def test_consecutive_analysis_divides_by_complete_windows():
+    table = pr.consecutive_analysis(dated([0.02] * 5), 0.01, 3, 1, pr.Params()).set_index(
+        ["change_type", "change"])
+    row = table.loc[("consecutive", "above")]
+    assert (row["n_obs"], row["n_windows"], row["count"]) == (5, 3, 3)
+    assert row["prob"] == 1.0                                   # 3 of 3 windows, not 3 of 5 days
+
+
+def test_streak_frequency_divides_by_complete_windows():
+    params = pr.Params(windows=[2], win_threshold=0.5, loss_threshold=-0.5)
+    df = price_frame([1.0] * 5)
+    streaks = pr.detect_streaks(df, params)
+    summary = pr.summarize_streaks(df, streaks, params).iloc[0]
+    assert summary["Win Streaks"] == 4 and summary["Win Freq %"] == 100.0   # 4 of 4, not 4 of 5
+    fig = pr.plot_streak_frequency(df, streaks, params)
+    assert list(fig.data[0].y) == [100.0]
+
+
+def test_episodes_count_each_unbroken_run_once():
+    # Win, win, win, loss, win, win: 2-day win windows end on days 2, 3 and 6 - two runs.
+    params = pr.Params(windows=[2], win_threshold=0.5, loss_threshold=-0.5, cum_thresholds=[1.5])
+    df = price_frame([1, 1, 1, -1, 1, 1])
+    summary = pr.summarize_streaks(df, pr.detect_streaks(df, params), params).iloc[0]
+    assert (summary["Win Streaks"], summary["Win Episodes"]) == (3, 2)
+    assert (summary["Loss Streaks"], summary["Loss Episodes"]) == (0, 0)
+
+    cum = pr.analyze_cumulative(df, params)[2][1.5]             # 2-day compounded >= 1.5%
+    assert (cum["count"], cum["episodes"]) == (3, 2)
+    assert pr.summarize_cumulative(pr.analyze_cumulative(df, params), params)[
+        "≥1.5% Episodes"].iloc[0] == 2
+
+    table = pr.consecutive_analysis(dated([0.01, 0.01, 0.01, -0.01, 0.01, 0.01]), 0.005, 2, 1,
+                                    pr.Params()).set_index(["change_type", "change"])
+    row = table.loc[("consecutive", "above")]
+    assert (row["count"], row["episodes"]) == (3, 2)
