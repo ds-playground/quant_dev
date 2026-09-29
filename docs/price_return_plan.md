@@ -73,7 +73,7 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 | **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `d739cb1`** |
 | **4** ✅ | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra — **done, `c7aea69`** |
 | **5** ✅ | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed — **done, `fb50ddd`** |
-| **6** ✅ | Docs | README methodology, notebooks table, changelog; plan statuses — **done, not yet committed** |
+| **6** ✅ | Docs | README methodology, notebooks table, changelog; plan statuses — **done, `ce50231`** |
 
 Working rules carried over from `docs/ta_tools_plan.md`: one phase per request, then stop;
 statistical code is checked against **independent references** (hand formulas, closed forms,
