@@ -117,7 +117,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `47e8fe9`** |
 | **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
 | **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `51e9cf0`** |
-| **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `PHASE6`** |
+| **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `242d7b6`** |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
 end of each phase; tests stay offline (`data_source='demo'` or `'simulated'`, or a stubbed
