@@ -23,8 +23,10 @@ a cross-instrument comparison only means anything once that is accounted for —
 is why thresholds are configured per ticker.
 
 This is a personal research repo, not a library and not a trading system. Nothing here
-places orders, and the numerical methods have not been checked against an independent
-reference implementation — the test suite is a smoke test, not a correctness proof.
+places orders. The numerical methods are tested against independent references (hand-counted
+series, closed forms, scipy, formulas written out from their papers, and Pine's reference
+formulas for the indicators; see [Tests](#tests)). Tests can only cover the cases someone
+thought to write, though, so treat the results as research rather than as a basis for trading.
 
 Stage one has three goals:
 
