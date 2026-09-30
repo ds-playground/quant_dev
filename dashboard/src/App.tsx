@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAddedTickers } from './addedTickers';
 import { api, type Params, type Ticker, type TickerSet } from './api';
 import { ParamsPanel } from './components/ParamsPanel';
-import { MultiTickerTab } from './tabs/MultiTickerTab';
+import { initialMultiTicker, MultiTickerTab, type MultiTickerState } from './tabs/MultiTickerTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { RareEventsTab } from './tabs/RareEventsTab';
 import { StatisticsTab } from './tabs/StatisticsTab';
@@ -25,6 +25,7 @@ export default function App() {
   const [tab, setTab] = useState<TabId>('overview');
   const [tickerSet, setTickerSet] = useState<TickerSet>('demo');
   const [params, setParams] = useState<Params | null>(null);
+  const [multi, setMulti] = useState<MultiTickerState>(initialMultiTicker);
 
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, retry: false });
   const tickers = useQuery({ queryKey: ['tickers', tickerSet], queryFn: () => api.tickers(tickerSet) });
@@ -136,7 +137,7 @@ export default function App() {
         ) : tab === 'statistics' ? (
           <StatisticsTab params={params} mode={mode} />
         ) : (
-          <MultiTickerTab tickerSet={tickerSet} addedSymbols={added.symbols} />
+          <MultiTickerTab state={multi} setState={setMulti} addedSymbols={added.symbols} />
         )}
       </main>
     </div>

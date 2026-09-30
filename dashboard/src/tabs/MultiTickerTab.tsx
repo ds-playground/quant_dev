@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 
 import { api, type Pick, type TickerSet } from '../api';
 import { DataTable } from '../components/DataTable';
@@ -18,8 +18,23 @@ const key = (p: Pick) => `${p.set}:${p.symbol}`;
 /** rare_case_run over a chosen list: any mix of the configured Yahoo tickers (and those added in
  *  the ticker picker), saved CSVs and demo files, each with its configured thresholds. Runs on
  *  request: the first run downloads (Yahoo) and analyses every ticker; later runs are cached. */
-export function MultiTickerTab({ tickerSet, addedSymbols = [] }: { tickerSet: TickerSet; addedSymbols?: string[] }) {
-  const [drill, setDrill] = useState(3);
+/** What the tab keeps while other tabs are open: held by App, so it lasts until a page reload. */
+export interface MultiTickerState {
+  chosen: Set<string>;                       // `${set}:${symbol}` keys; empty on a fresh page
+  drill: number;
+  run: { picks: Pick[]; drill: number } | null;
+}
+
+export const initialMultiTicker: MultiTickerState = { chosen: new Set(), drill: 3, run: null };
+
+export function MultiTickerTab({ state, setState, addedSymbols = [] }: {
+  state: MultiTickerState;
+  setState: Dispatch<SetStateAction<MultiTickerState>>;
+  addedSymbols?: string[];
+}) {
+  const { drill, run } = state;
+  const setDrill = (d: number) => setState((s) => ({ ...s, drill: d }));
+  const setRun = (r: MultiTickerState['run']) => setState((s) => ({ ...s, run: r }));
   const lists = useQueries({
     queries: GROUPS.map((g) => ({ queryKey: ['tickers', g.set], queryFn: () => api.tickers(g.set) })),
   });
@@ -32,24 +47,19 @@ export function MultiTickerTab({ tickerSet, addedSymbols = [] }: { tickerSet: Ti
       : listed;
   });
 
-  // The selection starts as the Data control's set, as the view ran before the menu existed.
-  const [chosen, setChosen] = useState<Set<string> | null>(null);
-  const startList = options[tickerSet];
-  useEffect(() => {
-    if (chosen === null && lists[GROUPS.findIndex((g) => g.set === tickerSet)].data) {
-      setChosen(new Set(startList.map((t) => key({ symbol: t.symbol, set: tickerSet }))));
-    }
-  }, [chosen, lists, startList, tickerSet]);
-  const selection = chosen ?? new Set<string>();
+  // Nothing is chosen on a fresh page; the choice then lasts across tabs until a reload.
+  const selection = state.chosen;
+  const setChosen = (update: (c: Set<string>) => Set<string>) =>
+    setState((s) => ({ ...s, chosen: update(s.chosen) }));
   const picks: Pick[] = GROUPS.flatMap((g) => options[g.set]
     .filter((t) => selection.has(key({ symbol: t.symbol, set: g.set })))
     .map((t) => ({ symbol: t.symbol, set: g.set })));
 
   const toggle = (k: string, on: boolean) =>
-    setChosen((c) => { const next = new Set(c ?? []); if (on) next.add(k); else next.delete(k); return next; });
+    setChosen((c) => { const next = new Set(c); if (on) next.add(k); else next.delete(k); return next; });
   const setGroup = (set: TickerSet, on: boolean) =>
     setChosen((c) => {
-      const next = new Set(c ?? []);
+      const next = new Set(c);
       for (const t of options[set]) {
         const k = key({ symbol: t.symbol, set });
         if (on) next.add(k); else next.delete(k);
@@ -57,7 +67,6 @@ export function MultiTickerTab({ tickerSet, addedSymbols = [] }: { tickerSet: Ti
       return next;
     });
 
-  const [run, setRun] = useState<{ picks: Pick[]; drill: number } | null>(null);
   const query = useQuery({
     queryKey: ['compare', run],
     queryFn: () => api.compare(run!.picks, run!.drill),

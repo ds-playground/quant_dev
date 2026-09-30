@@ -79,9 +79,17 @@ test('statistics: four sections and the bootstrap on request', async ({ page }) 
 test('multi-ticker: the chosen tickers on request', async ({ page }) => {
   await page.getByRole('tab', { name: 'Multi-ticker' }).click();
   const demo = page.locator('fieldset', { hasText: 'Demo data (offline)' });
-  // The selection starts as the Data control's set: every demo ticker.
-  await expect(demo.getByRole('checkbox', { checked: true })).toHaveCount(10);
+  // Nothing is chosen on a fresh page.
+  await expect(demo.getByRole('checkbox')).toHaveCount(10);
+  await expect(page.getByRole('checkbox', { checked: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Compare 0 tickers' })).toBeDisabled();
+  await demo.getByRole('button', { name: 'All' }).click();
   await page.getByRole('button', { name: 'Compare 10 tickers' }).click();
+  await expect(page.locator('main details')).toHaveCount(10);
+  // The choice and the results stay while another tab is open.
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByRole('tab', { name: 'Multi-ticker' }).click();
+  await expect(demo.getByRole('checkbox', { checked: true })).toHaveCount(10);
   await expect(page.locator('main details')).toHaveCount(10);
   // A smaller choice: none, then two.
   await demo.getByRole('button', { name: 'None' }).click();
