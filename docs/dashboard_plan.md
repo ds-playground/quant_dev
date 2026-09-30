@@ -253,6 +253,15 @@ yfinance); no analysis logic outside `src/tools/`.
   single tick label (the axis is set to decades only), and the two model labels can overlap at
   the right end. Both are in `viz.py`, so both notebooks show them too.
 
+### Addition after Phase 2 (owner's request, 2026-09-30)
+
+- `notebooks/api_examples.ipynb`: example queries to every endpoint over HTTP, with helpers
+  (`get`, `post`, `table`, `chart`) that show how a client uses the API. It starts the API
+  inside the kernel (a uvicorn thread) when nothing answers at `BASE`, runs on the demo set by
+  default (`TICKER_SET = 'yahoo'` for Yahoo), shows each error status, and ends by checking
+  `/api/streaks` against `summarize_streaks`. Committed without outputs. Executed here both with
+  its own server and against a separately started one, in about 20 s.
+
 ## Phase 3: dashboard shell (`dashboard/`)
 
 - Vite + React + TypeScript. `react-plotly.js` with `plotly.js-dist-min` for charts; TanStack
