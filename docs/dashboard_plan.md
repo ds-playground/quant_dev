@@ -557,8 +557,9 @@ The third data option: live data saved as plain CSV, downloaded once and then up
     each visit, and can be removed.
   - A symbol Yahoo does not know loads to one clear error.
 - **Multi-ticker menu:** three groups of checkboxes: the default list (Yahoo, live, plus added
-  tickers), saved CSVs and demo files, each with All and None. The selection starts as the Data
-  control's set.
+  tickers), saved CSVs and demo files, each with All and None. Nothing is chosen on a fresh page
+  (the owner's choice). The selection and the last comparison are held by `App`, so they stay
+  while other tabs are open, until a reload.
   - `POST /api/multi-ticker` takes `{tickers: [{symbol, set}], drill_n_days}`, 1 to 30 picks, and
     drops repeats.
   - When sources are mixed, names carry the source ("(live)", "(saved)"), so the same symbol live
@@ -569,7 +570,8 @@ The third data option: live data saved as plain CSV, downloaded once and then up
   revision. `save_local` now stops at yesterday (end = today, local date, exclusive), as
   `load_price_data` does. A new test covers it, and the old behaviour fails four tests.
 - **Checks:** 14 new API/store tests; 2 new Vitest tests (19 in all); the end-to-end
-  multi-ticker test now drives the menu (all ten demo tickers, then none, then two). A Chromium
+  multi-ticker test now drives the menu (empty at first, all ten demo tickers, kept across a tab
+  switch, then none, then two). A Chromium
   run against the yfinance stand-in covered:
   - a refused symbol, AAPL loaded, saved, and kept after a reload;
   - an unknown symbol giving one error, then removed;
