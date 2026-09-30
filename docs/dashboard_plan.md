@@ -575,6 +575,14 @@ The third data option: live data saved as plain CSV, downloaded once and then up
   - an unknown symbol giving one error, then removed;
   - live CL=F, added AAPL, saved AAPL and demo Apple compared together.
 
+- **Fix, from the owner's first pull:** `npm run build` failed with "Cannot find type definition
+  file for 'node'": the pull had added packages (`@playwright/test`, `@types/node`), and
+  `npm install` had not run. Two changes:
+  - `build` now type-checks only the app (`tsc --noEmit && vite build`), so a stale install can
+    no longer block serving the dashboard; `npm run typecheck` still checks the e2e files too.
+  - The README's after-pull step is now `npm install`, then `npm run build`.
+  Reproduced by hiding `@types/node`: the build now passes and the type check still reports it.
+
 ## Status (2026-09-30)
 
 All phases are done. What is left is on the owner's computer, where Yahoo is reachable: the first

@@ -170,7 +170,8 @@ python -m src.api          # then open http://127.0.0.1:8000  (--open opens it f
 It listens on this computer only. `--port` changes the port; `--host 0.0.0.0` would expose
 it to your network, and it has no login, so it warns. The API's own documentation is at
 http://127.0.0.1:8000/docs, and `notebooks/api_examples.ipynb` queries it from Python. After
-pulling dashboard changes, run `npm run build` in `dashboard/` again; no restart is needed. If
+pulling dashboard changes, run `npm install` and `npm run build` in `dashboard/` again
+(`npm install` picks up any new packages); no restart is needed. If
 the dashboard has never been built, the page at `/` says how.
 
 **Develop:** `python scripts/dev.py` runs the API (restarting on Python changes) and the Vite
