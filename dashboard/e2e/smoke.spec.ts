@@ -76,11 +76,21 @@ test('statistics: four sections and the bootstrap on request', async ({ page }) 
   await expect(drawn(page)).toHaveCount(6);                  // plus the two event charts
 });
 
-test('multi-ticker: every demo ticker on request', async ({ page }) => {
+test('multi-ticker: the chosen tickers on request', async ({ page }) => {
   await page.getByRole('tab', { name: 'Multi-ticker' }).click();
-  await page.getByRole('button', { name: 'Run every demo ticker' }).click();
+  const demo = page.locator('fieldset', { hasText: 'Demo data (offline)' });
+  // The selection starts as the Data control's set: every demo ticker.
+  await expect(demo.getByRole('checkbox', { checked: true })).toHaveCount(10);
+  await page.getByRole('button', { name: 'Compare 10 tickers' }).click();
   await expect(page.locator('main details')).toHaveCount(10);
-  await expect(page.locator('main section.card').nth(0).locator('tbody tr')).toHaveCount(10);
+  // A smaller choice: none, then two.
+  await demo.getByRole('button', { name: 'None' }).click();
+  await expect(page.getByRole('button', { name: 'Compare 0 tickers' })).toBeDisabled();
+  await demo.getByRole('checkbox', { name: /Apple/ }).check();
+  await demo.getByRole('checkbox', { name: /Coca-Cola/ }).check();
+  await page.getByRole('button', { name: 'Compare 2 tickers' }).click();
+  await expect(page.locator('main details')).toHaveCount(2);
+  await expect(page.locator('main details summary')).toContainText([/Apple/, /Coca-Cola/]);
 });
 
 test('the saved-CSV choice loads without an error', async ({ page }) => {

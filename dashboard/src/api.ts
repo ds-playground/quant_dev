@@ -114,12 +114,19 @@ export interface Figure {
 }
 
 export interface MultiTicker {
-  set: TickerSet;
+  set: TickerSet | null;              // null for a chosen selection
   drill_n_days: number;
-  tickers: { symbol: string; label: string; rows: number; start: string; end: string; drill: Table }[];
+  tickers: { symbol: string; set: TickerSet; label: string; rows: number; start: string; end: string;
+             drill: Table }[];
   streaks: Table;
   distribution: Table;
-  failed: { symbol: string; error: string }[];
+  failed: { symbol: string; set: TickerSet; error: string }[];
+}
+
+/** One ticker of one set, as chosen for the multi-ticker comparison. */
+export interface Pick {
+  symbol: string;
+  set: TickerSet;
 }
 
 type Query = Record<string, string | number | (string | number)[] | null | undefined>;
@@ -186,6 +193,10 @@ export const api = {
   saveLocal: (symbol: string, startDate = '2016-01-01') =>
     request<SaveResult>('POST', `/local/${encodeURIComponent(symbol)}/update`, undefined,
                         { start_date: startDate }),
+  ticker: (symbol: string, set: TickerSet = 'yahoo') =>
+    request<Ticker>('GET', '/ticker', undefined, { symbol, set }),
+  compare: (tickers: Pick[], drillNDays = 3) =>
+    request<MultiTicker>('POST', '/multi-ticker', { tickers, drill_n_days: drillNDays }),
   multiTicker: (set: TickerSet, drillNDays = 3) =>
     request<MultiTicker>('GET', '/multi-ticker', undefined, { set, drill_n_days: drillNDays }),
 };

@@ -118,6 +118,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
 | **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `51e9cf0`** |
 | **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `242d7b6`** |
+| **6a** ✅ | Owner's enhancements | Other ticker (any Yahoo symbol), a multi-ticker menu across sources, and saving stops at yesterday — **done, `PHASE6A`** |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
 end of each phase; tests stay offline (`data_source='demo'` or `'simulated'`, or a stubbed
@@ -546,6 +547,34 @@ The third data option: live data saved as plain CSV, downloaded once and then up
 - The end-to-end files type-check under `tsconfig.node.json` (Node types stay out of the app).
   `npm run typecheck` runs both configs, and Vitest runs only `src/**/*.test.ts`.
 
+### Phase 6a: owner's enhancements after the first live run (2026-09-30)
+
+- **Other ticker:** with the Yahoo set, **Other ticker…** at the end of the ticker list takes any
+  Yahoo symbol (checked against `^[A-Za-z0-9^=._-]{1,20}$` in the browser and the API).
+  - `GET /api/ticker?symbol=&set=` gives it parameters: its own config entry, or the config's
+    defaults.
+  - It is added to an "Added" group, kept in this browser (localStorage) and looked up afresh
+    each visit, and can be removed.
+  - A symbol Yahoo does not know loads to one clear error.
+- **Multi-ticker menu:** three groups of checkboxes: the default list (Yahoo, live, plus added
+  tickers), saved CSVs and demo files, each with All and None. The selection starts as the Data
+  control's set.
+  - `POST /api/multi-ticker` takes `{tickers: [{symbol, set}], drill_n_days}`, 1 to 30 picks, and
+    drops repeats.
+  - When sources are mixed, names carry the source ("(live)", "(saved)"), so the same symbol live
+    and saved compare side by side; demo labels already say "(demo)".
+  - The set-wide `GET` stays for the notebook.
+- **Fix, from the owner's screenshot:** saving included today's bar (end = tomorrow), so during
+  the session it stored an unfinished day, which the next update would have reported as a
+  revision. `save_local` now stops at yesterday (end = today, local date, exclusive), as
+  `load_price_data` does. A new test covers it, and the old behaviour fails four tests.
+- **Checks:** 14 new API/store tests; 2 new Vitest tests (19 in all); the end-to-end
+  multi-ticker test now drives the menu (all ten demo tickers, then none, then two). A Chromium
+  run against the yfinance stand-in covered:
+  - a refused symbol, AAPL loaded, saved, and kept after a reload;
+  - an unknown symbol giving one error, then removed;
+  - live CL=F, added AAPL, saved AAPL and demo Apple compared together.
+
 ## Status (2026-09-30)
 
 All phases are done. What is left is on the owner's computer, where Yahoo is reachable: the first
@@ -586,8 +615,8 @@ live run (the Yahoo set, and Save to CSV), and `npx playwright install chromium`
 
 ## Verification
 
-- `pytest`: 312 tests, all offline (203 before this plan).
-- `dashboard/`: `npm test` (17 unit tests), `npm run typecheck`, `npm run build`, and `npm run e2e`
+- `pytest`: 327 tests, all offline (203 before this plan).
+- `dashboard/`: `npm test` (19 unit tests), `npm run typecheck`, `npm run build`, and `npm run e2e`
   (10 end-to-end tests of every tab against `python -m src.api` on the demo data).
 - Every phase's screens were screenshotted in Chromium and inspected, in light, in dark and at
   phone width. The Yahoo path was run offline through a yfinance stand-in serving the demo files

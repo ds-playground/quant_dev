@@ -114,14 +114,17 @@ def _revisions(saved, new):
 def save_local(symbol, start_date='2016-01-01', directory=None, now=None):
     """Save `symbol`'s daily bars to data/local, or bring the saved file up to date.
 
-    The first call downloads from `start_date`. Later calls download from OVERLAP_DAYS before the
-    last saved bar: new bars are added, and saved bars Yahoo has since revised are replaced and
+    Bars up to yesterday are saved (today's is not final). The first call downloads from
+    `start_date`. Later calls download from OVERLAP_DAYS before the last saved bar: new bars are added, and saved bars Yahoo has since revised are replaced and
     listed under `revised`. Bars in the saved file that the new download lacks are kept.
     Returns what changed. Raises (leaving any saved file as it was) if the download fails.
     """
     path = local_path(symbol, directory)
     now = now or dt.datetime.now(dt.timezone.utc)
-    end = (now.date() + dt.timedelta(days=1)).isoformat()          # yfinance's end is exclusive
+    # Up to yesterday: today's bar is still changing until the close, and saving it would store
+    # a partial day that the next update reports as a revision. yfinance's end is exclusive, and
+    # today is the local date, as for load_price_data's default end_date.
+    end = now.astimezone().date().isoformat()
     saved = read_local(symbol, directory) if path.is_file() else None
 
     if saved is None or saved.empty:

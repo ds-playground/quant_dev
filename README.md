@@ -142,7 +142,11 @@ A React dashboard over the same package, served with its API by one command
 ([`docs/dashboard_plan.md`](docs/dashboard_plan.md)). Five tabs: Overview, Streaks &
 cumulative, Rare events (live filters), Statistics (the bootstrap on request) and Multi-ticker.
 Three data choices: the demo files (offline), Yahoo Finance (live), and live data you have
-saved as CSV (offline; see "Saved live data").
+saved as CSV (offline; see "Saved live data"). With Yahoo Finance, **Other ticker…** at the end
+of the ticker list loads any Yahoo symbol (it gets the defaults from `configs/tickers.yaml`), and
+keeps it in an "Added" group in this browser. The Multi-ticker tab compares any chosen mix of
+the configured and added Yahoo tickers, saved CSVs and demo files; the same symbol live and
+saved can sit side by side.
 
 ```
 browser ──▶ python -m src.api (FastAPI, 127.0.0.1:8000) ──▶ src.tools.price_return
@@ -595,6 +599,10 @@ dashboard in Chromium against the real API; see "Dashboard".
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-30
+- Dashboard: **Other ticker…** loads any Yahoo symbol, not only the configured ones, and the
+  Multi-ticker tab has a menu to choose tickers from the default list, the saved CSVs and the demo
+  files. New `GET /api/ticker` and `POST /api/multi-ticker`. Saving live data now stops at
+  yesterday: it had also stored today's unfinished bar.
 - The dashboard POC is complete (plan Phase 6): `npm run e2e` in `dashboard/` checks every tab
   end to end, in Chromium, against `python -m src.api` on the demo data.
 - One command runs the dashboard (plan Phase 5): `python -m src.api` serves the built React app

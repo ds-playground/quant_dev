@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
-import { api, type Params, type TickerSet } from './api';
+import { useAddedTickers } from './addedTickers';
+import { api, type Params, type Ticker, type TickerSet } from './api';
 import { ParamsPanel } from './components/ParamsPanel';
 import { MultiTickerTab } from './tabs/MultiTickerTab';
 import { OverviewTab } from './tabs/OverviewTab';
@@ -28,11 +29,35 @@ export default function App() {
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, retry: false });
   const tickers = useQuery({ queryKey: ['tickers', tickerSet], queryFn: () => api.tickers(tickerSet) });
 
+  // Yahoo symbols added beyond the configured list (kept in this browser), each looked up afresh.
+  const added = useAddedTickers();
+  const client = useQueryClient();
+  const lookups = useQueries({
+    queries: added.symbols.map((symbol) => ({
+      queryKey: ['ticker', 'yahoo', symbol],
+      queryFn: () => api.ticker(symbol, 'yahoo'),
+      enabled: tickerSet === 'yahoo',
+    })),
+  });
+  const configured = tickers.data?.tickers ?? [];
+  const extra: Ticker[] = tickerSet !== 'yahoo' ? [] : lookups
+    .map((q) => q.data)
+    .filter((t): t is Ticker => !!t && !configured.some((c) => c.symbol === t.symbol));
+  const list = [...configured, ...extra];
+  const lookupsPending = tickerSet === 'yahoo' && lookups.some((q) => q.isPending);
+
   // A new ticker list starts on its first ticker (SPX for the demo set), with its parameters.
   useEffect(() => {
-    const list = tickers.data?.tickers;
-    if (list?.length && !list.some((t) => t.symbol === params?.ticker)) setParams(list[0].params);
-  }, [tickers.data, params?.ticker]);
+    if (!tickers.data || lookupsPending) return;
+    if (list.length && !list.some((t) => t.symbol === params?.ticker)) setParams(list[0].params);
+  }, [tickers.data, lookupsPending, list, params?.ticker]);
+
+  const addTicker = async (symbol: string) => {
+    const ticker = await client.fetchQuery({ queryKey: ['ticker', 'yahoo', symbol],
+                                             queryFn: () => api.ticker(symbol, 'yahoo') });
+    if (!configured.some((c) => c.symbol === symbol)) added.add(symbol);
+    setParams(ticker.params);
+  };
 
   return (
     <div className="app">
@@ -64,7 +89,10 @@ export default function App() {
       <ParamsPanel
         tickerSet={tickerSet}
         onTickerSet={(set) => { setTickerSet(set); setParams(null); }}
-        tickers={tickers.data?.tickers ?? []}
+        tickers={list}
+        addedSymbols={tickerSet === 'yahoo' ? extra.map((t) => t.symbol) : []}
+        onAddTicker={tickerSet === 'yahoo' ? addTicker : undefined}
+        onRemoveTicker={added.remove}
         params={params}
         onApply={setParams}
       />
@@ -108,7 +136,7 @@ export default function App() {
         ) : tab === 'statistics' ? (
           <StatisticsTab params={params} mode={mode} />
         ) : (
-          <MultiTickerTab tickerSet={tickerSet} />
+          <MultiTickerTab tickerSet={tickerSet} addedSymbols={added.symbols} />
         )}
       </main>
     </div>
