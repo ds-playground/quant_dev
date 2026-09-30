@@ -4,6 +4,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from src.tools.price_return import (analyze_cumulative, arch_lm, autocorrelation,
                                     compare_tickers, detect_streaks, distribution_summary,
@@ -11,7 +12,8 @@ from src.tools.price_return import (analyze_cumulative, arch_lm, autocorrelation
                                     ljung_box, load_ticker_config, low_probability_view,
                                     return_moments, risk_ratios, summarize_cumulative,
                                     summarize_streaks, tail_index, value_at_risk, variance_ratio,
-                                    local_ticker_config, local_tickers, save_local, store)
+                                    local_ticker_config, local_tickers, save_local, store,
+                                    config_params, demo_tickers)
 from src.tools.price_return.params import DEFAULT_CONFIG_PATH, DEMO_CONFIG_PATH
 
 from . import cache, dashboard
@@ -68,19 +70,53 @@ def _ticker_config(ticker_set):
     return load_ticker_config(path, verbose=False), str(path) if path.exists() else 'built-in defaults'
 
 
+def _entry(symbol, p, saved):
+    return {'symbol': symbol, 'label': getattr(p, 'label', symbol),
+            'params': clean(dataclasses.asdict(p)), 'saved': saved.get(symbol)}
+
+
 @app.get('/api/tickers')
 def tickers(ticker_set: TickerSet = Query('demo', alias='set')):
     """A set's tickers with labels and parameters, and, for any ticker saved in data/local, what
     is saved (rows, first and last date, last update)."""
     config, source = _ticker_config(ticker_set)
     saved = {t['symbol']: t for t in local_tickers()}
-    return {
-        'set': ticker_set,
-        'source': source,
-        'tickers': [{'symbol': symbol, 'label': getattr(p, 'label', symbol),
-                     'params': clean(dataclasses.asdict(p)), 'saved': saved.get(symbol)}
-                    for symbol, p in config.items()],
-    }
+    return {'set': ticker_set, 'source': source,
+            'tickers': [_entry(symbol, p, saved) for symbol, p in config.items()]}
+
+
+# Yahoo symbols: letters, digits and ^ = . _ - (e.g. AAPL, ^GSPC, ES=F, EURUSD=X, BRK-B).
+SYMBOL = r'^[A-Za-z0-9^=._-]{1,20}$'
+
+
+def _ticker_params(symbol, ticker_set):
+    """Params for any symbol in a set: its configured entry, or the config's defaults. The demo
+    set has only its files, and the saved set only what is saved."""
+    if ticker_set == 'demo':
+        if symbol not in demo_tickers():
+            raise HTTPException(status_code=422, detail=f'No demo data for {symbol!r}. Demo '
+                                                        f'tickers: {", ".join(demo_tickers())}.')
+        return config_params(symbol, DEMO_CONFIG_PATH)
+    if ticker_set == 'local':
+        config = local_ticker_config()
+        if symbol not in config:
+            raise HTTPException(status_code=422, detail=f'{symbol!r} is not saved. Saved: '
+                                                        f'{", ".join(config) or "none"}.')
+        return config[symbol]
+    p = config_params(symbol, TICKER_SETS['yahoo'])
+    label = p.label
+    p = dataclasses.replace(p, data_source='yahoo')
+    p.label = label
+    return p
+
+
+@app.get('/api/ticker')
+def ticker(symbol: str = Query(pattern=SYMBOL), ticker_set: TickerSet = Query('yahoo', alias='set')):
+    """One symbol, listed or not: its label and parameters (its own config entry, or the
+    config's defaults) and what is saved. For looking up a ticker outside the configured list;
+    whether Yahoo has data for it shows when its data is loaded."""
+    saved = {t['symbol']: t for t in local_tickers()}
+    return _entry(symbol, _ticker_params(symbol, ticker_set), saved)
 
 
 @app.get('/api/local')
@@ -225,33 +261,71 @@ def statistics(body: ParamsIn,
     return STATISTICS[section](p, cache.returns(p), n_days, n_boot, top)
 
 
-@app.get('/api/multi-ticker')
-def multi_ticker(ticker_set: TickerSet = Query('demo', alias='set'),
-                 drill_n_days: int = Query(3, ge=1, le=250)):
-    """`rare_case_run`: `analyze_ticker` for every ticker of a set, then `compare_tickers`
-    (the streak ratio uses `drill_n_days`, as the notebook does). A ticker that fails is listed
-    under `failed` rather than failing the request."""
-    config, _ = _ticker_config(ticker_set)
-    if not config:
-        raise HTTPException(status_code=422, detail=f'The {ticker_set} set has no tickers yet.')
+def _compare(entries, drill_n_days):
+    """`analyze_ticker` for each (key, set, Params), then `compare_tickers`. A ticker that fails
+    is listed under `failed` rather than failing the request."""
     results, tickers, failed = {}, [], []
-    for symbol, p in config.items():
+    for key, ticker_set, p in entries:
         try:
-            r = results[symbol] = cache.ticker_result(p, drill_n_days)
+            r = results[key] = cache.ticker_result(p, drill_n_days)
         except Exception as exc:  # noqa: BLE001 - one bad ticker must not sink the others
-            failed.append({'symbol': symbol, 'error': f'{type(exc).__name__}: {exc}'})
+            failed.append({'symbol': p.ticker, 'set': ticker_set,
+                           'error': f'{type(exc).__name__}: {exc}'})
             continue
-        tickers.append({'symbol': symbol, 'label': p.label, 'rows': len(r['df']),
-                        'start': clean(r['df']['date'].iloc[0]),
-                        'end': clean(r['df']['date'].iloc[-1]),
-                        'drill': frame_to_table(r['drill'])})
+        tickers.append({'symbol': p.ticker, 'set': ticker_set, 'label': p.label,
+                        'rows': len(r['df']), 'start': clean(r['df']['date'].iloc[0]),
+                        'end': clean(r['df']['date'].iloc[-1]), 'drill': frame_to_table(r['drill'])})
     if not results:
         raise HTTPException(status_code=502, detail={'message': 'Every ticker failed',
                                                      'failed': failed})
     streak_table, dist_table = compare_tickers(results, ratio_window=drill_n_days)
-    return {'set': ticker_set, 'drill_n_days': drill_n_days, 'tickers': tickers,
+    return {'drill_n_days': drill_n_days, 'tickers': tickers,
             'streaks': frame_to_table(streak_table), 'distribution': frame_to_table(dist_table),
             'failed': failed}
+
+
+@app.get('/api/multi-ticker')
+def multi_ticker(ticker_set: TickerSet = Query('demo', alias='set'),
+                 drill_n_days: int = Query(3, ge=1, le=250)):
+    """`rare_case_run` over every ticker of a set (the streak ratio uses `drill_n_days`, as the
+    notebook does)."""
+    config, _ = _ticker_config(ticker_set)
+    if not config:
+        raise HTTPException(status_code=422, detail=f'The {ticker_set} set has no tickers yet.')
+    return {'set': ticker_set,
+            **_compare([(symbol, ticker_set, p) for symbol, p in config.items()], drill_n_days)}
+
+
+class Pick(BaseModel):
+    symbol: str = Field(pattern=SYMBOL)
+    set: TickerSet
+
+
+class Selection(BaseModel):
+    tickers: list[Pick] = Field(min_length=1, max_length=30)
+    drill_n_days: int = Field(3, ge=1, le=250)
+
+
+SOURCE_NAMES = {'demo': 'demo', 'yahoo': 'live', 'local': 'saved'}
+
+
+@app.post('/api/multi-ticker')
+def multi_ticker_selection(body: Selection):
+    """`rare_case_run` over a chosen list, which may mix sets: configured Yahoo tickers (live),
+    saved CSVs, demo files. When sources are mixed, each row's name says its source, so the same
+    symbol live and saved can be compared."""
+    picks = list(dict.fromkeys((pick.symbol, pick.set) for pick in body.tickers))
+    mixed = len({ticker_set for _, ticker_set in picks}) > 1
+    entries = []
+    for symbol, ticker_set in picks:
+        p = _ticker_params(symbol, ticker_set)
+        source = SOURCE_NAMES[ticker_set]
+        if mixed and source not in p.label.lower():         # demo labels already say "(demo)"
+            label = f'{p.label} ({source})'
+            p = dataclasses.replace(p)
+            p.label = label
+        entries.append((f'{ticker_set}:{symbol}', ticker_set, p))
+    return {'set': None, **_compare(entries, body.drill_n_days)}
 
 
 # Last, so that every API route (and /docs) matches first.

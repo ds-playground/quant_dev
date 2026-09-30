@@ -1,50 +1,133 @@
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQueries, useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
-import { api, type TickerSet } from '../api';
+import { api, type Pick, type TickerSet } from '../api';
 import { DataTable } from '../components/DataTable';
 import { QueryState } from '../components/QueryState';
 import { isoDate, pctCell } from '../format';
 
-const SET_NAMES: Record<TickerSet, string> = { demo: 'demo', yahoo: 'Yahoo Finance', local: 'saved' };
+const GROUPS: { set: TickerSet; title: string }[] = [
+  { set: 'yahoo', title: 'Default list · Yahoo Finance (live)' },
+  { set: 'local', title: 'Saved CSV (offline)' },
+  { set: 'demo', title: 'Demo data (offline)' },
+];
+const MAX = 30;                               // the API's limit per comparison
+const SOURCE: Record<TickerSet, string> = { yahoo: 'live', local: 'saved', demo: 'demo' };
+const key = (p: Pick) => `${p.set}:${p.symbol}`;
 
-/** rare_case_run: every ticker of the selected set, each with its configured thresholds, then
- *  the cross-ticker streak and distribution tables. Runs on request: the first run downloads
- *  (Yahoo) and analyses every ticker; later runs are cached. */
-export function MultiTickerTab({ tickerSet }: { tickerSet: TickerSet }) {
+/** rare_case_run over a chosen list: any mix of the configured Yahoo tickers (and those added in
+ *  the ticker picker), saved CSVs and demo files, each with its configured thresholds. Runs on
+ *  request: the first run downloads (Yahoo) and analyses every ticker; later runs are cached. */
+export function MultiTickerTab({ tickerSet, addedSymbols = [] }: { tickerSet: TickerSet; addedSymbols?: string[] }) {
   const [drill, setDrill] = useState(3);
-  const [run, setRun] = useState<{ set: TickerSet; drill: number } | null>(null);
-  const current = run && run.set === tickerSet ? run : null;
-  const query = useQuery({
-    queryKey: ['multi-ticker', current],
-    queryFn: () => api.multiTicker(current!.set, current!.drill),
-    enabled: current !== null,
+  const lists = useQueries({
+    queries: GROUPS.map((g) => ({ queryKey: ['tickers', g.set], queryFn: () => api.tickers(g.set) })),
   });
+  const options: Record<TickerSet, { symbol: string; label: string }[]> = { yahoo: [], local: [], demo: [] };
+  GROUPS.forEach((g, i) => {
+    const listed = lists[i].data?.tickers.map((t) => ({ symbol: t.symbol, label: t.label })) ?? [];
+    options[g.set] = g.set === 'yahoo'
+      ? [...listed, ...addedSymbols.filter((a) => !listed.some((t) => t.symbol === a))
+                                   .map((a) => ({ symbol: a, label: a }))]
+      : listed;
+  });
+
+  // The selection starts as the Data control's set, as the view ran before the menu existed.
+  const [chosen, setChosen] = useState<Set<string> | null>(null);
+  const startList = options[tickerSet];
+  useEffect(() => {
+    if (chosen === null && lists[GROUPS.findIndex((g) => g.set === tickerSet)].data) {
+      setChosen(new Set(startList.map((t) => key({ symbol: t.symbol, set: tickerSet }))));
+    }
+  }, [chosen, lists, startList, tickerSet]);
+  const selection = chosen ?? new Set<string>();
+  const picks: Pick[] = GROUPS.flatMap((g) => options[g.set]
+    .filter((t) => selection.has(key({ symbol: t.symbol, set: g.set })))
+    .map((t) => ({ symbol: t.symbol, set: g.set })));
+
+  const toggle = (k: string, on: boolean) =>
+    setChosen((c) => { const next = new Set(c ?? []); if (on) next.add(k); else next.delete(k); return next; });
+  const setGroup = (set: TickerSet, on: boolean) =>
+    setChosen((c) => {
+      const next = new Set(c ?? []);
+      for (const t of options[set]) {
+        const k = key({ symbol: t.symbol, set });
+        if (on) next.add(k); else next.delete(k);
+      }
+      return next;
+    });
+
+  const [run, setRun] = useState<{ picks: Pick[]; drill: number } | null>(null);
+  const query = useQuery({
+    queryKey: ['compare', run],
+    queryFn: () => api.compare(run!.picks, run!.drill),
+    enabled: run !== null,
+  });
+  const current = run;
+  const tooMany = picks.length > MAX;
 
   return (
     <div className="stack">
-      <div className="toolbar" role="group" aria-label="Multi-ticker run">
-        <label>
-          <span>Holding period for the drill tables and ratio</span>
-          <select value={drill} onChange={(e) => setDrill(Number(e.target.value))}>
-            {[1, 2, 3, 5].map((d) => <option key={d} value={d}>{d} {d === 1 ? 'day' : 'days'}</option>)}
-          </select>
-        </label>
-        <div className="actions">
-          <button type="button" className="primary" disabled={query.isFetching}
-                  onClick={() => setRun({ set: tickerSet, drill })}>
-            {query.isFetching ? `Analysing every ${SET_NAMES[tickerSet]} ticker…`
-              : `Run every ${SET_NAMES[tickerSet]} ticker`}
-          </button>
+      <section className="card">
+        <h2>Tickers to compare <span className="h2-note">({picks.length} chosen{tooMany ? `; at most ${MAX}` : ''})</span></h2>
+        <div className="pick-groups">
+          {GROUPS.map((g, i) => (
+            <fieldset key={g.set} className="pick-group">
+              <legend>{g.title}</legend>
+              <div className="pick-actions">
+                <button type="button" className="link" onClick={() => setGroup(g.set, true)}
+                        disabled={!options[g.set].length}>All</button>
+                <button type="button" className="link" onClick={() => setGroup(g.set, false)}
+                        disabled={!options[g.set].length}>None</button>
+              </div>
+              {lists[i].isPending ? <p className="note">Loading…</p>
+                : !options[g.set].length ? (
+                  <p className="note">
+                    {g.set === 'local' ? 'Nothing saved yet: use Save to CSV on a Yahoo ticker.' : 'None.'}
+                  </p>
+                ) : (
+                  <ul className="pick-list">
+                    {options[g.set].map((t) => {
+                      const k = key({ symbol: t.symbol, set: g.set });
+                      return (
+                        <li key={k}>
+                          <label className="check">
+                            <input type="checkbox" checked={selection.has(k)}
+                                   onChange={(e) => toggle(k, e.target.checked)} />
+                            <span>{t.label}{t.label === t.symbol ? '' : <span className="muted"> {t.symbol}</span>}</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+            </fieldset>
+          ))}
         </div>
-      </div>
+        <div className="toolbar inset">
+          <label>
+            <span>Holding period for the drill tables and ratio</span>
+            <select value={drill} onChange={(e) => setDrill(Number(e.target.value))}>
+              {[1, 2, 3, 5].map((d) => <option key={d} value={d}>{d} {d === 1 ? 'day' : 'days'}</option>)}
+            </select>
+          </label>
+          <div className="actions">
+            <button type="button" className="primary" disabled={query.isFetching || !picks.length || tooMany}
+                    onClick={() => setRun({ picks, drill })}>
+              {query.isFetching ? `Analysing ${run?.picks.length} tickers…`
+                : `Compare ${picks.length} ticker${picks.length === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </div>
+      </section>
 
       {current === null ? (
         <section className="card">
           <p className="lede">
-            Runs the whole analysis for every ticker in the {SET_NAMES[tickerSet]} set, each with its
-            own thresholds from its config, and compares them. The first run takes a few seconds per
-            ticker; later runs are cached. The Data control above picks the set.
+            Runs the whole analysis for each chosen ticker, with its own thresholds from its config,
+            and compares them. Choose from any of the three sources; the same symbol live and saved
+            is compared side by side. The first run takes a few seconds per ticker (Yahoo tickers
+            download first); later runs are cached.
           </p>
         </section>
       ) : (
@@ -55,7 +138,9 @@ export function MultiTickerTab({ tickerSet }: { tickerSet: TickerSet }) {
                 <section className="card" role="alert">
                   <h2>{data.failed.length} of {data.failed.length + data.tickers.length} tickers failed</h2>
                   <ul className="failures">
-                    {data.failed.map((f) => <li key={f.symbol}><strong>{f.symbol}</strong>: {f.error}</li>)}
+                    {data.failed.map((f) => (
+                      <li key={`${f.set}:${f.symbol}`}><strong>{f.symbol}</strong> ({SOURCE[f.set]}): {f.error}</li>
+                    ))}
                   </ul>
                 </section>
               ) : null}
@@ -79,7 +164,7 @@ export function MultiTickerTab({ tickerSet }: { tickerSet: TickerSet }) {
               <section className="card">
                 <h2>Rare events per ticker, {data.drill_n_days}-day holding period</h2>
                 {data.tickers.map((t) => (
-                  <details key={t.symbol}>
+                  <details key={`${t.set}:${t.symbol}`}>
                     <summary>
                       <strong>{t.label}</strong> ({t.symbol}): {t.drill.records.length} rare events;
                       {' '}{t.rows.toLocaleString('en-GB')} days, {isoDate(t.start)} to {isoDate(t.end)}

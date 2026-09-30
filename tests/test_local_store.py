@@ -50,16 +50,18 @@ def yahoo(monkeypatch, tmp_path):
     return stub
 
 
-def expected_bars(stub, symbol="CL=F", start="2016-01-01", until=None):
-    """What the saved file should hold: the stub's bars in the saved layout, rounded as saved."""
+def expected_bars(stub, symbol="CL=F", start="2016-01-01", until="2026-06-29"):
+    """What the saved file should hold: the stub's bars up to `until` (the day before "today"),
+    in the saved layout, rounded as saved."""
     bars = stub.bars[symbol]
-    bars = bars[(bars.index >= pd.Timestamp(start)) & (bars.index <= (until or stub.until))]
+    bars = bars[(bars.index >= pd.Timestamp(start)) & (bars.index <= pd.Timestamp(until))]
     out = bars[["Open", "High", "Low", "Close", "Volume"]].round(6)
     out["Volume"] = out["Volume"].round().astype("int64")
     return out
 
 
-NOW = dt.datetime(2026, 6, 30, 22, 0, tzinfo=dt.timezone.utc)
+# Midday UTC, so "today" is 30 June in any timezone; bars are saved up to the day before.
+NOW = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.timezone.utc)
 
 
 def test_first_save_writes_exactly_the_downloaded_bars(yahoo):
@@ -67,9 +69,9 @@ def test_first_save_writes_exactly_the_downloaded_bars(yahoo):
     saved = pr.read_local("CL=F")
     pd.testing.assert_frame_equal(saved, expected_bars(yahoo), check_freq=False)
     assert result["created"] and result["added"] == result["rows"] == len(saved)
-    assert (result["first"], result["last"]) == ("2016-01-04", "2026-06-30")
+    assert (result["first"], result["last"]) == ("2016-01-04", "2026-06-29")
     assert result["revised"] == []
-    assert yahoo.calls == [("CL=F", "2016-01-01", "2026-07-01")]      # end exclusive: tomorrow
+    assert yahoo.calls == [("CL=F", "2016-01-01", "2026-06-30")]      # end exclusive: up to yesterday
     assert (store.LOCAL_DIR / "CL=F.csv").read_text().startswith("Date,Open,High,Low,Close,Volume\n")
     plain = store.LOCAL_DIR / "plain.txt"
     plain.write_text("")                              # the mode any new file gets here
@@ -80,13 +82,21 @@ def test_first_save_writes_exactly_the_downloaded_bars(yahoo):
 def test_update_downloads_only_the_recent_days_and_adds_the_new_bars(yahoo):
     pr.save_local("CL=F", now=NOW)
     yahoo.until = pd.Timestamp("2026-09-29")
-    later = dt.datetime(2026, 9, 30, 8, 0, tzinfo=dt.timezone.utc)
+    later = dt.datetime(2026, 9, 30, 12, 0, tzinfo=dt.timezone.utc)
     result = pr.save_local("CL=F", now=later)
-    assert yahoo.calls[-1] == ("CL=F", "2026-06-20", "2026-10-01")     # 10 days before the last bar
-    new_days = expected_bars(yahoo).loc["2026-07-01":]
+    assert yahoo.calls[-1] == ("CL=F", "2026-06-19", "2026-09-30")     # 10 days before the last bar
+    new_days = expected_bars(yahoo, until="2026-09-29").loc["2026-06-30":]
     assert result["added"] == len(new_days) > 50
     assert not result["created"] and result["revised"] == []
-    pd.testing.assert_frame_equal(pr.read_local("CL=F"), expected_bars(yahoo), check_freq=False)
+    pd.testing.assert_frame_equal(pr.read_local("CL=F"), expected_bars(yahoo, until="2026-09-29"),
+                                  check_freq=False)
+
+
+def test_todays_unfinished_bar_is_not_saved(yahoo):
+    yahoo.until = pd.Timestamp("2026-06-30")          # Yahoo already has a (partial) bar for today
+    result = pr.save_local("CL=F", now=NOW)
+    assert result["last"] == "2026-06-29"
+    assert pd.Timestamp("2026-06-30") not in pr.read_local("CL=F").index
 
 
 def test_a_revised_bar_is_replaced_and_reported(yahoo):
@@ -147,11 +157,11 @@ def test_local_tickers_and_manifest_describe_the_files(yahoo):
     pr.save_local("CL=F", now=NOW)
     [entry] = pr.local_tickers()
     assert entry == {"symbol": "CL=F", "rows": len(expected_bars(yahoo)), "first": "2016-01-04",
-                     "last": "2026-06-30", "updated": "2026-06-30T22:00:00+00:00"}
+                     "last": "2026-06-29", "updated": "2026-06-30T12:00:00+00:00"}
     manifest = pd.read_csv(store.LOCAL_DIR / "manifest.csv", dtype=str)
     assert manifest.to_dict("records") == [{"symbol": "CL=F", "file": "CL=F.csv", "rows": str(entry["rows"]),
-                                            "first": "2016-01-04", "last": "2026-06-30",
-                                            "updated": "2026-06-30T22:00:00+00:00"}]
+                                            "first": "2016-01-04", "last": "2026-06-29",
+                                            "updated": "2026-06-30T12:00:00+00:00"}]
 
 
 def test_local_config_takes_thresholds_from_the_ticker_config(yahoo):
@@ -206,11 +216,13 @@ def test_update_endpoint_saves_then_updates(api):
     client, yahoo = api
     assert client.get("/api/local").json()["tickers"] == []
     first = client.post("/api/local/CL=F/update").json()
-    assert first["created"] and first["rows"] == len(expected_bars(yahoo)) == first["added"]
+    # The endpoint runs on the real clock, so the stub's cut-off, not "today", ends the data.
+    assert first["created"] and first["rows"] == len(expected_bars(yahoo, until="2026-06-30")) == first["added"]
     assert first["last"] == "2026-06-30"
     yahoo.until = pd.Timestamp("2026-07-31")
     second = client.post("/api/local/CL=F/update").json()
-    assert not second["created"] and second["added"] == len(expected_bars(yahoo).loc["2026-07-01":])
+    assert not second["created"]
+    assert second["added"] == len(expected_bars(yahoo, until="2026-07-31").loc["2026-07-01":])
     assert client.get("/api/local").json()["tickers"] == pr.local_tickers()
 
 
@@ -300,3 +312,71 @@ def test_a_write_that_dies_halfway_leaves_the_saved_file(yahoo, monkeypatch):
     with pytest.raises(OSError, match="disk full"):
         pr.save_local("CL=F", now=NOW)
     assert {p.name: p.read_bytes() for p in store.LOCAL_DIR.iterdir()} == files
+
+
+# ── Any ticker, and a chosen mix for the multi-ticker view ───────────────────
+def test_ticker_lookup_gives_any_symbol_its_parameters(api):
+    client, yahoo = api
+    other = client.get("/api/ticker?symbol=AAPL&set=yahoo").json()
+    assert (other["label"], other["params"]["data_source"], other["params"]["win_threshold"]) == \
+        ("AAPL", "yahoo", 0.2)                                   # tickers.yaml's defaults
+    listed = client.get("/api/ticker?symbol=EURUSD=X").json()   # yahoo is the default set
+    assert (listed["label"], listed["params"]["win_threshold"]) == ("EUR/USD", 0.1)
+    assert client.get("/api/ticker?symbol=SPX&set=demo").json()["params"]["data_source"] == "demo"
+    assert client.get("/api/ticker?symbol=ES=F&set=demo").status_code == 422
+    assert client.get("/api/ticker?symbol=CL=F&set=local").status_code == 422   # not saved yet
+    client.post("/api/local/CL=F/update")
+    saved = client.get("/api/ticker?symbol=CL=F&set=local").json()
+    assert saved["params"]["data_source"] == "local" and saved["saved"]["rows"] > 0
+    assert client.get("/api/ticker?symbol=CL=F&set=yahoo").json()["saved"] == saved["saved"]
+
+
+@pytest.mark.parametrize("symbol", ["A B", "../x", "a/b", "", "X" * 21])
+def test_ticker_lookup_refuses_what_is_not_a_symbol(api, symbol):
+    client, _ = api
+    assert client.get("/api/ticker", params={"symbol": symbol}).status_code == 422
+
+
+def test_an_unlisted_symbol_loads_like_any_other(api):
+    client, yahoo = api
+    yahoo.bars["ZZZ"] = yahoo.bars["CL=F"]
+    params = client.get("/api/ticker?symbol=ZZZ").json()["params"]
+    body = client.post("/api/overview", json=params).json()
+    assert body["ticker"] == "ZZZ" and body["rows"] > 2000
+
+
+def test_multi_ticker_compares_a_chosen_mix_of_sources(api):
+    client, _ = api
+    client.post("/api/local/CL=F/update")
+    body = client.post("/api/multi-ticker", json={"drill_n_days": 2, "tickers": [
+        {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "CL=F", "set": "local"},
+        {"symbol": "SPX", "set": "demo"}, {"symbol": "CL=F", "set": "yahoo"}]}).json()   # a repeat
+    assert [(t["symbol"], t["set"]) for t in body["tickers"]] == [
+        ("CL=F", "yahoo"), ("CL=F", "local"), ("SPX", "demo")]
+    names = [r["ticker"] for r in body["distribution"]["records"]]
+    assert names == ["Crude oil futures (live)", "Crude oil futures (saved)", "S&P 500 index (demo)"]
+    live, saved = body["distribution"]["records"][:2]             # same bars, live and saved
+    assert {k: v for k, v in live.items() if k != "ticker"} == {k: v for k, v in saved.items() if k != "ticker"}
+    assert body["streaks"]["columns"][-1] == "2d ratio"
+
+
+def test_multi_ticker_selection_from_one_source_keeps_plain_names_and_lists_failures(api):
+    client, _ = api
+    body = client.post("/api/multi-ticker", json={"tickers": [
+        {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "NOPE", "set": "yahoo"}]}).json()
+    assert [r["ticker"] for r in body["distribution"]["records"]] == ["Crude oil futures"]
+    assert [(f["symbol"], f["set"]) for f in body["failed"]] == [("NOPE", "yahoo")]
+
+
+@pytest.mark.parametrize("tickers", [[], [{"symbol": f"T{i}", "set": "yahoo"} for i in range(31)],
+                                     [{"symbol": "../x", "set": "yahoo"}],
+                                     [{"symbol": "CL=F", "set": "bloomberg"}]])
+def test_multi_ticker_selection_limits(api, tickers):
+    client, _ = api
+    assert client.post("/api/multi-ticker", json={"tickers": tickers}).status_code == 422
+
+
+def test_multi_ticker_selection_refuses_an_unsaved_pick(api):
+    client, _ = api
+    response = client.post("/api/multi-ticker", json={"tickers": [{"symbol": "ES=F", "set": "local"}]})
+    assert response.status_code == 422 and "not saved" in response.json()["detail"]

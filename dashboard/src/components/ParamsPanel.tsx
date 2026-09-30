@@ -1,7 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { SYMBOL, tidySymbol } from '../addedTickers';
 import type { Params, Ticker, TickerSet } from '../api';
 import { SavedData } from './SavedData';
+
+const OTHER = '__other__';
+
+const optionText = (t: Ticker, tickerSet: TickerSet) =>
+  `${t.label}${t.label === t.symbol ? '' : ` (${t.symbol})`}`
+  + (tickerSet === 'local' && t.saved ? `, to ${t.saved.last}` : '');
 
 interface Draft {
   start_date: string;
@@ -19,14 +26,23 @@ const draftOf = (p: Params): Draft => ({
 
 /** The one row of controls above the tabs. Choosing a data set or a ticker applies at once, with
  *  that ticker's configured parameters; dates and thresholds apply with the Apply button. */
-export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply }: {
+export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply, addedSymbols = [],
+                              onAddTicker, onRemoveTicker }: {
   tickerSet: TickerSet;
   onTickerSet: (set: TickerSet) => void;
   tickers: Ticker[];
   params: Params | null;
   onApply: (params: Params) => void;
+  addedSymbols?: string[];                          // tickers added beyond the configured list
+  onAddTicker?: (symbol: string) => Promise<void>;  // offered when set: "Other ticker…"
+  onRemoveTicker?: (symbol: string) => void;
 }) {
   const [draft, setDraft] = useState<Draft | null>(params && draftOf(params));
+  const [adding, setAdding] = useState(false);
+  const [symbol, setSymbol] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+  const [looking, setLooking] = useState(false);
+  useEffect(() => setAdding(false), [tickerSet]);
   useEffect(() => setDraft(params && draftOf(params)), [params]);
 
   const edited = params && draft ? {
@@ -53,6 +69,27 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply }
     onChange: (e: { target: { value: string } }) => setDraft((d) => d && { ...d, [key]: e.target.value }),
   });
   const selected = tickers.find((t) => t.symbol === params?.ticker);
+  const configured = tickers.filter((t) => !addedSymbols.includes(t.symbol));
+  const extra = tickers.filter((t) => addedSymbols.includes(t.symbol));
+
+  const lookUp = async () => {
+    const wanted = tidySymbol(symbol);
+    if (!SYMBOL.test(wanted)) {
+      setAddError('A Yahoo symbol: letters, digits and ^ = . _ - only (e.g. AAPL, ^GSPC, SI=F).');
+      return;
+    }
+    setLooking(true);
+    setAddError(null);
+    try {
+      await onAddTicker!(wanted);
+      setAdding(false);
+      setSymbol('');
+    } catch (error) {
+      setAddError(String((error as Error).message ?? error));
+    } finally {
+      setLooking(false);
+    }
+  };
 
   return (
     <form className="controls" onSubmit={submit} aria-label="Analysis parameters">
@@ -67,20 +104,61 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply }
       <label>
         <span>Ticker</span>
         <select
-          value={params?.ticker ?? ''}
+          value={adding ? OTHER : params?.ticker ?? ''}
           disabled={!tickers.length}
           onChange={(e) => {
+            if (e.target.value === OTHER) {
+              setAdding(true);
+              setAddError(null);
+              return;
+            }
+            setAdding(false);
             const ticker = tickers.find((t) => t.symbol === e.target.value);
             if (ticker) onApply(ticker.params);
           }}
         >
-          {tickers.map((t) => (
-            <option key={t.symbol} value={t.symbol}>
-              {t.label}{t.label === t.symbol ? '' : ` (${t.symbol})`}{tickerSet === 'local' && t.saved ? `, to ${t.saved.last}` : ''}
-            </option>
-          ))}
+          {onAddTicker ? (
+            <>
+              <optgroup label="Configured">
+                {configured.map((t) => <option key={t.symbol} value={t.symbol}>{optionText(t, tickerSet)}</option>)}
+              </optgroup>
+              {extra.length ? (
+                <optgroup label="Added">
+                  {extra.map((t) => <option key={t.symbol} value={t.symbol}>{optionText(t, tickerSet)}</option>)}
+                </optgroup>
+              ) : null}
+              <option value={OTHER}>Other ticker…</option>
+            </>
+          ) : tickers.map((t) => <option key={t.symbol} value={t.symbol}>{optionText(t, tickerSet)}</option>)}
         </select>
       </label>
+      {adding ? (
+        <div className="other-ticker" role="group" aria-label="Other ticker">
+          <label>
+            <span>Yahoo symbol</span>
+            <input type="text" className="short" value={symbol} autoFocus placeholder="e.g. AAPL"
+                   spellCheck={false} autoCapitalize="characters"
+                   onChange={(e) => setSymbol(e.target.value)}
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter') { e.preventDefault(); void lookUp(); }
+                     if (e.key === 'Escape') setAdding(false);
+                   }} />
+          </label>
+          <button type="button" className="primary" disabled={!symbol.trim() || looking} onClick={() => void lookUp()}>
+            {looking ? 'Loading…' : 'Load'}
+          </button>
+          <button type="button" className="ghost" onClick={() => setAdding(false)}>Cancel</button>
+          {addError ? <p className="error inline" role="alert">{addError}</p> : null}
+        </div>
+      ) : selected && addedSymbols.includes(selected.symbol) && onRemoveTicker ? (
+        <div className="other-ticker">
+          <button type="button" className="ghost" onClick={() => onRemoveTicker(selected.symbol)}
+                  aria-label={`Remove ${selected.symbol} from the list`}
+                  title={`Remove ${selected.symbol} from the Added list`}>
+            Remove
+          </button>
+        </div>
+      ) : null}
       <label>
         <span>Start</span>
         <input type="date" {...field('start_date')} />
