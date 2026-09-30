@@ -75,11 +75,16 @@ where this is built, so development runs on processed Yahoo data rather than on 
 daily bars for ten tickers with 0.01% seeded noise on every column, labelled as not market data
 and for education only. See the revision below.
 
+**Owner's decision (2026-09-30): saved live data.** The dashboard's data choice becomes three
+options: demo, live (Yahoo), and saved CSVs of live data, downloaded once and updated on request,
+so later runs are offline and fast. Built after Phase 4, as Phase 4a. Uploading your own CSVs,
+or reading a folder of arbitrary CSVs, was considered and left out for now.
+
 ## Architecture
 
 ```
 React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) ──▶ src.tools.price_return
-   react-plotly.js renders figure JSON              wraps + serializes      (all analysis, all charts)
+   plotly.js draws the figure JSON                  wraps + serializes      (all analysis, all charts)
 ```
 
 - **Parameters:** the request model is generated from `Params`'s dataclass fields
@@ -90,8 +95,9 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 - **Tables:** DataFrames are returned as records, with NaN as `null` and dates as ISO strings.
   Formatting (%, rounding) happens in React, as `format_probability_table` does for notebooks.
 - **Data:** `load_price_data` serves three sources: `yahoo`, `demo` (`data/demo`) and
-  `simulated`. The dashboard's ticker list defaults to the demo set, so it works offline out of
-  the box; `/api/tickers?set=yahoo` switches to `configs/tickers.yaml`.
+  `simulated`, and gains `local` (saved Yahoo data in `data/local`) in Phase 4a. The dashboard's
+  ticker list defaults to the demo set, so it works offline out of the box;
+  `/api/tickers?set=yahoo` switches to `configs/tickers.yaml`.
 - **Cache:** an in-memory LRU cache of `load_price_data` + `add_rolling_stats`, keyed by the data
   fields of `Params` (ticker, source, dates, simulation settings). `end_date` defaults to today,
   so the cache refreshes daily.
@@ -109,6 +115,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `6389d05`** |
 | **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `a8af3fa`** |
 | **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
+| **4a** | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests |
 | **5** | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section |
 | **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
 
@@ -339,6 +346,52 @@ yfinance); no analysis logic outside `src/tools/`.
 - **Multi-ticker:** runs over the selected ticker set (demo or Yahoo) on request; cross-ticker streak and
   distribution tables, and any failed tickers listed.
 
+## Phase 4a: saved live data (owner's request, 2026-09-30)
+
+The third data option: live data saved as plain CSV, downloaded once and then updated.
+
+- **Store:** `data/local/{symbol}.csv`, the same layout as the demo files (`Date, Open, High,
+  Low, Close, Volume`, as traded: `auto_adjust=False`), plus `data/local/manifest.csv` (symbol,
+  rows, first and last date, when it was last updated). `data/local/` is **git-ignored**: it is
+  real Yahoo data, and the repo is public. Symbols map to file names safely (`ES=F.csv`,
+  `^GSPC.csv`; anything outside letters, digits and `=^._-` is escaped).
+- **Package** (`src/tools/price_return/store.py`):
+  - `save_local(symbol, start_date='2016-01-01')`: the first download writes the whole history.
+    Afterwards it downloads only from a few days before the last saved date to today, and merges.
+    The overlap catches Yahoo's revisions of recent bars, which are reported rather than silently
+    replacing values.
+  - Writes go to a temporary file and are renamed into place, so a failed download never leaves
+    a half-written or emptied CSV.
+  - `local_tickers()` lists the saved files with their date ranges.
+  - `load_price_data(data_source='local')` reads the saved closes through the same cleaning as
+    `yahoo` and `demo` (end date exclusive, non-positive closes dropped).
+  - The CSV reader for `demo` and `local` becomes one function.
+- **API:**
+  - `GET /api/local`: the saved symbols, date ranges and last update.
+  - `POST /api/local/{symbol}/update`: save or update one symbol. Returns rows added, the new
+    range and any revised bars; a Yahoo failure is a 502 and leaves the file as it was.
+  - `GET /api/tickers?set=local`: the saved symbols, with each symbol's thresholds from
+    `configs/tickers.yaml` when it is there, `data_source` set to `local`.
+- **Dashboard:**
+  - The Data control offers three choices: **Demo data (offline)**, **Yahoo Finance (live)** and
+    **Saved CSV (offline)**.
+  - With Yahoo selected, a **Save to CSV** button beside the ticker saves or updates it.
+  - With saved CSVs selected, each ticker shows its last saved date, flagged when it is more than
+    a few days old, with an **Update** button.
+  - While an update runs, its button shows progress; afterwards the charts refetch.
+- **Refresh script:** `python scripts/update_local_data.py [symbols…]` updates the given symbols,
+  or every symbol in `configs/tickers.yaml`. It is the hook for a scheduled refresh later, which
+  hosting will need.
+- **Tests** (offline, with the yfinance stub from Phase 3's Yahoo-path test):
+  - the first save writes exactly the stub's bars;
+  - an update adds only the new rows, and reports a revised overlapping bar;
+  - a failed download leaves the file byte-for-byte unchanged;
+  - `local` equals the `yahoo` path on the same data;
+  - symbols with `=` and `^` round-trip through file names;
+  - `data/local/` is ignored by git;
+  - the API endpoints match the package.
+  Plus a Playwright check of save, update and reload in the dashboard.
+
 ## Phase 5: one-command local run
 
 - FastAPI mounts `dashboard/dist` as static files when it exists, so
@@ -358,7 +411,8 @@ yfinance); no analysis logic outside `src/tools/`.
 
 - **Docker:** a multi-stage image (Node build → slim Python) plus `docker compose`. This is the
   first step towards hosting.
-- **Hosting:** authentication, HTTPS, secrets, monitoring, a shared data store with scheduled
+- **Hosting:** authentication, HTTPS, secrets, monitoring, a shared data store (Phase 4a's CSV
+  store is the local first step; Parquet or DuckDB when it outgrows CSV) with scheduled
   refresh, and job queues for long computations.
 - **Trading execution:** a separate service, paper trading first.
 
