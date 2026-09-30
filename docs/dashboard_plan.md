@@ -7,10 +7,10 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
 ## Picking this up
 
 - **Setup:** Python 3.12 or newer: `pip install -e ".[api,stats,dev]"` from the repo root, then
-  `pytest`; all tests pass offline. Run everything with `python -m src.api` (after
-  `npm run build` in `dashboard/`), or develop with `python scripts/dev.py`. The dashboard needs Node 20 or newer: `npm install` once in
-  `dashboard/`, then `npm run dev` (http://localhost:5173) with the API running; `npm test`,
-  `npm run typecheck` and `npm run build` are its checks.
+  `pytest`; all tests pass offline. The dashboard needs Node 20 or newer: in `dashboard/`, run
+  `npm install` (again after every pull) and `npm run build`. Then run everything with
+  `python -m src.api`, or develop with `python scripts/dev.py`. The dashboard's checks are
+  `npm test`, `npm run typecheck`, `npm run build` and `npm run e2e`.
 - **Data:** develop and test on the demo files (`data_source='demo'`, e.g. SPX; see the revision
   below), which work offline. Yahoo is blocked in the cloud environment this was built in, so
   Yahoo runs happen on the owner's computer.
@@ -109,7 +109,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 
 | # | Phase | Deliverable |
 |---|---|---|
-| **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README |
+| **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README — **done, `c264d0b`** |
 | **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `2a1e61b`** |
 | **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `c45b0ca`** |
 | **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `6389d05`** |
@@ -118,7 +118,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
 | **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `51e9cf0`** |
 | **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `242d7b6`** |
-| **6a** ✅ | Owner's enhancements | Other ticker (any Yahoo symbol), a multi-ticker menu across sources, and saving stops at yesterday — **done, `d8c7050`** |
+| **6a** ✅ | Owner's enhancements | Other ticker (any Yahoo symbol), a multi-ticker menu across sources, and saving stops at yesterday — **done, `d8c7050`** (follow-ups `2904c3a`, `f2a70a3`) |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
 end of each phase; tests stay offline (`data_source='demo'` or `'simulated'`, or a stubbed
@@ -398,6 +398,7 @@ The third data option: live data saved as plain CSV, downloaded once and then up
 - **Package** (`src/tools/price_return/store.py`):
   - `save_local(symbol, start_date='2016-01-01')`: the first download writes the whole history.
     Afterwards it downloads only from a few days before the last saved date to today, and merges.
+    (Phase 6a changed this to stop at yesterday: today's bar is not final.)
     The overlap catches Yahoo's revisions of recent bars, which are reported rather than silently
     replacing values.
   - Writes go to a temporary file and are renamed into place, so a failed download never leaves
@@ -585,11 +586,46 @@ The third data option: live data saved as plain CSV, downloaded once and then up
   - The README's after-pull step is now `npm install`, then `npm run build`.
   Reproduced by hiding `@types/node`: the build now passes and the type check still reports it.
 
+### Review of the documents and tests (2026-09-30)
+
+At the owner's request, every document and test was reviewed for inconsistencies and redundancy,
+and all findings were fixed in one commit:
+
+- **Documents:**
+  - the README lists the `local` data source with the others and says saving stops at
+    yesterday;
+  - the layout names every endpoint and test file;
+  - the Tests section covers every file;
+  - the 2026-09-30 changelog is newest-first and complete, and a duplicated entry is gone;
+  - stale lines in the three plans are updated, as are the package docstring, the
+    `tickers.yaml` header and `requirements.txt`.
+- **Tests:**
+  - `tests/conftest.py` holds the one yfinance stub (there were two copies) and the API client,
+    and clears the API caches around every test (it replaces ten manual clears);
+  - `test_price_return_stats.py` is renamed `test_price_return.py`, since it also covers
+    options, method fixes and charts;
+  - the ticker-lookup and multi-ticker selection tests moved from `test_local_store.py` to
+    `test_api.py`;
+  - the Yahoo-path check became a package test in `test_demo_data.py`, comparing the Yahoo branch
+    with the demo file itself.
+- **Removed as redundant, with nothing lost:**
+  - two error-mapping tests, already covered by `test_every_endpoint_reports_data_failures`
+    (three test runs);
+  - a duplicate `?set=demo` case;
+  - a Yahoo-equality check repeated at API level (the cache-freshness half is kept);
+  - the end-to-end "API and docs" test, which used no browser and repeated `test_serve.py`;
+  - two overview tests, merged into one parametrized test.
+- **Bug fixed:** a test read `data/demo/CL_demo.csv` by relative path and failed when pytest ran
+  from `tests/`.
+- **Check:** 323 tests from the repo root and from `tests/` (327 before; four removed). Four bugs
+  seeded again (the Yahoo path reading Adj Close, adjusted prices, a stale saved-data cache, data
+  errors as 500s) each still fail tests. End to end: 9 tests.
+
 ## Status (2026-09-30)
 
-All phases are done. What is left is on the owner's computer, where Yahoo is reachable: the first
-live run (the Yahoo set, and Save to CSV), and `npx playwright install chromium` before the first
-`npm run e2e`. Next steps beyond the POC are under "Deferred".
+All phases are done. The owner's first live run worked: the Yahoo set, and Save to CSV for ES=F,
+which showed the partial-bar bug fixed in 6a. On a new machine, run `npx playwright install
+chromium` once before `npm run e2e`. Next steps beyond the POC are under "Deferred".
 
 ## Deferred (documented, not built)
 
@@ -611,8 +647,9 @@ live run (the Yahoo set, and Save to CSV), and `npx playwright install chromium`
 - **Data:** `data/demo/*` and `configs/demo_tickers.yaml`; `data/local/` (git-ignored, created on
   the first save).
 - **Scripts:** `make_demo_data.py`, `update_local_data.py`, `dev.py`.
-- **Tests:** `test_api.py`, `test_demo_data.py`, `test_local_store.py`, `test_serve.py`, and
-  additions to `test_price_return_stats.py`.
+- **Tests:** `conftest.py`, `test_api.py`, `test_demo_data.py`, `test_local_store.py`,
+  `test_serve.py`, and additions to `test_price_return.py` (named `test_price_return_stats.py`
+  until the review below).
 - **Package changes**, each with tests:
   - `data.py`: the `demo` and `local` sources;
   - `store.py` (new): saved live data;
@@ -625,12 +662,12 @@ live run (the Yahoo set, and Save to CSV), and `npx playwright install chromium`
 
 ## Verification
 
-- `pytest`: 327 tests, all offline (203 before this plan).
+- `pytest`: 323 tests, all offline, from the repo root or `tests/` (203 before this plan).
 - `dashboard/`: `npm test` (19 unit tests), `npm run typecheck`, `npm run build`, and `npm run e2e`
-  (10 end-to-end tests of every tab against `python -m src.api` on the demo data).
+  (9 end-to-end tests of every tab against `python -m src.api` on the demo data).
 - Every phase's screens were screenshotted in Chromium and inspected, in light, in dark and at
   phone width. The Yahoo path was run offline through a yfinance stand-in serving the demo files
   under their Yahoo symbols.
-- **The owner's run:** `python -m src.api` on the owner's computer, on the demo set and then on
-  the Yahoo set for ES=F and the configured tickers, including Save to CSV. This is the first live
-  Yahoo run, since Yahoo is blocked in this environment.
+- **The owner's run** (done, 2026-09-30): `python -m src.api` on the owner's computer, on the
+  Yahoo set, including Save to CSV for ES=F. It was the first live Yahoo run, since Yahoo is
+  blocked in the environment this was built in.

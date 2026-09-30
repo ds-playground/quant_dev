@@ -1,5 +1,7 @@
-# Tickers analysed by notebooks/rare_case_run.ipynb (Yahoo Finance data). For the
-# processed demo data in data/demo, see configs/demo_tickers.yaml.
+# The Yahoo Finance tickers and their parameters, read by notebooks/rare_case_run.ipynb, the
+# dashboard's Yahoo set, and scripts/update_local_data.py. Its `defaults` also give thresholds to
+# any symbol not listed (a saved or added ticker). For the processed demo data in data/demo, see
+# configs/demo_tickers.yaml.
 #
 # Keys under `defaults` and under each ticker must be fields of the Params
 # dataclass in src/tools/price_return/params.py, with one exception: `label`, which is

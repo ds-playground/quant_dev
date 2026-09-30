@@ -219,7 +219,9 @@ verify written out.
 - **Uncertainty on probabilities:** stationary block-bootstrap confidence intervals for the
   rare-event, streak and cumulative probabilities (block bootstrap because returns are
   dependent); model-implied probabilities from an i.i.d. normal and a fitted Student-t,
-  compared with the empirical ones.
+  compared with the empirical ones. *(As built, see the Phase 4 notes: dedicated intervals for
+  the rare-event probabilities only; streak and cumulative frequencies can use the general
+  `bootstrap_interval`, but have no function or table of their own.)*
 - **Tests (independent references):** moments and JB on data with known values; Ljung–Box against
   the formula written out on a short series; variance ratio ≈ 1 and ARCH-LM not rejecting on
   i.i.d. data, but rejecting on a seeded GARCH(1,1); Hill recovering α on a Pareto sample; VaR on
@@ -298,7 +300,8 @@ verify written out.
   1. the Q-Q markers' surface-coloured rings painted over the dense middle of the distribution;
   2. the autocorrelation band was never drawn, because plotly skips shapes on subplots that do not
      yet have traces (a regression test now requires the band in both panels);
-  3. the log axis printed cluttered minor tick labels (now decades only, with a % suffix).
+  3. the log axis printed cluttered minor tick labels (now decades only, with a % suffix; the
+     dashboard work later labels 1, 2 and 5 within each decade when the range is narrow).
 - **`notebooks/price_return_statistics.ipynb`** (28 cells, committed without outputs): parameters
   from `configs/tickers.yaml` (default `ES=F`), then the four statistics areas and option sizing
   with the four `test_es` P&L grids verbatim. Each code cell opens with the question it answers.
@@ -329,7 +332,7 @@ Plan statuses and commit hashes, as in the `ta_tools` plan.
   independent reference values", describes what the suites now check.
 - **Final verification:** a fresh Python 3.12 environment with `pip install -e ".[ta,stats,dev]"`
   passes all 203 tests, without matplotlib installed.
-- **All phases done.** Next: a pull request into `master`, when the owner asks. The owner's first
+- **All phases done.** Merged into `master` through PR #9 (`b44071f`). The owner's first
   run of `price_return_statistics.ipynb` and `rare_case_run` on Yahoo data will show the real-ticker
   numbers that could not be produced here (Yahoo is blocked in this environment).
 
@@ -345,7 +348,8 @@ Plan statuses and commit hashes, as in the `ta_tools` plan.
 
 - New: `src/tools/price_return/options.py`, `src/tools/price_return/stats.py`,
   `notebooks/price_return_statistics.ipynb`, `docs/price_return_plan.md`,
-  `tests/test_price_return_stats.py` (Phases 1, 3 and 4 tests).
+  `tests/test_price_return_stats.py` (Phases 1, 3 and 4 tests; renamed `test_price_return.py`
+  on 2026-09-30).
 - Modified: `src/tools/price_return/{analysis,data,viz,params,__init__}.py`,
   `tests/test_smoke.py`, `notebooks/price_return_analysis.ipynb` (renamed from v0.5), `pyproject.toml`,
   `requirements.txt`, `README.md`, `docs/ta_tools_plan.md`.

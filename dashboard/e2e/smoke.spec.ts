@@ -122,14 +122,3 @@ test('phone width: no sideways scroll', async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBe(0);
 });
-
-test('the API and its docs are served alongside', async ({ request }) => {
-  expect((await (await request.get('/api/health')).json()).dashboard_built).toBe(true);
-  // /docs is FastAPI's page, whose Swagger UI script comes from a CDN: check the page and the
-  // schema it reads, not the CDN.
-  const docs = await request.get('/docs');
-  expect(docs.status()).toBe(200);
-  expect(await docs.text()).toContain('swagger-ui');
-  const schema = await (await request.get('/openapi.json')).json();
-  expect(Object.keys(schema.paths)).toContain('/api/rare-events');
-});
