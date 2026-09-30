@@ -28,12 +28,12 @@ class Params:
     """
 
     # ── Price data ───────────────────────────────────────────────────────
-    data_source: str = 'simulated'      # 'simulated' or 'yahoo'
+    data_source: str = 'simulated'      # 'simulated', 'yahoo' or 'demo' (data/demo files)
     ticker: str = 'AAPL'
     start_date: str = '2020-01-01'
     end_date: str = field(default_factory=_today)
 
-    # Simulation-only knobs (ignored when data_source == 'yahoo')
+    # Simulation-only knobs (ignored unless data_source == 'simulated')
     random_seed: int = 42
     sim_drift: float = 0.04             # mean daily return (%)
     sim_vol: float = 1.2                # daily return std dev (%)
@@ -84,6 +84,8 @@ def _repo_root():
 
 
 DEFAULT_CONFIG_PATH = _repo_root() / 'configs' / 'tickers.yaml'
+# The same tickers' shape over the processed files in data/demo, for offline use.
+DEMO_CONFIG_PATH = _repo_root() / 'configs' / 'demo_tickers.yaml'
 
 _DEFAULT_TICKER_CONFIG = {
     'defaults': {

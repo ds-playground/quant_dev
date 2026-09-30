@@ -53,9 +53,10 @@ toolchain and would otherwise block a clean install. `pandas_ta` needs Python 3.
 newer, so the project requires 3.12:
 
 ```bash
-pip install -e ".[dev]"   # pytest, ipywidgets, nbformat
+pip install -e ".[dev]"   # pytest, ipywidgets, nbformat, httpx2 (for the API tests)
 pip install -e ".[ta]"    # pandas_ta, ta, TA-Lib
 pip install -e ".[stats]" # scipy, for price_return.stats
+pip install -e ".[api]"   # fastapi, uvicorn, for the dashboard API in src/api
 ```
 
 `price_return` imports without scipy; only the five statistics functions that need it
@@ -84,6 +85,32 @@ plot_streak_timeline(df, streaks, P).show()
 settings — and defaults to a self-contained simulated series, so `Params()` runs
 with no network access. Nothing is bound at import time: configure once, pass the
 object around, re-run.
+
+`data_source` is `'yahoo'` (downloaded), `'simulated'` (the default), or `'demo'`: the
+processed daily files in `data/demo`, which run offline on market-shaped data.
+
+## Demo data
+
+`data/demo/` holds daily bars for ten tickers (SPX, NDQ, YM, CL, RTY, EURUSD, XAUUSD, AAPL,
+KO, TSLL), from 2016 to 2026-09. **They are processed data, not market data:** Yahoo Finance
+bars with 0.01% random noise added to every open, high, low, close and volume, provided for
+education and for running the notebooks, the dashboard and the tests offline. Do not use them
+for trading. [`data/demo/README.md`](data/demo/README.md) says how they were made
+(`scripts/make_demo_data.py`, seeded), and what to watch for, such as CL's negative close in
+April 2020 and XAUUSD being gold futures.
+
+```python
+from src.tools.price_return import demo_tickers, load_ticker_config
+
+P  = Params(data_source='demo', ticker='SPX', start_date='2016-01-01')
+df = add_rolling_stats(load_price_data(P), P)
+
+demo_tickers()                                     # the tickers with a demo file
+load_ticker_config('configs/demo_tickers.yaml')    # all ten, labelled, with thresholds
+```
+
+For `'yahoo'` and `'demo'` alike, `end_date` is exclusive and closes are as traded (not
+dividend-adjusted).
 
 ## Methodology
 
@@ -187,14 +214,26 @@ quant_dev/
 ├── config.py                              defaults for the dev/ scratch notebooks only
 │
 ├── configs/
-│   └── tickers.yaml                       ticker set + per-ticker parameters
+│   ├── tickers.yaml                       ticker set + per-ticker parameters (Yahoo data)
+│   └── demo_tickers.yaml                  the same for the ten demo files
+│
+├── data/
+│   └── demo/                              processed daily bars (not market data) + README, manifest
+│
+├── scripts/
+│   └── make_demo_data.py                  regenerates data/demo from Yahoo, with seeded noise
 │
 ├── src/
+│   ├── api/                               FastAPI app for the dashboard: wraps price_return, no analysis
+│   │   ├── app.py                         endpoints (/api/health, /api/tickers, /api/overview)
+│   │   ├── schemas.py                     request model generated from Params
+│   │   ├── serialize.py                   JSON conversion: NaN → null, ISO dates, Plotly figures
+│   │   └── cache.py                       LRU cache of loaded prices
 │   └── tools/
 │       ├── price_return/                  the framework
 │       │   ├── __init__.py                re-exports the whole public API
 │       │   ├── params.py                  Params + the ticker config that builds it
-│       │   ├── data.py                    price loading, rolling statistics
+│       │   ├── data.py                    price loading (Yahoo, demo, simulated), rolling statistics
 │       │   ├── analysis.py                streaks, thresholds, rare events
 │       │   ├── viz.py                     the Plotly charts (nine analysis, five statistics)
 │       │   ├── report.py                  formatting, interactive table, CSV export
@@ -229,6 +268,8 @@ quant_dev/
 │
 ├── tests/
 │   ├── test_smoke.py                      offline end-to-end pipeline check
+│   ├── test_api.py                        src/api against direct package calls
+│   ├── test_demo_data.py                  the demo files and the 'demo' data source
 │   ├── test_price_return_stats.py         price_return options, methods, statistics, charts
 │   └── test_ta_tools.py                   ta_tools, offline
 │
@@ -284,11 +325,12 @@ can be retuned without touching the package.
 | Function | Purpose |
 |---|---|
 | `Params` | Every tunable value for a run |
-| `load_price_data` | A date / price / return_pct frame, from Yahoo Finance or simulation |
+| `load_price_data` | A date / price / return_pct frame, from Yahoo Finance, the demo files or simulation |
 | `add_rolling_stats` | Adds `PCT Change {d}` / `{d} Av` / `{d} STD` columns plus the annualized pair |
 | `latest_snapshot`, `show_latest_snapshot` | Latest annualized and daily mean/vol |
 | `daily_returns_series` | Date-indexed decimal daily returns |
 | `compound_returns` | The compounded `n`-day return ending on each day: the package's one definition |
+| `demo_tickers` | The tickers with a file in `data/demo` |
 | `detect_streaks` | Every rolling window where all days are wins, or all losses |
 | `summarize_streaks` | One row per window: counts, frequencies, average returns |
 | `analyze_cumulative` | Rolling windows whose compounded return clears each threshold |
@@ -305,7 +347,7 @@ can be retuned without touching the package.
 | `plot_streak_timeline` | Returns with win/loss streak periods shaded |
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
-| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml`, with a built-in fallback |
+| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml` (or another config, such as `configs/demo_tickers.yaml`), with a built-in fallback |
 | `analyze_ticker`, `compare_tickers` | The whole pipeline for one ticker; cross-ticker streak and distribution tables |
 | `distribution_summary` | One row of return-distribution statistics, using the ticker's thresholds |
 | `price_range` | One-standard-deviation price band some days ahead, or over the hours left in a session |
@@ -451,12 +493,27 @@ against simulated data and checks that every public name resolves.
 references, never against the code under test: hand-counted and hand-built series,
 closed forms, scipy's own implementations, formulas written out in the test, and
 seeded simulations with known answers (Pareto tails, AR(1) and GARCH paths, bootstrap
-coverage). `tests/test_ta_tools.py` does the same for `ta_tools`. New test groups are
-also checked by seeding deliberate bugs and confirming a test fails on each.
+coverage). `tests/test_ta_tools.py` does the same for `ta_tools`. `tests/test_api.py`
+checks each API response against a direct package call, value for value, and
+`tests/test_demo_data.py` checks the demo files against their manifest and the `demo` data
+source against the files. New test groups are also checked by seeding deliberate bugs and
+confirming a test fails on each.
 
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-30
+- Demo data: `data/demo/` holds processed daily bars for ten tickers, Yahoo Finance data with
+  0.01% seeded noise, labelled as not market data and for education only (see its README).
+  `load_price_data` reads them with `data_source='demo'`, `configs/demo_tickers.yaml` lists
+  them, and `scripts/make_demo_data.py` regenerates them. Demo loading reuses the Yahoo cleaning step,
+  including dropping the returns around a non-positive close.
+- Started the React dashboard POC (`docs/dashboard_plan.md`). `src/api/` is a FastAPI app
+  over `price_return`, with health, ticker-list and overview endpoints; its request model is
+  generated from `Params`, and it computes nothing itself. The ticker list defaults to the
+  demo set, so the dashboard runs offline. New `api` extra; `httpx2` joins `dev`.
+- `configs/tickers.yaml`'s header named a notebook that no longer exists; fixed.
 
 ### 2026-09-29
 - New `price_return/stats.py` and `notebooks/price_return_statistics.ipynb`: distribution

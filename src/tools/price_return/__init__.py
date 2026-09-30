@@ -20,7 +20,8 @@ The implementation is split across `params`, `data`, `analysis`, `viz`, `report`
 
 from .params import Params, load_ticker_config
 from .data import (load_price_data, add_rolling_stats, latest_snapshot,
-                   show_latest_snapshot, daily_returns_series, compound_returns)
+                   show_latest_snapshot, daily_returns_series, compound_returns,
+                   demo_tickers)
 from .analysis import (detect_streaks, summarize_streaks, analyze_cumulative,
                        summarize_cumulative, consecutive_analysis,
                        build_historical_analysis, filter_low_probability,
@@ -45,7 +46,7 @@ __all__ = [
     'Params',
     # data
     'load_price_data', 'add_rolling_stats', 'latest_snapshot', 'show_latest_snapshot',
-    'daily_returns_series', 'compound_returns',
+    'daily_returns_series', 'compound_returns', 'demo_tickers',
     # streak & cumulative analysis
     'detect_streaks', 'summarize_streaks', 'analyze_cumulative', 'summarize_cumulative',
     # rare-event probabilities

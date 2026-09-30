@@ -73,14 +73,33 @@ def test_health():
     assert client.get("/api/health").json() == {"status": "ok", "version": app.version}
 
 
-def test_tickers_are_the_ticker_config():
-    body = client.get("/api/tickers").json()
-    config = pr.load_ticker_config(verbose=False)
+@pytest.mark.parametrize("query, path", [("", pr.params.DEMO_CONFIG_PATH),
+                                         ("?set=demo", pr.params.DEMO_CONFIG_PATH),
+                                         ("?set=yahoo", pr.params.DEFAULT_CONFIG_PATH)])
+def test_tickers_are_the_ticker_config(query, path):
+    body = client.get("/api/tickers" + query).json()
+    config = pr.load_ticker_config(path, verbose=False)
+    assert body["set"] == ("yahoo" if "yahoo" in query else "demo")
+    assert body["source"] == str(path)
     assert [t["symbol"] for t in body["tickers"]] == list(config)
     for entry in body["tickers"]:
         p = config[entry["symbol"]]
         assert entry["label"] == p.label
         assert entry["params"] == via_json(clean(dataclasses.asdict(p)))
+
+
+def test_default_tickers_are_the_demo_files_and_load_offline():
+    body = client.get("/api/tickers").json()
+    assert sorted(t["symbol"] for t in body["tickers"]) == pr.demo_tickers()
+    assert all(t["params"]["data_source"] == "demo" for t in body["tickers"])
+    first = body["tickers"][0]
+    response = client.post("/api/overview", json=first["params"])
+    assert response.status_code == 200
+    assert response.json()["ticker"] == first["symbol"] == "SPX"
+
+
+def test_unknown_ticker_set_is_rejected():
+    assert client.get("/api/tickers?set=bloomberg").status_code == 422
 
 
 def test_overview_matches_the_package_exactly():
@@ -134,3 +153,21 @@ def test_prices_are_cached_by_the_data_fields_only(monkeypatch):
     client.post("/api/overview", json={**SIMULATED, "random_seed": 8})
     assert len(calls) == 2                     # a different series is a new download
     cache.cache_clear()
+
+
+def test_overview_on_demo_data_matches_the_package_exactly():
+    payload = {"data_source": "demo", "ticker": "CL", "start_date": "2019-06-01",
+               "end_date": "2021-06-01"}
+    body = client.post("/api/overview", json=payload).json()
+    p = pr.Params(**payload)
+    df = pr.add_rolling_stats(pr.load_price_data(p, verbose=False), p)
+    assert body["rows"] == len(df)
+    assert body["last_price"] == df["price"].iloc[-1]
+    assert body["snapshot"] == via_json(clean(pr.latest_snapshot(df, p).to_dict()))
+    assert body["distribution"] == via_json(frame_to_records(pr.distribution_summary(df, p))[0])
+
+
+def test_unknown_demo_ticker_is_a_422_naming_the_demo_tickers():
+    response = client.post("/api/overview", json={"data_source": "demo", "ticker": "ES=F"})
+    assert response.status_code == 422
+    assert "SPX" in response.json()["detail"]

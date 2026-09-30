@@ -1,10 +1,11 @@
 """The FastAPI app. Endpoints call `src.tools` and serialize; they compute nothing themselves."""
 import dataclasses
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from src.tools.price_return import distribution_summary, latest_snapshot, load_ticker_config
-from src.tools.price_return.params import DEFAULT_CONFIG_PATH
+from src.tools.price_return.params import DEFAULT_CONFIG_PATH, DEMO_CONFIG_PATH
 
 from . import cache
 from .schemas import ParamsIn, to_params
@@ -34,12 +35,19 @@ def health():
     return {'status': 'ok', 'version': app.version}
 
 
+# The ticker lists the dashboard offers: the processed demo files, which work offline, or the
+# Yahoo Finance tickers analysed by the notebooks.
+TICKER_SETS = {'demo': DEMO_CONFIG_PATH, 'yahoo': DEFAULT_CONFIG_PATH}
+
+
 @app.get('/api/tickers')
-def tickers():
-    """The tickers in configs/tickers.yaml, each with its label and full parameters."""
-    config = load_ticker_config(verbose=False)
+def tickers(ticker_set: Literal['demo', 'yahoo'] = Query('demo', alias='set')):
+    """The tickers of a config (demo_tickers.yaml or tickers.yaml), with labels and parameters."""
+    path = TICKER_SETS[ticker_set]
+    config = load_ticker_config(path, verbose=False)
     return {
-        'source': str(DEFAULT_CONFIG_PATH) if DEFAULT_CONFIG_PATH.exists() else 'built-in defaults',
+        'set': ticker_set,
+        'source': str(path) if path.exists() else 'built-in defaults',
         'tickers': [{'symbol': symbol, 'label': getattr(p, 'label', symbol),
                      'params': clean(dataclasses.asdict(p))} for symbol, p in config.items()],
     }
