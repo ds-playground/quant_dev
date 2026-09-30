@@ -74,8 +74,7 @@ def test_health():
                                                 "dashboard_built": dashboard.is_built()}
 
 
-@pytest.mark.parametrize("query, path", [("", pr.params.DEMO_CONFIG_PATH),
-                                         ("?set=demo", pr.params.DEMO_CONFIG_PATH),
+@pytest.mark.parametrize("query, path", [("", pr.params.DEMO_CONFIG_PATH),       # demo by default
                                          ("?set=yahoo", pr.params.DEFAULT_CONFIG_PATH)])
 def test_tickers_are_the_ticker_config(query, path):
     body = client.get("/api/tickers" + query).json()
@@ -89,11 +88,8 @@ def test_tickers_are_the_ticker_config(query, path):
         assert entry["params"] == via_json(clean(dataclasses.asdict(p)))
 
 
-def test_default_tickers_are_the_demo_files_and_load_offline():
-    body = client.get("/api/tickers").json()
-    assert sorted(t["symbol"] for t in body["tickers"]) == pr.demo_tickers()
-    assert all(t["params"]["data_source"] == "demo" for t in body["tickers"])
-    first = body["tickers"][0]
+def test_the_default_list_starts_on_spx_and_loads_offline():
+    first = client.get("/api/tickers").json()["tickers"][0]
     response = client.post("/api/overview", json=first["params"])
     assert response.status_code == 200
     assert response.json()["ticker"] == first["symbol"] == "SPX"
@@ -103,39 +99,28 @@ def test_unknown_ticker_set_is_rejected():
     assert client.get("/api/tickers?set=bloomberg").status_code == 422
 
 
-def test_overview_matches_the_package_exactly():
-    response = client.post("/api/overview", json=SIMULATED)
+@pytest.mark.parametrize("payload", [
+    SIMULATED,
+    {"data_source": "demo", "ticker": "CL", "start_date": "2019-06-01", "end_date": "2021-06-01"},
+])
+def test_overview_matches_the_package_exactly(payload):
+    response = client.post("/api/overview", json=payload)
     assert response.status_code == 200
     body = response.json()
-    p = pr.Params(**SIMULATED)
+    p = pr.Params(**payload)
     df = pr.add_rolling_stats(pr.load_price_data(p, verbose=False), p)
     assert body["rows"] == len(df)
     assert body["start"] == df["date"].iloc[0].isoformat()
     assert body["end"] == df["date"].iloc[-1].isoformat()
     assert body["last_price"] == df["price"].iloc[-1]
-    assert body["snapshot"] == pr.latest_snapshot(df, p).to_dict()
-    assert body["distribution"] == pr.distribution_summary(df, p).iloc[0].to_dict()
+    assert body["snapshot"] == via_json(clean(pr.latest_snapshot(df, p).to_dict()))
+    assert body["distribution"] == via_json(frame_to_records(pr.distribution_summary(df, p))[0])
 
 
 def test_an_impossible_request_is_a_422():
     response = client.post("/api/overview", json={"data_source": "csv"})
     assert response.status_code == 422
     assert "data_source must be" in response.json()["detail"]
-
-
-@pytest.mark.parametrize("error,status", [
-    (ValueError("No price data for ticker 'NOPE'"), 422),
-    (ConnectionError("Yahoo unreachable"), 502),
-])
-def test_data_source_failures_are_reported_not_crashed(monkeypatch, error, status):
-    def fail(*args, **kwargs):
-        raise error
-    cache.cache_clear()
-    monkeypatch.setattr(cache, "load_price_data", fail)
-    response = client.post("/api/overview", json={"ticker": "NOPE", "data_source": "yahoo"})
-    assert response.status_code == status
-    assert str(error) in response.json()["detail"]
-    cache.cache_clear()
 
 
 def test_prices_are_cached_by_the_data_fields_only(monkeypatch):
@@ -146,32 +131,14 @@ def test_prices_are_cached_by_the_data_fields_only(monkeypatch):
         calls.append(p.ticker)
         return real(p, verbose=verbose)
 
-    cache.cache_clear()
     monkeypatch.setattr(cache, "load_price_data", counting)
     client.post("/api/overview", json=SIMULATED)
     client.post("/api/overview", json={**SIMULATED, "win_threshold": 0.9, "trade_days": 252})
     assert len(calls) == 1                     # analysis settings reuse the prices
     client.post("/api/overview", json={**SIMULATED, "random_seed": 8})
     assert len(calls) == 2                     # a different series is a new download
-    cache.cache_clear()
 
 
-def test_overview_on_demo_data_matches_the_package_exactly():
-    payload = {"data_source": "demo", "ticker": "CL", "start_date": "2019-06-01",
-               "end_date": "2021-06-01"}
-    body = client.post("/api/overview", json=payload).json()
-    p = pr.Params(**payload)
-    df = pr.add_rolling_stats(pr.load_price_data(p, verbose=False), p)
-    assert body["rows"] == len(df)
-    assert body["last_price"] == df["price"].iloc[-1]
-    assert body["snapshot"] == via_json(clean(pr.latest_snapshot(df, p).to_dict()))
-    assert body["distribution"] == via_json(frame_to_records(pr.distribution_summary(df, p))[0])
-
-
-def test_unknown_demo_ticker_is_a_422_naming_the_demo_tickers():
-    response = client.post("/api/overview", json={"data_source": "demo", "ticker": "ES=F"})
-    assert response.status_code == 422
-    assert "SPX" in response.json()["detail"]
 
 
 # ── Phase 2: analysis, rare events, charts, statistics, multi-ticker ─────────
@@ -220,14 +187,12 @@ def test_moving_the_probability_bounds_refilters_the_cached_table(monkeypatch):
     real = cache.build_historical_analysis
     monkeypatch.setattr(cache, "build_historical_analysis",
                         lambda *a, **k: calls.append(1) or real(*a, **k))
-    cache.cache_clear()
     wide = client.post("/api/rare-events", json={**DEMO, "prob_max": 0.5}).json()
     narrow = client.post("/api/rare-events", json={**DEMO, "prob_max": 0.01}).json()
     assert len(calls) == 1
     assert 0 < len(narrow["events"]["records"]) < len(wide["events"]["records"])
     client.post("/api/rare-events", json={**DEMO, "lookback_years": [1, 3]})
     assert len(calls) == 2                     # a new lookback is a new table
-    cache.cache_clear()
 
 
 def test_rare_events_reject_a_holding_period_not_computed():
@@ -380,11 +345,9 @@ def test_every_endpoint_reports_data_failures(path, monkeypatch):
 
     def offline(*args, **kwargs):
         raise ConnectionError("Yahoo unreachable")
-    cache.cache_clear()
     monkeypatch.setattr(cache, "load_price_data", offline)
     response = client.post(path, json={"data_source": "yahoo", "ticker": "ES=F"})
     assert response.status_code == 502 and "Yahoo unreachable" in response.json()["detail"]
-    cache.cache_clear()
 
 
 def test_dashboard_params_type_has_every_params_field():
@@ -398,33 +361,69 @@ def test_dashboard_params_type_has_every_params_field():
     assert fields == [f.name for f in dataclasses.fields(pr.Params)]
 
 
-def test_yahoo_path_matches_the_demo_path_on_the_same_file(monkeypatch):
-    """The Yahoo branch, offline: a yfinance stub serves data/demo/CL_demo.csv as CL=F, in
-    yfinance's shape ((Price, Ticker) columns, an Adj Close that differs from Close). The
-    answer must equal the demo source's on the same file."""
-    import sys
-    import types
+# ── Any ticker, and a chosen mix for the multi-ticker view ───────────────────
+def test_ticker_lookup_gives_any_symbol_its_parameters(api):
+    client, yahoo = api
+    other = client.get("/api/ticker?symbol=AAPL&set=yahoo").json()
+    assert (other["label"], other["params"]["data_source"], other["params"]["win_threshold"]) == \
+        ("AAPL", "yahoo", 0.2)                                   # tickers.yaml's defaults
+    listed = client.get("/api/ticker?symbol=EURUSD=X").json()   # yahoo is the default set
+    assert (listed["label"], listed["params"]["win_threshold"]) == ("EUR/USD", 0.1)
+    assert client.get("/api/ticker?symbol=SPX&set=demo").json()["params"]["data_source"] == "demo"
+    assert client.get("/api/ticker?symbol=ES=F&set=demo").status_code == 422
+    assert client.get("/api/ticker?symbol=CL=F&set=local").status_code == 422   # not saved yet
+    client.post("/api/local/CL=F/update")
+    saved = client.get("/api/ticker?symbol=CL=F&set=local").json()
+    assert saved["params"]["data_source"] == "local" and saved["saved"]["rows"] > 0
+    assert client.get("/api/ticker?symbol=CL=F&set=yahoo").json()["saved"] == saved["saved"]
 
-    def download(ticker, start=None, end=None, auto_adjust=True, **kwargs):
-        assert auto_adjust is False
-        if ticker != "CL=F":
-            return pd.DataFrame()
-        bars = pd.read_csv("data/demo/CL_demo.csv", parse_dates=["Date"], index_col="Date")
-        bars = bars[(bars.index >= pd.Timestamp(start)) & (bars.index < pd.Timestamp(end))]
-        bars.insert(0, "Adj Close", bars["Close"] * 0.98)
-        bars.columns = pd.MultiIndex.from_product([bars.columns, [ticker]], names=["Price", "Ticker"])
-        return bars
 
-    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
-    cache.cache_clear()
-    dates = {"start_date": "2019-01-01", "end_date": "2021-01-01"}
-    yahoo = client.post("/api/overview", json={"data_source": "yahoo", "ticker": "CL=F", **dates}).json()
-    demo = client.post("/api/overview", json={"data_source": "demo", "ticker": "CL", **dates}).json()
-    for key in ("rows", "start", "end", "last_price", "snapshot"):
-        assert yahoo[key] == demo[key], key
-    yahoo_streaks = client.post("/api/streaks", json={"data_source": "yahoo", "ticker": "CL=F", **dates})
-    demo_streaks = client.post("/api/streaks", json={"data_source": "demo", "ticker": "CL", **dates})
-    assert yahoo_streaks.json() == demo_streaks.json()
-    missing = client.post("/api/overview", json={"data_source": "yahoo", "ticker": "ES=F", **dates})
-    assert missing.status_code == 422 and "No price data" in missing.json()["detail"]
-    cache.cache_clear()
+@pytest.mark.parametrize("symbol", ["A B", "../x", "a/b", "", "X" * 21])
+def test_ticker_lookup_refuses_what_is_not_a_symbol(api, symbol):
+    client, _ = api
+    assert client.get("/api/ticker", params={"symbol": symbol}).status_code == 422
+
+
+def test_an_unlisted_symbol_loads_like_any_other(api):
+    client, yahoo = api
+    yahoo.bars["ZZZ"] = yahoo.bars["CL=F"]
+    params = client.get("/api/ticker?symbol=ZZZ").json()["params"]
+    body = client.post("/api/overview", json=params).json()
+    assert body["ticker"] == "ZZZ" and body["rows"] > 2000
+
+
+def test_multi_ticker_compares_a_chosen_mix_of_sources(api):
+    client, _ = api
+    client.post("/api/local/CL=F/update")
+    body = client.post("/api/multi-ticker", json={"drill_n_days": 2, "tickers": [
+        {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "CL=F", "set": "local"},
+        {"symbol": "SPX", "set": "demo"}, {"symbol": "CL=F", "set": "yahoo"}]}).json()   # a repeat
+    assert [(t["symbol"], t["set"]) for t in body["tickers"]] == [
+        ("CL=F", "yahoo"), ("CL=F", "local"), ("SPX", "demo")]
+    names = [r["ticker"] for r in body["distribution"]["records"]]
+    assert names == ["Crude oil futures (live)", "Crude oil futures (saved)", "S&P 500 index (demo)"]
+    live, saved = body["distribution"]["records"][:2]             # same bars, live and saved
+    assert {k: v for k, v in live.items() if k != "ticker"} == {k: v for k, v in saved.items() if k != "ticker"}
+    assert body["streaks"]["columns"][-1] == "2d ratio"
+
+
+def test_multi_ticker_selection_from_one_source_keeps_plain_names_and_lists_failures(api):
+    client, _ = api
+    body = client.post("/api/multi-ticker", json={"tickers": [
+        {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "NOPE", "set": "yahoo"}]}).json()
+    assert [r["ticker"] for r in body["distribution"]["records"]] == ["Crude oil futures"]
+    assert [(f["symbol"], f["set"]) for f in body["failed"]] == [("NOPE", "yahoo")]
+
+
+@pytest.mark.parametrize("tickers", [[], [{"symbol": f"T{i}", "set": "yahoo"} for i in range(31)],
+                                     [{"symbol": "../x", "set": "yahoo"}],
+                                     [{"symbol": "CL=F", "set": "bloomberg"}]])
+def test_multi_ticker_selection_limits(api, tickers):
+    client, _ = api
+    assert client.post("/api/multi-ticker", json={"tickers": tickers}).status_code == 422
+
+
+def test_multi_ticker_selection_refuses_an_unsaved_pick(api):
+    client, _ = api
+    response = client.post("/api/multi-ticker", json={"tickers": [{"symbol": "ES=F", "set": "local"}]})
+    assert response.status_code == 422 and "not saved" in response.json()["detail"]

@@ -1,4 +1,5 @@
-"""Offline tests for the processed demo data in data/demo and the `demo` data source."""
+"""Offline tests for the processed demo data in data/demo, the `demo` data source, and the Yahoo
+data path checked against the same files."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -90,3 +91,16 @@ def test_readme_says_the_data_is_processed_and_not_for_trading():
     assert "education" in readme and "trading" in readme
     for row in MANIFEST.itertuples():
         assert row.file in readme and row.yahoo_symbol in readme
+
+
+def test_the_yahoo_path_reads_what_the_demo_path_reads(yahoo):
+    """The Yahoo branch of load_price_data, offline: the `yahoo` fixture serves CL_demo.csv as CL=F
+    in yfinance's shape, with an Adj Close that differs from Close. The Yahoo path must give the
+    demo path's frame for the same file (so it reads Close, flattens yfinance's columns and ends
+    before end_date), and an unknown symbol must fail clearly."""
+    dates = {"start_date": "2019-01-01", "end_date": "2021-01-01"}
+    live = pr.load_price_data(pr.Params(data_source="yahoo", ticker="CL=F", **dates), verbose=False)
+    demo = pr.load_price_data(pr.Params(data_source="demo", ticker="CL", **dates), verbose=False)
+    pd.testing.assert_frame_equal(live, demo)
+    with pytest.raises(ValueError, match="No price data for ticker 'ES=F'"):
+        pr.load_price_data(pr.Params(data_source="yahoo", ticker="ES=F", **dates), verbose=False)

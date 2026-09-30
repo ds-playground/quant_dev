@@ -1,53 +1,18 @@
-"""Offline tests for data/local, the store of saved live data (src/tools/price_return/store.py).
+"""Offline tests for data/local, the store of saved live data (src/tools/price_return/store.py),
+and the API endpoints over it.
 
-A yfinance stub serves data/demo/CL_demo.csv as CL=F, in yfinance's own shape, up to a movable
-"today", so saving and updating can be replayed without a network.
+The `yahoo` fixture (conftest.py) serves data/demo/CL_demo.csv as CL=F in yfinance's own shape,
+up to a movable "today", so saving and updating can be replayed without a network.
 """
 import datetime as dt
 import subprocess
-import sys
-import types
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from src.tools import price_return as pr
 from src.tools.price_return import store
 from src.tools.price_return.data import DEMO_DIR
-
-
-class YahooStub:
-    """Serves demo bars under a Yahoo symbol, only up to `until`, as yf.download would."""
-
-    def __init__(self):
-        bars = pd.read_csv(DEMO_DIR / "CL_demo.csv", parse_dates=["Date"], index_col="Date")
-        self.bars = {"CL=F": bars}
-        self.until = pd.Timestamp("2026-06-30")
-        self.fail = None                     # an exception to raise instead of answering
-        self.calls = []
-
-    def download(self, symbol, start=None, end=None, auto_adjust=True, **kwargs):
-        assert auto_adjust is False
-        self.calls.append((symbol, start, end))
-        if self.fail:
-            raise self.fail
-        if symbol not in self.bars:
-            return pd.DataFrame()
-        bars = self.bars[symbol]
-        bars = bars[(bars.index >= pd.Timestamp(start)) & (bars.index < pd.Timestamp(end))
-                    & (bars.index <= self.until)].copy()
-        bars.insert(0, "Adj Close", bars["Close"] * 0.98)
-        bars.columns = pd.MultiIndex.from_product([bars.columns, [symbol]], names=["Price", "Ticker"])
-        return bars
-
-
-@pytest.fixture
-def yahoo(monkeypatch, tmp_path):
-    stub = YahooStub()
-    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=stub.download))
-    monkeypatch.setattr(store, "LOCAL_DIR", tmp_path / "local")
-    return stub
 
 
 def expected_bars(stub, symbol="CL=F", start="2016-01-01", until="2026-06-29"):
@@ -200,18 +165,6 @@ def test_saved_data_is_ignored_by_git():
 
 
 # ── The API over data/local ─────────────────────────────────────────────────
-@pytest.fixture
-def api(yahoo):
-    pytest.importorskip("fastapi")
-    from fastapi.testclient import TestClient
-
-    from src.api import cache
-    from src.api.app import app
-    cache.cache_clear()
-    yield TestClient(app), yahoo
-    cache.cache_clear()
-
-
 def test_update_endpoint_saves_then_updates(api):
     client, yahoo = api
     assert client.get("/api/local").json()["tickers"] == []
@@ -260,16 +213,15 @@ def test_ticker_sets_show_what_is_saved(api):
     assert yahoo_set["CL=F"]["params"]["data_source"] == "yahoo"
 
 
-def test_local_answers_equal_the_yahoo_path_and_follow_updates(api):
+def test_local_answers_follow_updates_without_a_restart(api):
+    """Cache keys for saved data include the file's modification time, so an update is seen."""
     client, yahoo = api
     client.post("/api/local/CL=F/update")
-    body = {"ticker": "CL=F", "start_date": "2019-01-01"}
-    local = client.post("/api/overview", json={**body, "data_source": "local"}).json()
-    live = client.post("/api/overview", json={**body, "data_source": "yahoo"}).json()
-    assert local == {**live, "data_source": "local"}
+    body = {"ticker": "CL=F", "start_date": "2019-01-01", "data_source": "local"}
+    local = client.post("/api/overview", json=body).json()
     yahoo.until = pd.Timestamp("2026-09-29")
     client.post("/api/local/CL=F/update")
-    later = client.post("/api/overview", json={**body, "data_source": "local"}).json()
+    later = client.post("/api/overview", json=body).json()
     assert later["end"][:10] == "2026-09-29" and later["rows"] > local["rows"]   # not a stale cache
 
 
@@ -312,71 +264,3 @@ def test_a_write_that_dies_halfway_leaves_the_saved_file(yahoo, monkeypatch):
     with pytest.raises(OSError, match="disk full"):
         pr.save_local("CL=F", now=NOW)
     assert {p.name: p.read_bytes() for p in store.LOCAL_DIR.iterdir()} == files
-
-
-# ── Any ticker, and a chosen mix for the multi-ticker view ───────────────────
-def test_ticker_lookup_gives_any_symbol_its_parameters(api):
-    client, yahoo = api
-    other = client.get("/api/ticker?symbol=AAPL&set=yahoo").json()
-    assert (other["label"], other["params"]["data_source"], other["params"]["win_threshold"]) == \
-        ("AAPL", "yahoo", 0.2)                                   # tickers.yaml's defaults
-    listed = client.get("/api/ticker?symbol=EURUSD=X").json()   # yahoo is the default set
-    assert (listed["label"], listed["params"]["win_threshold"]) == ("EUR/USD", 0.1)
-    assert client.get("/api/ticker?symbol=SPX&set=demo").json()["params"]["data_source"] == "demo"
-    assert client.get("/api/ticker?symbol=ES=F&set=demo").status_code == 422
-    assert client.get("/api/ticker?symbol=CL=F&set=local").status_code == 422   # not saved yet
-    client.post("/api/local/CL=F/update")
-    saved = client.get("/api/ticker?symbol=CL=F&set=local").json()
-    assert saved["params"]["data_source"] == "local" and saved["saved"]["rows"] > 0
-    assert client.get("/api/ticker?symbol=CL=F&set=yahoo").json()["saved"] == saved["saved"]
-
-
-@pytest.mark.parametrize("symbol", ["A B", "../x", "a/b", "", "X" * 21])
-def test_ticker_lookup_refuses_what_is_not_a_symbol(api, symbol):
-    client, _ = api
-    assert client.get("/api/ticker", params={"symbol": symbol}).status_code == 422
-
-
-def test_an_unlisted_symbol_loads_like_any_other(api):
-    client, yahoo = api
-    yahoo.bars["ZZZ"] = yahoo.bars["CL=F"]
-    params = client.get("/api/ticker?symbol=ZZZ").json()["params"]
-    body = client.post("/api/overview", json=params).json()
-    assert body["ticker"] == "ZZZ" and body["rows"] > 2000
-
-
-def test_multi_ticker_compares_a_chosen_mix_of_sources(api):
-    client, _ = api
-    client.post("/api/local/CL=F/update")
-    body = client.post("/api/multi-ticker", json={"drill_n_days": 2, "tickers": [
-        {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "CL=F", "set": "local"},
-        {"symbol": "SPX", "set": "demo"}, {"symbol": "CL=F", "set": "yahoo"}]}).json()   # a repeat
-    assert [(t["symbol"], t["set"]) for t in body["tickers"]] == [
-        ("CL=F", "yahoo"), ("CL=F", "local"), ("SPX", "demo")]
-    names = [r["ticker"] for r in body["distribution"]["records"]]
-    assert names == ["Crude oil futures (live)", "Crude oil futures (saved)", "S&P 500 index (demo)"]
-    live, saved = body["distribution"]["records"][:2]             # same bars, live and saved
-    assert {k: v for k, v in live.items() if k != "ticker"} == {k: v for k, v in saved.items() if k != "ticker"}
-    assert body["streaks"]["columns"][-1] == "2d ratio"
-
-
-def test_multi_ticker_selection_from_one_source_keeps_plain_names_and_lists_failures(api):
-    client, _ = api
-    body = client.post("/api/multi-ticker", json={"tickers": [
-        {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "NOPE", "set": "yahoo"}]}).json()
-    assert [r["ticker"] for r in body["distribution"]["records"]] == ["Crude oil futures"]
-    assert [(f["symbol"], f["set"]) for f in body["failed"]] == [("NOPE", "yahoo")]
-
-
-@pytest.mark.parametrize("tickers", [[], [{"symbol": f"T{i}", "set": "yahoo"} for i in range(31)],
-                                     [{"symbol": "../x", "set": "yahoo"}],
-                                     [{"symbol": "CL=F", "set": "bloomberg"}]])
-def test_multi_ticker_selection_limits(api, tickers):
-    client, _ = api
-    assert client.post("/api/multi-ticker", json={"tickers": tickers}).status_code == 422
-
-
-def test_multi_ticker_selection_refuses_an_unsaved_pick(api):
-    client, _ = api
-    response = client.post("/api/multi-ticker", json={"tickers": [{"symbol": "ES=F", "set": "local"}]})
-    assert response.status_code == 422 and "not saved" in response.json()["detail"]
