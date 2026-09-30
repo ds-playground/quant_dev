@@ -1,0 +1,45 @@
+# The demo tickers: processed daily bars in data/demo, not market data. Read
+# data/demo/README.md before using them. Load with
+#   load_ticker_config('configs/demo_tickers.yaml')
+# The dashboard's ticker list uses this file by default, so it runs with no network.
+#
+# Same rules as configs/tickers.yaml: keys must be Params fields, or `label`.
+# Tickers are the demo file names (`SPX` reads data/demo/SPX_demo.csv).
+
+defaults:
+  data_source: demo
+  start_date: '2016-01-01'
+  win_threshold: 0.2
+  loss_threshold: -0.2
+  windows: [2, 3, 5]
+  prob_max: 0.10
+  prob_min: 0.0001
+
+tickers:
+
+  # ── Indices ───────────────────────────────────────────────────────────────
+  SPX: {label: S&P 500 index (demo)}
+  NDQ: {label: Nasdaq 100 index (demo)}
+
+  # ── Futures ───────────────────────────────────────────────────────────────
+  YM:  {label: Dow futures (demo)}
+  # CL keeps the one non-positive settle (2020-04-20); load_price_data drops the
+  # two returns spanning it, as it does for CL=F from Yahoo.
+  CL:  {label: Crude oil futures (demo)}
+  # RTY starts in July 2017, so its 5-year lookbacks have less history.
+  RTY: {label: Russell 2000 futures (demo)}
+
+  # ── FX and CFD ────────────────────────────────────────────────────────────
+  # FX volatility is roughly a third of the index futures', so the threshold is
+  # halved, as in configs/tickers.yaml.
+  EURUSD: {label: EUR/USD (demo), win_threshold: 0.1, loss_threshold: -0.1}
+  # Built from COMEX gold futures (GC=F): Yahoo had no spot gold series.
+  XAUUSD: {label: Gold (demo; from gold futures)}
+
+  # ── Stocks ────────────────────────────────────────────────────────────────
+  AAPL: {label: Apple (demo)}
+  KO:   {label: Coca-Cola (demo)}
+  # TSLL is a 2x leveraged TSLA ETF at ~6.7% daily volatility, so +/-0.2% is
+  # ~0.03 standard deviations and almost every day would count. +/-1% puts it
+  # near the index futures' ~0.15. Trading since August 2022.
+  TSLL: {label: Direxion 2x TSLA (demo), win_threshold: 1.0, loss_threshold: -1.0}

@@ -1,9 +1,9 @@
 """Historical price & return analysis.
 
-Helpers for the `price_return_analysis` notebook: loading a price series
-(simulated or Yahoo Finance), deriving rolling statistics, detecting win/loss
-streaks, measuring cumulative-threshold and rare-event probabilities, and
-drawing the Plotly charts for each.
+Behind the price-return notebooks and the dashboard API: loading a price series
+(Yahoo Finance, the demo files, saved live data, or simulated), deriving rolling
+statistics, detecting win/loss streaks, measuring cumulative-threshold and rare-event
+probabilities, the statistics of the returns, and the Plotly charts for each.
 
 Every tunable value lives on `Params`, so a notebook configures once and passes
 that object around::
@@ -18,9 +18,11 @@ The implementation is split across `params`, `data`, `analysis`, `viz`, `report`
 `src.tools.price_return` works exactly as it did when this was one module.
 """
 
-from .params import Params, load_ticker_config
+from .params import Params, load_ticker_config, config_params
 from .data import (load_price_data, add_rolling_stats, latest_snapshot,
-                   show_latest_snapshot, daily_returns_series, compound_returns)
+                   show_latest_snapshot, daily_returns_series, compound_returns,
+                   demo_tickers)
+from .store import save_local, read_local, local_tickers, local_ticker_config
 from .analysis import (detect_streaks, summarize_streaks, analyze_cumulative,
                        summarize_cumulative, consecutive_analysis,
                        build_historical_analysis, filter_low_probability,
@@ -39,13 +41,15 @@ from .stats import (return_moments, jarque_bera, fit_student_t, qq_points, tail_
                     value_at_risk, autocorrelation, ljung_box, variance_ratio, arch_lm,
                     drawdown_series, drawdown_table, max_drawdown, risk_ratios, rolling_risk,
                     stationary_bootstrap, bootstrap_interval, probability_intervals,
-                    model_probabilities)
+                    model_probabilities, event_probability_table)
 
 __all__ = [
     'Params',
     # data
     'load_price_data', 'add_rolling_stats', 'latest_snapshot', 'show_latest_snapshot',
-    'daily_returns_series', 'compound_returns',
+    'daily_returns_series', 'compound_returns', 'demo_tickers',
+    # saved live data (data/local)
+    'save_local', 'read_local', 'local_tickers', 'local_ticker_config',
     # streak & cumulative analysis
     'detect_streaks', 'summarize_streaks', 'analyze_cumulative', 'summarize_cumulative',
     # rare-event probabilities
@@ -60,7 +64,7 @@ __all__ = [
     # export
     'export_tables',
     # multi-ticker
-    'load_ticker_config', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
+    'load_ticker_config', 'config_params', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
     # option sizing
     'price_range', 'move_probabilities', 'expected_pnl',
     # statistics: distribution and tails
@@ -72,5 +76,5 @@ __all__ = [
     'drawdown_series', 'drawdown_table', 'max_drawdown', 'risk_ratios', 'rolling_risk',
     # statistics: uncertainty on probabilities
     'stationary_bootstrap', 'bootstrap_interval', 'probability_intervals',
-    'model_probabilities',
+    'model_probabilities', 'event_probability_table',
 ]

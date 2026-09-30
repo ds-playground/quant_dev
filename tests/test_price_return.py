@@ -455,6 +455,31 @@ def test_probability_intervals_agree_with_consecutive_analysis():
         assert inside.mean() > 0.95
 
 
+def test_event_probability_table_joins_counts_intervals_and_models_row_for_row():
+    pytest.importorskip("scipy")
+    params = pr.Params(data_source="demo", ticker="SPX", start_date="2016-01-01")
+    r = pr.daily_returns_series(pr.add_rolling_stats(pr.load_price_data(params, verbose=False),
+                                                     params))
+    table = pr.event_probability_table(r, 3, params, n_boot=100)
+    keys = ["change_type", "change", "threshold", "n_days", "n_years"]
+    # One row per threshold x lookback x event type, nothing lost or duplicated in the joins.
+    assert len(table) == len(params.return_thresholds) * len(params.lookback_years) * 4
+    assert not table.duplicated(keys).any()
+    # Each column is its source's, on the same row.
+    bands = pr.probability_intervals(r, 3, params, n_boot=100)
+    models = pr.model_probabilities(r, 3, params)
+    for source, columns in ((bands, ["prob", "lower", "upper"]),
+                            (models, ["prob_normal", "prob_t"])):
+        joined = table.merge(source, on=keys, suffixes=("", "_src"))
+        for c in columns:
+            assert (joined[c] == joined[f"{c}_src"]).all()
+    for row in table.sample(10, random_state=0).itertuples():
+        ref = pr.consecutive_analysis(r, row.threshold, 3, row.n_years, params)
+        ref = ref[(ref["change_type"] == row.change_type) & (ref["change"] == row.change)].iloc[0]
+        assert (row.count, row.episodes) == (ref["count"], ref["episodes"])
+        assert row.prob == pytest.approx(ref["count"] / ref["n_windows"], abs=1e-12)
+
+
 def test_model_probabilities_normal_is_exact_and_matches_iid_data():
     pytest.importorskip("scipy")
     params = pr.Params()
@@ -503,6 +528,66 @@ def test_statistics_charts_build():
         # One y-scale per plot: panels may sit side by side or stacked, never overlaid.
         assert not any(getattr(fig.layout[a], "overlaying", None)
                        for a in fig.layout if a.startswith("yaxis")), name
+
+
+def test_streak_timeline_shades_each_streak_once_over_the_full_height():
+    params = pr.Params(data_source="demo", ticker="CL", start_date="2019-01-01",
+                       end_date="2021-01-01")
+    df = pr.load_price_data(params, verbose=False)
+    streaks = pr.detect_streaks(df, params)
+    for window in params.windows:
+        shapes = pr.plot_streak_timeline(df, streaks, params, window=window).layout.shapes
+        rects = [(pd.Timestamp(s.x0), pd.Timestamp(s.x1), s.fillcolor) for s in shapes
+                 if s.type == "rect"]
+        expected = ([(w["start"], w["end"], "#1D9E75") for w in streaks[window]["wins"]]
+                    + [(l["start"], l["end"], "#D85A30") for l in streaks[window]["losses"]])
+        assert rects == expected and len(rects) > 0
+        assert all((s.yref, s.y0, s.y1) == ("y domain", 0, 1) for s in shapes if s.type == "rect")
+        lines = sorted(s.y0 for s in shapes if s.type == "line")
+        assert lines == [params.loss_threshold, params.win_threshold]
+
+
+def _event_table(prob, normal, student):
+    """A hand-built event table: one cumulative-above row per threshold, 5-year lookback."""
+    n = len(prob)
+    return pd.DataFrame({
+        "change_type": ["cumulative"] * n, "change": ["above"] * n,
+        "threshold": np.linspace(0.005, 0.03, n), "n_days": [3] * n, "n_years": [5] * n,
+        "prob": prob, "lower": np.array(prob) * 0.8, "upper": np.array(prob) * 1.2,
+        "prob_normal": normal, "prob_t": student})
+
+
+def test_event_chart_ticks_suit_the_range():
+    wide = _event_table([0.3, 0.1, 0.01, 0.001], [0.3, 0.08, 0.005, 0.0002], [0.3, 0.1, 0.01, 0.001])
+    narrow = _event_table([0.6, 0.4, 0.2, 0.1], [0.55, 0.4, 0.25, 0.12], [0.6, 0.42, 0.22, 0.11])
+    assert pr.plot_event_probabilities(wide, n_years=5).layout.yaxis.dtick == 1
+    assert pr.plot_event_probabilities(narrow, n_years=5).layout.yaxis.dtick == "D2"
+
+
+def test_event_chart_keeps_the_model_labels_apart():
+    def labels(normal_end, t_end):
+        table = _event_table([0.5, 0.2, 0.05, 0.01], [0.5, 0.2, 0.05, normal_end],
+                             [0.5, 0.2, 0.05, t_end])
+        fig = pr.plot_event_probabilities(table, n_years=5)
+        values = table[["prob", "lower", "upper", "prob_normal", "prob_t"]].to_numpy().ravel()
+        decades = np.log10(values.max() / values.min())
+        px_per_decade = 330 / decades                 # the plot's height over the axis span
+        return {a.text: (a.y, a.yshift or 0) for a in fig.layout.annotations}, px_per_decade
+
+    close, px = labels(0.0100, 0.0102)
+    (y_n, shift_n), (y_t, shift_t) = close["Normal model"], close["Student-t model"]
+    assert shift_t > 0 > shift_n                      # the higher line's label moves up
+    assert abs(y_t - y_n) * px + (shift_t - shift_n) == pytest.approx(14)   # one label height apart
+    far, _ = labels(0.0001, 0.01)
+    assert far["Normal model"][1] == far["Student-t model"][1] == 0
+
+
+def test_histogram_threshold_labels_sit_outside_their_lines():
+    params = pr.Params(win_threshold=0.2, loss_threshold=-0.2)
+    df = pr.load_price_data(params, verbose=False)
+    labels = {a.text: a for a in pr.plot_return_distribution(df, params).layout.annotations}
+    assert labels["Win thr"].x == 0.2 and labels["Win thr"].xanchor == "left"
+    assert labels["Loss thr"].x == -0.2 and labels["Loss thr"].xanchor == "right"
 
 
 def test_autocorrelation_chart_draws_the_band_in_both_panels():

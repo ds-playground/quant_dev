@@ -23,16 +23,19 @@ a cross-instrument comparison only means anything once that is accounted for —
 is why thresholds are configured per ticker.
 
 This is a personal research repo, not a library and not a trading system. Nothing here
-places orders, and the numerical methods have not been checked against an independent
-reference implementation — the test suite is a smoke test, not a correctness proof.
+places orders. The numerical methods are tested against independent references (hand-counted
+series, closed forms, scipy, formulas written out from their papers, and Pine's reference
+formulas for the indicators; see [Tests](#tests)). Tests can only cover the cases someone
+thought to write, though, so treat the results as research rather than as a basis for trading.
 
-Stage one has three goals:
+The repo has four parts:
 
-1. A framework for historical price-return analysis.
-2. Basic helper functions for analysis and visualization.
-3. Pine scripts for TradingView.
-
-Goals 1 and 2 live in `src/tools/price_return/`; goal 3 lives in `pine_scripts/`.
+1. A framework for historical price-return analysis, with helpers for analysis and
+   visualization: `src/tools/price_return/`.
+2. Pine scripts for TradingView: `pine_scripts/`.
+3. A technical-analysis package that ports those indicators to Python: `src/tools/ta_tools/`.
+4. A dashboard over the price-return analysis: an API in `src/api/` and a React app in
+   `dashboard/`.
 
 ## Setup
 
@@ -53,9 +56,10 @@ toolchain and would otherwise block a clean install. `pandas_ta` needs Python 3.
 newer, so the project requires 3.12:
 
 ```bash
-pip install -e ".[dev]"   # pytest, ipywidgets, nbformat
+pip install -e ".[dev]"   # pytest, ipywidgets, nbformat, httpx2 (for the API tests)
 pip install -e ".[ta]"    # pandas_ta, ta, TA-Lib
 pip install -e ".[stats]" # scipy, for price_return.stats
+pip install -e ".[api]"   # fastapi, uvicorn, for the dashboard API in src/api
 ```
 
 `price_return` imports without scipy; only the five statistics functions that need it
@@ -84,6 +88,103 @@ plot_streak_timeline(df, streaks, P).show()
 settings — and defaults to a self-contained simulated series, so `Params()` runs
 with no network access. Nothing is bound at import time: configure once, pass the
 object around, re-run.
+
+`data_source` is `'yahoo'` (downloaded), `'simulated'` (the default), `'demo'` (the
+processed daily files in `data/demo`, which run offline on market-shaped data), or `'local'`
+(Yahoo data you have saved; see "Saved live data").
+
+## Demo data
+
+`data/demo/` holds daily bars for ten tickers (SPX, NDQ, YM, CL, RTY, EURUSD, XAUUSD, AAPL,
+KO, TSLL), from 2016 to 2026-09. **They are processed data, not market data:** Yahoo Finance
+bars with 0.01% random noise added to every open, high, low, close and volume, provided for
+education and for running the notebooks, the dashboard and the tests offline. Do not use them
+for trading. [`data/demo/README.md`](data/demo/README.md) says how they were made
+(`scripts/make_demo_data.py`, seeded), and what to watch for, such as CL's negative close in
+April 2020 and XAUUSD being gold futures.
+
+```python
+from src.tools.price_return import demo_tickers, load_ticker_config
+
+P  = Params(data_source='demo', ticker='SPX', start_date='2016-01-01')
+df = add_rolling_stats(load_price_data(P), P)
+
+demo_tickers()                                     # the tickers with a demo file
+load_ticker_config('configs/demo_tickers.yaml')    # all ten, labelled, with thresholds
+```
+
+For `'yahoo'`, `'demo'` and `'local'` alike, `end_date` is exclusive and closes are as traded
+(not dividend-adjusted).
+
+## Saved live data
+
+Live Yahoo data can be saved as plain CSV in `data/local/` and analysed offline with
+`data_source='local'`. The folder is **git-ignored**: it holds real market data, which does not
+belong in a public repo. Each symbol is one file (`ES=F.csv`) in the demo files' layout, plus a
+`manifest.csv` of date ranges and update times.
+
+```python
+from src.tools.price_return import save_local, local_tickers
+
+save_local('ES=F')      # first time: the history since 2016; afterwards: just the new bars
+local_tickers()         # what is saved, from when to when
+P = Params(data_source='local', ticker='ES=F', start_date='2016-01-01')
+```
+
+Bars are saved up to yesterday: today's is still changing until the close. An update
+re-downloads the last ten days as well as the new ones. Yahoo sometimes revises
+recent bars; a revised value replaces the saved one and is reported. A failed download leaves
+the saved file exactly as it was. To update every ticker in `configs/tickers.yaml` (or a list),
+run `python scripts/update_local_data.py [symbols...]`; it exits with 1 if any symbol failed,
+so it can run on a schedule. In the dashboard, **Save to CSV** and **Update CSV** do the same
+for one ticker, and the Data control's **Saved CSV (offline)** lists what is saved.
+
+## Dashboard
+
+A React dashboard over the same package, served with its API by one command
+([`docs/dashboard_plan.md`](docs/dashboard_plan.md)). Five tabs: Overview, Streaks &
+cumulative, Rare events (live filters), Statistics (the bootstrap on request) and Multi-ticker.
+Three data choices: the demo files (offline), Yahoo Finance (live), and live data you have
+saved as CSV (offline; see "Saved live data"). With Yahoo Finance, **Other ticker…** at the end
+of the ticker list loads any Yahoo symbol (it gets the defaults from `configs/tickers.yaml`), and
+keeps it in an "Added" group in this browser. The Multi-ticker tab compares any chosen mix of
+the configured and added Yahoo tickers, saved CSVs and demo files; the same symbol live and
+saved can sit side by side.
+
+```
+browser ──▶ python -m src.api (FastAPI, 127.0.0.1:8000) ──▶ src.tools.price_return
+            serves the built React app (dashboard/dist)       all analysis, all charts
+            and /api/* (JSON, Plotly figures)
+```
+
+**Set up once** (Python 3.12+, Node 20+), from the repo root:
+
+```bash
+pip install -e ".[api,stats]"
+cd dashboard && npm install && npm run build && cd ..
+```
+
+**Run:**
+
+```bash
+python -m src.api          # then open http://127.0.0.1:8000  (--open opens it for you)
+```
+
+It listens on this computer only. `--port` changes the port; `--host 0.0.0.0` would expose
+it to your network, and it has no login, so it warns. The API's own documentation is at
+http://127.0.0.1:8000/docs, and `notebooks/api_examples.ipynb` queries it from Python. After
+pulling dashboard changes, run `npm install` and `npm run build` in `dashboard/` again
+(`npm install` picks up any new packages); no restart is needed. If
+the dashboard has never been built, the page at `/` says how.
+
+**Develop:** `python scripts/dev.py` runs the API (restarting on Python changes) and the Vite
+dev server (updating the page on every React change) together, on http://localhost:5173, until
+Ctrl+C stops both. It works on Windows, macOS and Linux.
+
+**Check it:** in `dashboard/`, `npm test` (unit tests), `npm run typecheck`, and `npm run e2e`,
+which builds the dashboard, starts `python -m src.api` on port 8765 and drives every tab in
+Chromium on the demo data (about 30 s). The first time, run `npx playwright install chromium`;
+set `PYTHON` if your interpreter is not called `python`.
 
 ## Methodology
 
@@ -187,21 +288,42 @@ quant_dev/
 ├── config.py                              defaults for the dev/ scratch notebooks only
 │
 ├── configs/
-│   └── tickers.yaml                       ticker set + per-ticker parameters
+│   ├── tickers.yaml                       ticker set + per-ticker parameters (Yahoo data)
+│   └── demo_tickers.yaml                  the same for the ten demo files
+│
+├── data/
+│   ├── demo/                              processed daily bars (not market data) + README, manifest
+│   └── local/                             saved live Yahoo data (git-ignored; created on first save)
+│
+├── scripts/
+│   ├── dev.py                             development: the API and the Vite dev server together
+│   ├── make_demo_data.py                  regenerates data/demo from Yahoo, with seeded noise
+│   └── update_local_data.py               saves or updates live data in data/local
 │
 ├── src/
+│   ├── api/                               FastAPI app for the dashboard: wraps price_return, no analysis
+│   │   ├── __main__.py                    `python -m src.api`: the dashboard and API on one port
+│   │   ├── dashboard.py                   serves the built dashboard (dashboard/dist)
+│   │   ├── app.py                         endpoints: health, tickers, ticker, local (list, update),
+│   │   │                                  overview, streaks, cumulative, rare-events, charts,
+│   │   │                                  statistics, multi-ticker (GET a set, POST a selection)
+│   │   ├── charts.py                      chart registry: name → viz.plot_* call
+│   │   ├── schemas.py                     request model generated from Params
+│   │   ├── serialize.py                   JSON conversion: NaN → null, ISO dates, Plotly figures
+│   │   └── cache.py                       LRU caches: prices, rare-event tables, ticker runs
 │   └── tools/
 │       ├── price_return/                  the framework
 │       │   ├── __init__.py                re-exports the whole public API
 │       │   ├── params.py                  Params + the ticker config that builds it
-│       │   ├── data.py                    price loading, rolling statistics
+│       │   ├── data.py                    price loading (Yahoo, demo, local, simulated), rolling statistics
+│       │   ├── store.py                   saved live data: save, update, list (data/local)
 │       │   ├── analysis.py                streaks, thresholds, rare events
 │       │   ├── viz.py                     the Plotly charts (nine analysis, five statistics)
 │       │   ├── report.py                  formatting, interactive table, CSV export
 │       │   ├── pipeline.py                per-ticker run + cross-ticker comparison
 │       │   ├── options.py                 price ranges, move probabilities, expected P&L
 │       │   └── stats.py                   distribution, dependence, drawdowns, probability intervals
-│       └── ta_tools/                      technical analysis (in progress)
+│       └── ta_tools/                      technical analysis (see docs/ta_tools_plan.md)
 │           ├── backend.py                 the only TA-Lib / pandas_ta import site
 │           ├── data.py                    bars: Yahoo (load_bars), CSV (read_bars), seeded (make_bars)
 │           ├── overlap.py                 sma, ema, wma (TA-Lib); hma, alma (pandas_ta)
@@ -210,10 +332,18 @@ quant_dev/
 │           ├── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
 │           └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
 │
+├── dashboard/                             React dashboard (Vite, TypeScript), talks to src/api
+│   ├── src/api.ts                         typed client for every endpoint
+│   ├── e2e/smoke.spec.ts                  end-to-end check of every tab (Playwright, npm run e2e)
+│   ├── src/components/                    parameter panel, Plotly chart, table, stat tiles
+│   └── src/tabs/                          one component per tab
+│
 ├── docs/
+│   ├── dashboard_plan.md                  React dashboard POC plan, with status
 │   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
+│   ├── api_examples.ipynb                 example queries to every dashboard API endpoint
 │   ├── price_return_analysis.ipynb        single-ticker streak and rare-event analysis
 │   ├── price_return_statistics.ipynb      statistics of one ticker's returns, option sizing
 │   ├── rare_case_run.ipynb                config-driven multi-ticker run
@@ -227,8 +357,13 @@ quant_dev/
 │   └── references/                        their unmodified originals
 │
 ├── tests/
+│   ├── conftest.py                        shared fixtures: the yfinance stub, the API client, cache reset
 │   ├── test_smoke.py                      offline end-to-end pipeline check
-│   ├── test_price_return_stats.py         price_return options, methods, statistics, charts
+│   ├── test_price_return.py               price_return options, methods, statistics, charts
+│   ├── test_demo_data.py                  the demo files, the 'demo' source, the Yahoo path against them
+│   ├── test_local_store.py                saving, updating and reading data/local, and its endpoints
+│   ├── test_api.py                        src/api against direct package calls
+│   ├── test_serve.py                      serving the dashboard, `python -m src.api`, the dev launcher
 │   └── test_ta_tools.py                   ta_tools, offline
 │
 └── dev/                                   scratch work — gitignored, never tracked
@@ -263,6 +398,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 
 | Notebook | Status |
 |---|---|
+| `api_examples.ipynb` | Current, committed without outputs. Example calls to every endpoint of the dashboard API (`src/api`) over HTTP, with the answers as tables and charts; runs on the demo data by default, and starts the API inside the kernel if none is running. Needs the `api` and `stats` extras; not for Colab. |
 | `price_return_analysis.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
 | `price_return_statistics.ipynb` | Current, committed without outputs. One ticker (default `ES=F`, thresholds from `configs/tickers.yaml`): distribution and tails, dependence, drawdowns and risk, the rare-event probabilities with bootstrap intervals and model comparisons, and option sizing with the four P&L grids from the retired `test_es`. Needs the `stats` extra. |
 | `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
@@ -283,11 +419,14 @@ can be retuned without touching the package.
 | Function | Purpose |
 |---|---|
 | `Params` | Every tunable value for a run |
-| `load_price_data` | A date / price / return_pct frame, from Yahoo Finance or simulation |
+| `load_price_data` | A date / price / return_pct frame, from Yahoo Finance, the demo files or simulation |
 | `add_rolling_stats` | Adds `PCT Change {d}` / `{d} Av` / `{d} STD` columns plus the annualized pair |
 | `latest_snapshot`, `show_latest_snapshot` | Latest annualized and daily mean/vol |
 | `daily_returns_series` | Date-indexed decimal daily returns |
 | `compound_returns` | The compounded `n`-day return ending on each day: the package's one definition |
+| `demo_tickers` | The tickers with a file in `data/demo` |
+| `save_local`, `read_local` | Save or update a symbol's live data in `data/local`; read the saved bars |
+| `local_tickers`, `local_ticker_config` | What is saved; `{symbol: Params}` for it, thresholds from the ticker config |
 | `detect_streaks` | Every rolling window where all days are wins, or all losses |
 | `summarize_streaks` | One row per window: counts, frequencies, average returns |
 | `analyze_cumulative` | Rolling windows whose compounded return clears each threshold |
@@ -304,7 +443,8 @@ can be retuned without touching the package.
 | `plot_streak_timeline` | Returns with win/loss streak periods shaded |
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
-| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml`, with a built-in fallback |
+| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml` (or another config, such as `configs/demo_tickers.yaml`), with a built-in fallback |
+| `config_params` | One symbol's `Params` from the ticker config, or from its defaults if not listed |
 | `analyze_ticker`, `compare_tickers` | The whole pipeline for one ticker; cross-ticker streak and distribution tables |
 | `distribution_summary` | One row of return-distribution statistics, using the ticker's thresholds |
 | `price_range` | One-standard-deviation price band some days ahead, or over the hours left in a session |
@@ -320,6 +460,7 @@ can be retuned without touching the package.
 | `risk_ratios`, `rolling_risk` | Annualized return and volatility, Sharpe, Sortino, Calmar; rolling versions |
 | `stationary_bootstrap`, `bootstrap_interval` | Politis–Romano resampling indices; a percentile interval for any statistic |
 | `probability_intervals`, `model_probabilities` | Rare-event probabilities with bootstrap intervals; what i.i.d. normal and Student-t models predict |
+| `event_probability_table` | Both of those joined with the observed counts and episodes: the table `plot_event_probabilities` draws |
 | `plot_qq`, `plot_autocorrelation` | Q-Q against normal and t; autocorrelation panels with the 95% band |
 | `plot_drawdown`, `plot_rolling_risk` | Underwater chart; rolling volatility and Sharpe panels |
 | `plot_event_probabilities` | Observed probabilities with intervals against both models, log scale |
@@ -444,18 +585,85 @@ which constrains how that one file may be reused or redistributed.
 pytest
 ```
 
-All tests run offline. `tests/test_smoke.py` runs the analysis pipeline end to end
-against simulated data and checks that every public name resolves.
-`tests/test_price_return_stats.py` checks the numerical methods against independent
-references, never against the code under test: hand-counted and hand-built series,
-closed forms, scipy's own implementations, formulas written out in the test, and
-seeded simulations with known answers (Pareto tails, AR(1) and GARCH paths, bootstrap
-coverage). `tests/test_ta_tools.py` does the same for `ta_tools`. New test groups are
-also checked by seeding deliberate bugs and confirming a test fails on each.
+All tests run offline, from the repo root or from `tests/`.
+
+- `test_smoke.py` runs the analysis pipeline end to end on simulated data and checks that
+  every public name resolves.
+- `test_price_return.py` checks the numerical methods against independent references, never
+  against the code under test: hand-counted and hand-built series, closed forms, scipy's own
+  implementations, formulas written out in the test, and seeded simulations with known
+  answers (Pareto tails, AR(1) and GARCH paths, bootstrap coverage). `test_ta_tools.py` does
+  the same for `ta_tools`.
+- `test_demo_data.py` checks the demo files against their manifest, the `demo` source against
+  the files, and the Yahoo path against the same files.
+- `test_local_store.py` covers saving and updating `data/local` (first save, updates,
+  revisions, failed downloads and interrupted writes) and its endpoints.
+- `test_api.py` checks each API response against a direct package call, value for value.
+- `test_serve.py` covers serving the built dashboard, `python -m src.api` and the dev launcher.
+
+The Yahoo-path tests run on a yfinance stand-in (`conftest.py`) that serves a demo file in
+yfinance's own shape. New test groups are also checked by seeding deliberate bugs and
+confirming a test fails on each. The dashboard has its own unit tests (`npm test` in
+`dashboard/`, for the client, formatting and chart theming), a type check (`npm run
+typecheck`), and an end-to-end check (`npm run e2e`) that drives every tab of the built
+dashboard in Chromium against the real API; see "Dashboard".
 
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-09-30
+- Review of the documents and tests. The documents now agree with the code: the saved-data
+  source is listed with the others, the layout names every endpoint, the Tests section covers
+  every file, and the stale lines in the plans are updated. Tests: one shared yfinance stub and
+  API client in `tests/conftest.py`, with the API caches cleared around every test.
+  `test_price_return_stats.py` is renamed `test_price_return.py`, and misplaced tests moved to
+  the file of what they test. Five redundant tests removed (four in pytest, one end to end),
+  with no lost coverage. A test that failed when pytest ran from `tests/` is fixed.
+- Dashboard: the Multi-ticker menu starts with nothing chosen, and keeps its choice and last
+  comparison while other tabs are open. `npm run build` no longer needs the end-to-end test
+  packages; after a pull, run `npm install` first.
+- Dashboard: **Other ticker…** loads any Yahoo symbol, not only the configured ones, and the
+  Multi-ticker tab has a menu to choose tickers from the default list, the saved CSVs and the demo
+  files. New `GET /api/ticker` and `POST /api/multi-ticker`. Saving live data now stops at
+  yesterday: it had also stored today's unfinished bar.
+- The dashboard POC is complete (plan Phase 6): `npm run e2e` in `dashboard/` checks every tab
+  end to end, in Chromium, against `python -m src.api` on the demo data.
+- One command runs the dashboard (plan Phase 5): `python -m src.api` serves the built React app
+  and the API together on http://127.0.0.1:8000, and `python scripts/dev.py` runs both
+  development servers. See "Dashboard".
+- Saved live data (plan Phase 4a): `data_source='local'` reads Yahoo data saved as CSV in
+  `data/local/` (git-ignored). `save_local` downloads once and then adds only new bars,
+  reporting any bar Yahoo has revised, and never leaves a half-written file. Also a refresh
+  script, `scripts/update_local_data.py`, API endpoints, and in the dashboard a third data
+  choice, **Saved CSV (offline)**, with Save and Update buttons and a flag on stale data.
+- The dashboard's four remaining tabs (plan Phase 4): Streaks & cumulative, Rare events with
+  live filters, Statistics (the statistics notebook's four sections, the bootstrap on request)
+  and Multi-ticker. Three chart fixes in `viz.py`, which the notebooks get too: the histogram's
+  threshold labels no longer overlap, the event-probability chart labels 1, 2 and 5 within each
+  decade when its range is narrow, and its two model labels are kept apart.
+- The dashboard itself (plan Phase 3): `dashboard/`, a Vite + React + TypeScript app with the
+  parameter panel, tabs and the Overview tab (stat tiles, the four overview charts from
+  `viz.py`, the distribution table), in light and dark themes. It runs on the demo data by
+  default. See "Dashboard" for how to start it.
+- New `notebooks/api_examples.ipynb`: example queries to every API endpoint, with the answers
+  shown as tables and charts, ending with one answer checked against the package directly.
+- The dashboard API is complete (plan Phase 2): streak and cumulative summaries, the rare-event
+  table with live bounds, all 14 charts as Plotly JSON, the four statistics sections and the
+  multi-ticker comparison, each equal to the package called directly. New
+  `event_probability_table` in `price_return.stats`, which the statistics notebook now calls
+  instead of joining three tables in a cell. `plot_streak_timeline` is 50 to 140 times faster,
+  with an identical figure: it added one shape at a time, which took 54 s for SPX's 2-day
+  streaks and over 5 minutes for CL's.
+- Demo data: `data/demo/` holds processed daily bars for ten tickers, Yahoo Finance data with
+  0.01% seeded noise, labelled as not market data and for education only (see its README).
+  `load_price_data` reads them with `data_source='demo'`, `configs/demo_tickers.yaml` lists
+  them, and `scripts/make_demo_data.py` regenerates them. Demo loading reuses the Yahoo cleaning
+  step, including dropping the returns around a non-positive close.
+- Started the React dashboard POC (`docs/dashboard_plan.md`). `src/api/` is a FastAPI app
+  over `price_return`, with health, ticker-list and overview endpoints; its request model is
+  generated from `Params`, and it computes nothing itself. New `api` extra; `httpx2` joins
+  `dev`. `configs/tickers.yaml`'s header named a notebook that no longer exists; fixed.
 
 ### 2026-09-29
 - New `price_return/stats.py` and `notebooks/price_return_statistics.ipynb`: distribution
@@ -558,7 +766,6 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - Colab bootstrap fixed: `pip install -e` registers its import finder through a
   `.pth` file that Python only reads at interpreter startup, so installing in one
   cell and importing in the next never worked. The repo now goes on `sys.path`.
-- Price data is explicitly unadjusted (`auto_adjust=False`) — see Methodology.
 
 ### 2026-09-17
 - Price data is now explicitly unadjusted (`auto_adjust=False`), so `Close` is the

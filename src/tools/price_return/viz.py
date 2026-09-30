@@ -97,8 +97,11 @@ def plot_return_distribution(df, p=None):
         marker_color=bar_colors, opacity=0.85,
         hovertemplate='Return: %{x:.1f}%<br>Days: %{y}<extra></extra>'
     ))
-    fig.add_vline(x=p.win_threshold,  line_dash='dash', line_color='#1D9E75', annotation_text='Win thr')
-    fig.add_vline(x=p.loss_threshold, line_dash='dash', line_color='#D85A30', annotation_text='Loss thr')
+    # Each label sits on the outer side of its line, so close thresholds cannot overlap them.
+    fig.add_vline(x=p.win_threshold,  line_dash='dash', line_color='#1D9E75', annotation_text='Win thr',
+                  annotation_position='top right')
+    fig.add_vline(x=p.loss_threshold, line_dash='dash', line_color='#D85A30', annotation_text='Loss thr',
+                  annotation_position='top left')
     fig.update_layout(
         title='Daily Return Distribution',
         xaxis_title='Return (%)', yaxis_title='Frequency (days)',
@@ -179,17 +182,15 @@ def plot_streak_timeline(df, streaks, p=None, window=None):
         line=dict(color='#B4B2A9', width=1), opacity=0.7
     ))
 
-    for s in streaks[window]['wins']:
-        fig.add_vrect(
-            x0=s['start'], x1=s['end'],
-            fillcolor='#1D9E75', opacity=0.15, line_width=0
-        )
-
-    for s in streaks[window]['losses']:
-        fig.add_vrect(
-            x0=s['start'], x1=s['end'],
-            fillcolor='#D85A30', opacity=0.15, line_width=0
-        )
+    # One shape per streak, set in a single update: add_vrect re-validates every shape already
+    # on the figure, so adding hundreds one by one takes quadratic time (a minute on ten years).
+    shaded = [(s, '#1D9E75') for s in streaks[window]['wins']]
+    shaded += [(s, '#D85A30') for s in streaks[window]['losses']]
+    fig.update_layout(shapes=[
+        dict(type='rect', xref='x', yref='y domain', x0=s['start'], x1=s['end'], y0=0, y1=1,
+             fillcolor=colour, opacity=0.15, line_width=0)
+        for s, colour in shaded
+    ])
 
     fig.add_hline(y=p.win_threshold,  line_dash='dot', line_color='#1D9E75', opacity=0.8)
     fig.add_hline(y=p.loss_threshold, line_dash='dot', line_color='#D85A30', opacity=0.8)
@@ -376,6 +377,12 @@ def plot_rolling_risk(rolling, window=None):
     return fig
 
 
+# The event chart's plot height in pixels (460 less the margins), and the height one direct label
+# needs, for keeping the two model labels apart.
+_PLOT_PX = 330
+_LABEL_PX = 14
+
+
 def plot_event_probabilities(table, change_type='cumulative', change='above', n_years=None):
     """Observed probability of a move, with its bootstrap interval, against the two i.i.d. models.
 
@@ -397,6 +404,7 @@ def plot_event_probabilities(table, change_type='cumulative', change='above', n_
                      array=(rows['upper'] - rows['prob'])[observed] * 100,
                      arrayminus=(rows['prob'] - rows['lower'])[observed] * 100),
         hovertemplate='move %{x:.2f}%<br>observed %{y:.3f}%<extra></extra>'))
+    ends = []                                               # (label, x, log10 y) of each model line
     for colour, column, label in ((SERIES[1], 'prob_normal', 'Normal model'),
                                   (SERIES[2], 'prob_t', 'Student-t model')):
         keep = rows[column] > 0
@@ -404,15 +412,32 @@ def plot_event_probabilities(table, change_type='cumulative', change='above', n_
             x=x[keep], y=rows[column][keep] * 100, mode='lines', name=label,
             line=dict(color=colour, width=2),
             hovertemplate=f'move %{{x:.2f}}%<br>{label.lower()} %{{y:.3f}}%<extra></extra>'))
-        if keep.any():                                      # direct label at the line's end
+        if keep.any():
             last = rows[keep].iloc[-1]
-            fig.add_annotation(x=last['threshold'] * 100, y=np.log10(last[column] * 100),
-                               text=label, showarrow=False, xanchor='left', xshift=6,
-                               font=dict(color=INK_2, size=11))
+            ends.append((label, last['threshold'] * 100, np.log10(last[column] * 100)))
+
+    # The log axis spans the plotted values; its decades set both the ticks and the label spacing.
+    drawn = pd.concat([rows.loc[observed, ['prob', 'lower', 'upper']].stack(),
+                       rows[['prob_normal', 'prob_t']].stack()])
+    drawn = drawn[drawn > 0] * 100
+    decades = np.log10(drawn.max() / drawn.min()) if len(drawn) else 1.0
+    shifts = [0.0] * len(ends)
+    if len(ends) == 2:                  # direct labels at the line ends, pushed apart if close
+        gap = abs(ends[0][2] - ends[1][2]) / max(decades, 0.1) * _PLOT_PX
+        if gap < _LABEL_PX:
+            push = (_LABEL_PX - gap) / 2
+            shifts = [push, -push] if ends[0][2] >= ends[1][2] else [-push, push]
+    for (label, x_end, y_end), shift in zip(ends, shifts):
+        fig.add_annotation(x=x_end, y=y_end, text=label, showarrow=False, xanchor='left',
+                           xshift=6, yshift=shift, font=dict(color=INK_2, size=11))
+
     n_days = rows['n_days'].iloc[0] if len(rows) else ''
     lookback = f', {n_years}y lookback' if n_years is not None else ''
     fig = _style(fig, f'{change_type.capitalize()} move {change} the threshold over {n_days} days'
                        f'{lookback}: observed (95% interval) vs models', 460,
                   y_title='Probability (%, log scale)', x_title='Move size (%)')
-    fig.update_yaxes(type='log', dtick=1, ticksuffix='%', minor=dict(showgrid=False))
+    fig.update_layout(margin=dict(r=120))                  # room for the direct labels
+    # Decade ticks alone leave a narrow range with one label; below two decades, label 1, 2 and 5.
+    fig.update_yaxes(type='log', dtick=1 if decades >= 2 else 'D2', ticksuffix='%',
+                     minor=dict(showgrid=False))
     return fig

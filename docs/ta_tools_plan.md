@@ -13,7 +13,7 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
   and pandas_ta 0.4.71b0; a fresh install may pull newer versions (TA-Lib 0.8.1 as of
   2026-09-28). The tests are the check that still holds; the quoted counts may drift.
 - **Phases are the unit of work.** Do one phase when asked, then stop; do not start the next
-  one unprompted. Commit and push only when asked.
+  one unprompted. Commit and push at the end of each phase, as the later plans also do.
 - **Stay within the plan.** Don't offer or add deliverables the plan doesn't list, such as
   extending a notebook to cover a later phase. Propose them as a change to this plan instead.
 - **Keep changes to existing working code small.** New capability gets built properly; code
@@ -401,7 +401,8 @@ The Pine originals run on TradingView and cannot be executed locally, so there i
 implementation to diff against**. Verification therefore runs in three tiers.
 
 **Tier 1 — property tests** in `tests/test_ta_tools.py`, offline and seeded, following the
-existing suite's conventions (`tests/test_smoke.py` stays untouched). All in place; the ZLSMA
+existing suite's conventions (`tests/test_smoke.py` stayed untouched by this work; the later
+price_return package split updated it). All in place; the ZLSMA
 items wait on ZLSMA itself (deferred):
 
 - *No look-ahead* — the highest-value test. Truncate the input at bar `i`, recompute, and assert

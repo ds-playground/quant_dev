@@ -1,0 +1,32 @@
+{
+  "name": "quant-dev-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "React dashboard over the price-return API in src/api",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "preview": "vite preview",
+    "e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.104.0",
+    "plotly.js-dist-min": "4.1.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.20.4",
+    "@types/plotly.js-dist-min": "^2.3.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.3"
+  }
+}
