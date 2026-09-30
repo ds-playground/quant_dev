@@ -117,8 +117,9 @@ dividend-adjusted).
 ## Dashboard (in development)
 
 A React dashboard over the same package, through the API in `src/api`
-([`docs/dashboard_plan.md`](docs/dashboard_plan.md)). The Overview tab works; the other tabs
-arrive next. For now it runs as two development servers, in two terminals from the repo root
+([`docs/dashboard_plan.md`](docs/dashboard_plan.md)), with five tabs: Overview, Streaks &
+cumulative, Rare events (live filters), Statistics (with the bootstrap on request) and
+Multi-ticker. For now it runs as two development servers, in two terminals from the repo root
 (Python 3.12+ with `pip install -e ".[api,stats]"`, and Node 20 or newer):
 
 ```bash
@@ -547,6 +548,11 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - The dashboard API is complete (plan Phase 2): streak and cumulative summaries, the rare-event
   table with live bounds, all 14 charts as Plotly JSON, the four statistics sections and the
   multi-ticker comparison, each equal to the package called directly.
+- The dashboard's four remaining tabs (plan Phase 4): Streaks & cumulative, Rare events with
+  live filters, Statistics (the statistics notebook's four sections, the bootstrap on request)
+  and Multi-ticker. Three chart fixes in `viz.py`, which the notebooks get too: the histogram's
+  threshold labels no longer overlap, the event-probability chart labels 1, 2 and 5 within each
+  decade when its range is narrow, and its two model labels are kept apart.
 - The dashboard itself (plan Phase 3): `dashboard/`, a Vite + React + TypeScript app with the
   parameter panel, tabs and the Overview tab (stat tiles, the four overview charts from
   `viz.py`, the distribution table), in light and dark themes. It runs on the demo data by

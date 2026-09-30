@@ -35,3 +35,11 @@ export function cell(value: Cell): string {
   if (typeof value === 'string' && ISO_DATE.test(value)) return isoDate(value);
   return String(value);
 }
+
+/** A column formatter: a decimal cell as a percentage (0.0123 -> "1.23%"). */
+export const pctCell = (digits = 2) => (value: Cell) =>
+  typeof value === 'number' ? pct(value, digits) : cell(value);
+
+/** A column formatter: a number to fixed decimals. */
+export const fixedCell = (digits = 2) => (value: Cell) =>
+  typeof value === 'number' ? num(value, digits) : cell(value);

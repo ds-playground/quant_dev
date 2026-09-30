@@ -3,7 +3,11 @@ import { useEffect, useState } from 'react';
 
 import { api, type Params, type TickerSet } from './api';
 import { ParamsPanel } from './components/ParamsPanel';
+import { MultiTickerTab } from './tabs/MultiTickerTab';
 import { OverviewTab } from './tabs/OverviewTab';
+import { RareEventsTab } from './tabs/RareEventsTab';
+import { StatisticsTab } from './tabs/StatisticsTab';
+import { StreaksTab } from './tabs/StreaksTab';
 import { useTheme, type ThemeChoice } from './theme';
 
 const TABS = [
@@ -86,12 +90,14 @@ export default function App() {
           tickers.error ? <p className="error">{tickers.error.message}</p> : <p className="loading">Loading tickers…</p>
         ) : tab === 'overview' ? (
           <OverviewTab params={params} mode={mode} />
+        ) : tab === 'streaks' ? (
+          <StreaksTab params={params} mode={mode} />
+        ) : tab === 'rare' ? (
+          <RareEventsTab key={params.ticker} params={params} />
+        ) : tab === 'statistics' ? (
+          <StatisticsTab params={params} mode={mode} />
         ) : (
-          <section className="card placeholder">
-            <h2>{TABS.find((t) => t.id === tab)?.label}</h2>
-            <p>This view arrives in Phase 4 of <code>docs/dashboard_plan.md</code>. Its API endpoint is
-              already live: see <code>notebooks/api_examples.ipynb</code>.</p>
-          </section>
+          <MultiTickerTab tickerSet={tickerSet} />
         )}
       </main>
     </div>
