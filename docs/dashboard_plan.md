@@ -8,8 +8,9 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
 
 - **Setup:** Python 3.12 or newer: `pip install -e ".[api,stats,dev]"` from the repo root, then
   `pytest`; all tests pass offline. Try the API with `uvicorn src.api.app:app`, then open
-  `http://127.0.0.1:8000/docs`. The dashboard needs Node 20 or
-  newer (from Phase 3): `npm install` in `dashboard/`.
+  `http://127.0.0.1:8000/docs`. The dashboard needs Node 20 or newer: `npm install` once in
+  `dashboard/`, then `npm run dev` (http://localhost:5173) with the API running; `npm test`,
+  `npm run typecheck` and `npm run build` are its checks.
 - **Data:** develop and test on the demo files (`data_source='demo'`, e.g. SPX; see the revision
   below), which work offline. Yahoo is blocked in the cloud environment this was built in, so
   Yahoo runs happen on the owner's computer.
@@ -106,7 +107,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `2a1e61b`** |
 | **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `c45b0ca`** |
 | **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `6389d05`** |
-| **3** | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab |
+| **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `PHASE3`** |
 | **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
 | **5** | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section |
 | **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
@@ -274,6 +275,51 @@ yfinance); no analysis logic outside `src/tools/`.
   data" note whenever `data_source` is `demo`; the **Overview** tab shows snapshot tiles, price and
   returns, the distribution, and the rolling average and volatility charts.
 - `.gitignore` gains `dashboard/node_modules` and `dashboard/dist`.
+
+### Phase 3 notes
+
+- **Stack:** Vite 8, React 19, TypeScript 5.9, TanStack Query 5, `plotly.js-dist-min` pinned to
+  **4.1.1**, the plotly.js that Python's plotly 7.1 bundles, so the figure JSON renders exactly
+  as in the notebooks. No UI framework; `src/styles.css` holds the palette tokens (viz.py's
+  values, with the dark steps of the same hues).
+- **Changes from the plan:**
+  - `PlotlyChart` calls `Plotly.react` directly instead of using `react-plotly.js`, which is
+    unmaintained and untyped for React 19. plotly.js is loaded lazily, on the first chart, as its
+    own 4.6 MB chunk; the app itself is 270 kB.
+  - There is no separate data-source control: the **Data** control picks the ticker set (demo
+    or Yahoo), and each ticker's configured parameters carry the source. A free choice would
+    allow combinations that cannot load (demo data for `ES=F`).
+- **Files** (`dashboard/src/`):
+  - `api.ts`: the typed client for every endpoint. `tests/test_api.py` checks that its `Params`
+    type lists exactly the dataclass's fields.
+  - `components/ParamsPanel.tsx`: choosing the set or a ticker applies at once, with that
+    ticker's config; dates and thresholds apply with **Apply**, which is disabled, with a
+    reason, for an invalid range.
+  - `components/PlotlyChart.tsx`: `Chart` fetches one chart and `Plot` draws it.
+  - `components/DataTable.tsx`, `components/StatTiles.tsx`.
+  - `tabs/OverviewTab.tsx`, `App.tsx`: header, theme control, parameters, the demo-data notice,
+    and the tabs (the four Phase 4 tabs show a placeholder).
+  - `format.ts`, `chartTheme.ts`, `theme.ts`.
+- **Overview:** five stat tiles (last price, annualized return and volatility, daily mean,
+  number of daily returns), price and returns, the histogram beside the distribution table, and
+  the rolling average and volatility charts. The series loads first and the charts after it, so
+  a series that fails (Yahoo unreachable) shows one error, not five.
+- **Behaviour:** a refetch keeps the previous render, dimmed, until the new one arrives. The
+  theme follows the OS unless set. In dark mode `chartTheme.themed` re-steps the figure's colours
+  by role (surfaces, grid, axes, near-black ink, the three series colours) and leaves colour
+  scales and the data untouched.
+- **Checks:** 13 Vitest tests (client, formatting, chart theming; two seeded mutations of the
+  theming and two of the field check were each caught), the type check, the production build,
+  and 268 Python tests. A Playwright walk-through against the live API and Vite:
+  - first load on SPX, a ticker change, applying thresholds, an invalid date range;
+  - a placeholder tab and the Yahoo set (one readable error here, where Yahoo is blocked);
+  - screenshots in light, in dark, and at 390 px wide (no horizontal scroll).
+  Four charts load in about 3 s on a warm server.
+- **Deferred:** a table view for each chart (the dataviz accessibility twin): the charts have
+  hover values, and the tables beside them carry the key numbers.
+- **For Phase 4, from the renders:** in `return-distribution`, the "Loss thr" and "Win thr"
+  labels overlap when the thresholds are close (±0.2% on SPX). This is a `viz.py` issue, like the
+  two noted under Phase 2.
 
 ## Phase 4: dashboard tabs
 

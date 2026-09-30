@@ -106,3 +106,7 @@ scrapbook*.*
 
 # Notebook CSV exports (export_tables writes these next to the notebook)
 notebooks/*.csv
+
+# Dashboard (dashboard/): npm packages and the production build
+dashboard/node_modules/
+dashboard/dist/

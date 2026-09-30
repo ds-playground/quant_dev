@@ -114,6 +114,22 @@ load_ticker_config('configs/demo_tickers.yaml')    # all ten, labelled, with thr
 For `'yahoo'` and `'demo'` alike, `end_date` is exclusive and closes are as traded (not
 dividend-adjusted).
 
+## Dashboard (in development)
+
+A React dashboard over the same package, through the API in `src/api`
+([`docs/dashboard_plan.md`](docs/dashboard_plan.md)). The Overview tab works; the other tabs
+arrive next. For now it runs as two development servers, in two terminals from the repo root
+(Python 3.12+ with `pip install -e ".[api,stats]"`, and Node 20 or newer):
+
+```bash
+uvicorn src.api.app:app --reload          # the API, on http://127.0.0.1:8000
+cd dashboard && npm install && npm run dev   # the dashboard, on http://localhost:5173
+```
+
+`npm install` is needed once. The dashboard starts on the demo data (offline); its Data control
+switches to the Yahoo Finance tickers in `configs/tickers.yaml`. To query the API without the
+dashboard, open http://127.0.0.1:8000/docs or run `notebooks/api_examples.ipynb`.
+
 ## Methodology
 
 The framework asks a few related questions about a daily return series.
@@ -252,6 +268,11 @@ quant_dev/
 │           ├── momentum.py                rsi (TA-Lib)
 │           ├── pine.py                    Pine primitives no library has (linreg, rma, pivots, ...)
 │           └── indicators.py              whole Pine indicators, ported (linreg_candles, trendlines)
+│
+├── dashboard/                             React dashboard (Vite, TypeScript), talks to src/api
+│   ├── src/api.ts                         typed client for every endpoint
+│   ├── src/components/                    parameter panel, Plotly chart, table, stat tiles
+│   └── src/tabs/                          one component per tab
 │
 ├── docs/
 │   ├── dashboard_plan.md                  React dashboard POC plan, with status
@@ -504,7 +525,9 @@ coverage). `tests/test_ta_tools.py` does the same for `ta_tools`. `tests/test_ap
 checks each API response against a direct package call, value for value, and
 `tests/test_demo_data.py` checks the demo files against their manifest and the `demo` data
 source against the files. New test groups are also checked by seeding deliberate bugs and
-confirming a test fails on each.
+confirming a test fails on each. The dashboard has its own unit tests (`npm test` in
+`dashboard/`, for the client, formatting and chart theming) and a type check (`npm run
+typecheck`).
 
 ## Changelog
 
@@ -524,6 +547,10 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - The dashboard API is complete (plan Phase 2): streak and cumulative summaries, the rare-event
   table with live bounds, all 14 charts as Plotly JSON, the four statistics sections and the
   multi-ticker comparison, each equal to the package called directly.
+- The dashboard itself (plan Phase 3): `dashboard/`, a Vite + React + TypeScript app with the
+  parameter panel, tabs and the Overview tab (stat tiles, the four overview charts from
+  `viz.py`, the distribution table), in light and dark themes. It runs on the demo data by
+  default. See "Dashboard (in development)" for how to start it.
 - New `notebooks/api_examples.ipynb`: example queries to every API endpoint, with the answers
   shown as tables and charts, ending with one answer checked against the package directly.
 - New `event_probability_table` in `price_return.stats`, which the statistics notebook now
