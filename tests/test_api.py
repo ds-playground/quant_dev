@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from src.api import cache
+from src.api import cache, dashboard
 from src.api.app import app
 from src.api.schemas import ParamsIn, to_params
 from src.api.serialize import clean, figure_to_json, frame_to_records, series_to_dict
@@ -70,7 +70,8 @@ def test_figure_to_json_has_data_and_layout():
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 def test_health():
-    assert client.get("/api/health").json() == {"status": "ok", "version": app.version}
+    assert client.get("/api/health").json() == {"status": "ok", "version": app.version,
+                                                "dashboard_built": dashboard.is_built()}
 
 
 @pytest.mark.parametrize("query, path", [("", pr.params.DEMO_CONFIG_PATH),

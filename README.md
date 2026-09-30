@@ -136,23 +136,43 @@ run `python scripts/update_local_data.py [symbols...]`; it exits with 1 if any s
 so it can run on a schedule. In the dashboard, **Save to CSV** and **Update CSV** do the same
 for one ticker, and the Data control's **Saved CSV (offline)** lists what is saved.
 
-## Dashboard (in development)
+## Dashboard
 
-A React dashboard over the same package, through the API in `src/api`
-([`docs/dashboard_plan.md`](docs/dashboard_plan.md)), with five tabs: Overview, Streaks &
-cumulative, Rare events (live filters), Statistics (with the bootstrap on request) and
-Multi-ticker. For now it runs as two development servers, in two terminals from the repo root
-(Python 3.12+ with `pip install -e ".[api,stats]"`, and Node 20 or newer):
+A React dashboard over the same package, served with its API by one command
+([`docs/dashboard_plan.md`](docs/dashboard_plan.md)). Five tabs: Overview, Streaks &
+cumulative, Rare events (live filters), Statistics (the bootstrap on request) and Multi-ticker.
+Three data choices: the demo files (offline), Yahoo Finance (live), and live data you have
+saved as CSV (offline; see "Saved live data").
 
-```bash
-uvicorn src.api.app:app --reload          # the API, on http://127.0.0.1:8000
-cd dashboard && npm install && npm run dev   # the dashboard, on http://localhost:5173
+```
+browser ──▶ python -m src.api (FastAPI, 127.0.0.1:8000) ──▶ src.tools.price_return
+            serves the built React app (dashboard/dist)       all analysis, all charts
+            and /api/* (JSON, Plotly figures)
 ```
 
-`npm install` is needed once. The dashboard starts on the demo data (offline); its Data control
-switches to the Yahoo Finance tickers in `configs/tickers.yaml` (live), or to the data you have
-saved as CSV (offline; see "Saved live data"). To query the API without the
-dashboard, open http://127.0.0.1:8000/docs or run `notebooks/api_examples.ipynb`.
+**Set up once** (Python 3.12+, Node 20+), from the repo root:
+
+```bash
+pip install -e ".[api,stats]"
+cd dashboard && npm install && npm run build && cd ..
+```
+
+**Run:**
+
+```bash
+python -m src.api          # then open http://127.0.0.1:8000  (--open opens it for you)
+```
+
+It listens on this computer only. `--port` changes the port; `--host 0.0.0.0` would expose
+it to your network, and it has no login, so it warns. The API's own documentation is at
+http://127.0.0.1:8000/docs, and `notebooks/api_examples.ipynb` queries it from Python. After
+pulling dashboard changes, run `npm run build` in `dashboard/` again; no restart is needed. If
+the dashboard has never been built, the page at `/` says how.
+
+**Develop:** `python scripts/dev.py` runs the API (restarting on Python changes) and the Vite
+dev server (updating the page on every React change) together, on http://localhost:5173, until
+Ctrl+C stops both. It works on Windows, macOS and Linux. The dashboard's checks are `npm test`,
+`npm run typecheck` and `npm run build` in `dashboard/`.
 
 ## Methodology
 
@@ -264,11 +284,14 @@ quant_dev/
 │   └── local/                             saved live Yahoo data (git-ignored; created on first save)
 │
 ├── scripts/
+│   ├── dev.py                             development: the API and the Vite dev server together
 │   ├── make_demo_data.py                  regenerates data/demo from Yahoo, with seeded noise
 │   └── update_local_data.py               saves or updates live data in data/local
 │
 ├── src/
 │   ├── api/                               FastAPI app for the dashboard: wraps price_return, no analysis
+│   │   ├── __main__.py                    `python -m src.api`: the dashboard and API on one port
+│   │   ├── dashboard.py                   serves the built dashboard (dashboard/dist)
 │   │   ├── app.py                         endpoints: health, tickers, overview, streaks, cumulative,
 │   │   │                                  rare-events, charts, statistics, multi-ticker
 │   │   ├── charts.py                      chart registry: name → viz.plot_* call
@@ -324,6 +347,7 @@ quant_dev/
 │   ├── test_api.py                        src/api against direct package calls
 │   ├── test_demo_data.py                  the demo files and the 'demo' data source
 │   ├── test_local_store.py                saving, updating and reading data/local, offline
+│   ├── test_serve.py                      serving the dashboard, `python -m src.api`, the dev launcher
 │   ├── test_price_return_stats.py         price_return options, methods, statistics, charts
 │   └── test_ta_tools.py                   ta_tools, offline
 │
@@ -565,6 +589,9 @@ typecheck`).
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-30
+- One command runs the dashboard (plan Phase 5): `python -m src.api` serves the built React app
+  and the API together on http://127.0.0.1:8000, and `python scripts/dev.py` runs both
+  development servers. See "Dashboard".
 - Saved live data (plan Phase 4a): `data_source='local'` reads Yahoo data saved as CSV in
   `data/local/` (git-ignored). `save_local` downloads once and then adds only new bars,
   reporting any bar Yahoo has revised, and never leaves a half-written file. Also a refresh
@@ -591,7 +618,7 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - The dashboard itself (plan Phase 3): `dashboard/`, a Vite + React + TypeScript app with the
   parameter panel, tabs and the Overview tab (stat tiles, the four overview charts from
   `viz.py`, the distribution table), in light and dark themes. It runs on the demo data by
-  default. See "Dashboard (in development)" for how to start it.
+  default. See "Dashboard" for how to start it.
 - New `notebooks/api_examples.ipynb`: example queries to every API endpoint, with the answers
   shown as tables and charts, ending with one answer checked against the package directly.
 - New `event_probability_table` in `price_return.stats`, which the statistics notebook now
