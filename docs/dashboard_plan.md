@@ -117,7 +117,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `47e8fe9`** |
 | **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
 | **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `51e9cf0`** |
-| **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
+| **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `PHASE6`** |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
 end of each phase; tests stay offline (`data_source='demo'` or `'simulated'`, or a stubbed
@@ -523,6 +523,35 @@ The third data option: live data saved as plain CSV, downloaded once and then up
   filter must change the table.
 - README (layout, setup, dashboard, changelog); plan statuses; pull request into `master`.
 
+### Phase 6 notes
+
+- **`npm run e2e`** in `dashboard/`: builds, then Playwright (`@playwright/test` pinned to
+  1.56.1, the version whose Chromium is preinstalled here) starts `python -m src.api` on port
+  8765 (`PYTHON` picks the interpreter) and runs `e2e/smoke.spec.ts`. Ten tests, about 30 s:
+  - the overview (tiles, four charts, the demo notice);
+  - a ticker change, applied thresholds, and a refused date range;
+  - streaks and cumulative (tables, five charts, the timeline window);
+  - rare events (a tighter bound shrinks the table; the type filter leaves only that type);
+  - statistics (four sections, the bootstrap on request, the two event charts);
+  - multi-ticker (ten tickers);
+  - the saved-CSV choice (the explanation, or the overview if something is saved);
+  - dark theme (page and chart background);
+  - phone width (no sideways scroll);
+  - the API and its docs beside the page.
+  Every test also fails on any browser console error.
+- `/docs` is checked over HTTP, not in the browser: FastAPI's page loads Swagger UI from a CDN,
+  which this environment blocks.
+- Three bugs seeded into the app (the rare-event type filter ignored, dark charts not re-coloured,
+  the demo notice hidden) each failed their test.
+- The end-to-end files type-check under `tsconfig.node.json` (Node types stay out of the app).
+  `npm run typecheck` runs both configs, and Vitest runs only `src/**/*.test.ts`.
+
+## Status (2026-09-30)
+
+All phases are done. What is left is on the owner's computer, where Yahoo is reachable: the first
+live run (the Yahoo set, and Save to CSV), and `npx playwright install chromium` before the first
+`npm run e2e`. Next steps beyond the POC are under "Deferred".
+
 ## Deferred (documented, not built)
 
 - **Docker:** a multi-stage image (Node build → slim Python) plus `docker compose`. This is the
@@ -534,24 +563,35 @@ The third data option: live data saved as plain CSV, downloaded once and then up
 
 ## Critical files
 
-- New: `src/api/{__init__,__main__,app,schemas,serialize,cache}.py`, `tests/test_api.py`,
-  `data/demo/*`, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`,
-  `tests/test_demo_data.py`,
-  `dashboard/` (`package.json`, `vite.config.ts`, `src/{main,App,api}.tsx|ts`,
-  `src/components/*`, `src/tabs/*`, `e2e/smoke.spec.ts`), `scripts/dev.py`,
-  `docs/dashboard_plan.md`.
-- Modified: `pyproject.toml` (`api` extra, `httpx2` in dev), `.gitignore`, `README.md`;
-  `src/tools/price_return/data.py` and `params.py` for the demo source (revision 1a).
-- Reused, not changed: `src/tools/price_return/` (`analysis`, `pipeline`, `viz`, `stats`,
-  `options`).
+- **API** (`src/api/`): `app.py` (endpoints), `schemas.py`, `serialize.py`, `cache.py`,
+  `charts.py` (chart registry), `dashboard.py` (serves the build), `__main__.py`
+  (`python -m src.api`).
+- **Dashboard** (`dashboard/`): `src/` (`api.ts` client, `App.tsx`, `components/`, `tabs/`,
+  `format.ts`, `chartTheme.ts`, `tables.ts`, `styles.css`), `e2e/smoke.spec.ts`, `vite.config.ts`,
+  `playwright.config.ts`, `tsconfig*.json`, `package.json`.
+- **Data:** `data/demo/*` and `configs/demo_tickers.yaml`; `data/local/` (git-ignored, created on
+  the first save).
+- **Scripts:** `make_demo_data.py`, `update_local_data.py`, `dev.py`.
+- **Tests:** `test_api.py`, `test_demo_data.py`, `test_local_store.py`, `test_serve.py`, and
+  additions to `test_price_return_stats.py`.
+- **Package changes**, each with tests:
+  - `data.py`: the `demo` and `local` sources;
+  - `store.py` (new): saved live data;
+  - `params.py`: `DEMO_CONFIG_PATH`, `config_params`;
+  - `stats.py`: `event_probability_table`;
+  - `viz.py`: the streak timeline 50 to 140 times faster, and three label and axis fixes.
+- **Also:** `pyproject.toml` (`api` extra, `httpx2` in dev), `.gitignore`, `README.md`,
+  `notebooks/api_examples.ipynb` (new), `notebooks/price_return_statistics.ipynb` (calls
+  `event_probability_table`).
 
 ## Verification
 
-- `pytest`: the existing 203 tests plus the API and demo-data tests (240 after revision 1a), all
-  offline.
-- `npm run build` and `tsc --noEmit` in `dashboard/`.
-- Playwright smoke test against the built app on demo data. Every tab is screenshotted and
-  inspected, as the charts were in the last work.
-- **The owner's run:** `python -m src.api` on the owner's computer, on the demo set and then with
-  `set=yahoo` for ES=F and the configured tickers. This is the first live Yahoo run, since Yahoo is
-  blocked in this environment.
+- `pytest`: 312 tests, all offline (203 before this plan).
+- `dashboard/`: `npm test` (17 unit tests), `npm run typecheck`, `npm run build`, and `npm run e2e`
+  (10 end-to-end tests of every tab against `python -m src.api` on the demo data).
+- Every phase's screens were screenshotted in Chromium and inspected, in light, in dark and at
+  phone width. The Yahoo path was run offline through a yfinance stand-in serving the demo files
+  under their Yahoo symbols.
+- **The owner's run:** `python -m src.api` on the owner's computer, on the demo set and then on
+  the Yahoo set for ES=F and the configured tickers, including Save to CSV. This is the first live
+  Yahoo run, since Yahoo is blocked in this environment.
