@@ -92,7 +92,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | # | Phase | Deliverable |
 |---|---|---|
 | **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README |
-| **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, not yet committed** |
+| **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `2a1e61b`** |
 | **2** | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests |
 | **3** | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab |
 | **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
