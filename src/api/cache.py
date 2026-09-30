@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from src.tools.price_return import (Params, add_rolling_stats, analyze_ticker,
                                     build_historical_analysis, daily_returns_series,
-                                    event_probability_table, load_price_data)
+                                    event_probability_table, load_price_data, store)
 
 # The Params fields that decide which prices load_price_data returns. The analysis fields
 # (thresholds, windows, trade_days) do not, so changing them reuses the cached prices.
@@ -16,15 +16,25 @@ HISTORY_FIELDS = DATA_FIELDS + ('trade_days', 'return_thresholds', 'lookback_yea
                                 'streak_days')
 
 
+def _version(p):
+    """For saved live data, the file's modification time: an update, from the dashboard or the
+    refresh script, makes every cached result for that symbol a miss."""
+    if p.data_source != 'local':
+        return None
+    path = store.local_path(p.ticker)
+    return path.stat().st_mtime_ns if path.is_file() else None
+
+
 def _key(p, fields):
-    """A hashable key from some Params fields; lists become tuples."""
+    """A hashable key from some Params fields (lists become tuples) and the data's version."""
     return tuple((name, tuple(value) if isinstance(value, list) else value)
-                 for name, value in ((name, getattr(p, name)) for name in fields))
+                 for name, value in ((name, getattr(p, name)) for name in fields)) + (
+        ('_version', _version(p)),)
 
 
 def _params(key):
     return Params(**{name: list(value) if isinstance(value, tuple) else value
-                     for name, value in key})
+                     for name, value in key if name != '_version'})
 
 
 @lru_cache(maxsize=32)

@@ -115,7 +115,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `6389d05`** |
 | **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `a8af3fa`** |
 | **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `47e8fe9`** |
-| **4a** | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests |
+| **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `PHASE4A`** |
 | **5** | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section |
 | **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
 
@@ -430,6 +430,49 @@ The third data option: live data saved as plain CSV, downloaded once and then up
   - `data/local/` is ignored by git;
   - the API endpoints match the package.
   Plus a Playwright check of save, update and reload in the dashboard.
+
+### Phase 4a notes
+
+- **Package** (`store.py`), as designed, plus:
+  - `config_params(symbol)` in `params.py` gives any symbol its thresholds: its own entry in the
+    ticker config, else the config's `defaults`. `local_ticker_config` uses it, so a saved
+    symbol outside the config still gets consistent thresholds.
+  - `local_tickers` reads the files themselves, so a file added or edited by hand is listed with
+    its real range; the manifest supplies only the update time.
+  - Saved files get the permissions any new file would. The temporary file is owner-only until
+    it is renamed into place.
+  - The Yahoo path now drops yfinance's leftover `Price` column-axis name, so `local` and `yahoo`
+    return identical frames.
+- **API:**
+  - `GET /api/local`.
+  - `POST /api/local/{symbol}/update?start_date=` (the symbol is URL-encoded, e.g. `%5EGSPC`).
+  - `set=local` for `/api/tickers` and `/api/multi-ticker`; an empty saved set gives a 422, not
+    "every ticker failed".
+  - Every ticker entry, in any set, carries `saved` (range and last update, or null), so the
+    Yahoo set shows what is already saved.
+  - Cache keys for `local` include the file's modification time, so an update from the dashboard
+    or from the refresh script is picked up without a restart.
+- **Dashboard:**
+  - Data offers Demo (offline), Yahoo Finance (live) and Saved CSV (offline).
+  - A saved-data row under the controls shows the saved range, a "⚠ n days old" flag (after
+    four calendar days), and **Save to CSV** / **Update CSV** with the result: rows added and any
+    revised values.
+  - Afterwards every view refetches.
+  - The saved set starts with an explanation of how to save.
+- **Checks:**
+  - 30 store and API tests, offline, on a yfinance stub serving the demo CL file under `CL=F`
+    with a movable "today". They cover:
+    - first save, update, a revision, and a bar missing from a new download;
+    - a failed download, and a write that dies halfway (both leave every file byte for byte);
+    - `local` equal to `yahoo`, and symbol file names;
+    - git-ignore, file permissions, the endpoints, and cache freshness after an update;
+    - the refresh script.
+  - 9 seeded mutations, each caught.
+  - 3 new Vitest tests (17 in all); 302 Python tests.
+  - A Playwright run against the stubbed API with a scratch store: empty state → Save from the
+    Yahoo set (flagged 15 days old) → the saved set offline → Yahoo moves on → Update adds 10
+    bars (downloading only from ten days before the last bar), the flag clears and every view
+    follows → multi-ticker over the saved set.
 
 ## Phase 5: one-command local run
 

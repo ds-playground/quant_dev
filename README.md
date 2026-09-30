@@ -114,6 +114,28 @@ load_ticker_config('configs/demo_tickers.yaml')    # all ten, labelled, with thr
 For `'yahoo'` and `'demo'` alike, `end_date` is exclusive and closes are as traded (not
 dividend-adjusted).
 
+## Saved live data
+
+Live Yahoo data can be saved as plain CSV in `data/local/` and analysed offline with
+`data_source='local'`. The folder is **git-ignored**: it holds real market data, which does not
+belong in a public repo. Each symbol is one file (`ES=F.csv`) in the demo files' layout, plus a
+`manifest.csv` of date ranges and update times.
+
+```python
+from src.tools.price_return import save_local, local_tickers
+
+save_local('ES=F')      # first time: the history since 2016; afterwards: just the new bars
+local_tickers()         # what is saved, from when to when
+P = Params(data_source='local', ticker='ES=F', start_date='2016-01-01')
+```
+
+An update re-downloads the last ten days as well as the new ones. Yahoo sometimes revises
+recent bars; a revised value replaces the saved one and is reported. A failed download leaves
+the saved file exactly as it was. To update every ticker in `configs/tickers.yaml` (or a list),
+run `python scripts/update_local_data.py [symbols...]`; it exits with 1 if any symbol failed,
+so it can run on a schedule. In the dashboard, **Save to CSV** and **Update CSV** do the same
+for one ticker, and the Data control's **Saved CSV (offline)** lists what is saved.
+
 ## Dashboard (in development)
 
 A React dashboard over the same package, through the API in `src/api`
@@ -128,7 +150,8 @@ cd dashboard && npm install && npm run dev   # the dashboard, on http://localhos
 ```
 
 `npm install` is needed once. The dashboard starts on the demo data (offline); its Data control
-switches to the Yahoo Finance tickers in `configs/tickers.yaml`. To query the API without the
+switches to the Yahoo Finance tickers in `configs/tickers.yaml` (live), or to the data you have
+saved as CSV (offline; see "Saved live data"). To query the API without the
 dashboard, open http://127.0.0.1:8000/docs or run `notebooks/api_examples.ipynb`.
 
 ## Methodology
@@ -237,10 +260,12 @@ quant_dev/
 │   └── demo_tickers.yaml                  the same for the ten demo files
 │
 ├── data/
-│   └── demo/                              processed daily bars (not market data) + README, manifest
+│   ├── demo/                              processed daily bars (not market data) + README, manifest
+│   └── local/                             saved live Yahoo data (git-ignored; created on first save)
 │
 ├── scripts/
-│   └── make_demo_data.py                  regenerates data/demo from Yahoo, with seeded noise
+│   ├── make_demo_data.py                  regenerates data/demo from Yahoo, with seeded noise
+│   └── update_local_data.py               saves or updates live data in data/local
 │
 ├── src/
 │   ├── api/                               FastAPI app for the dashboard: wraps price_return, no analysis
@@ -254,7 +279,8 @@ quant_dev/
 │       ├── price_return/                  the framework
 │       │   ├── __init__.py                re-exports the whole public API
 │       │   ├── params.py                  Params + the ticker config that builds it
-│       │   ├── data.py                    price loading (Yahoo, demo, simulated), rolling statistics
+│       │   ├── data.py                    price loading (Yahoo, demo, local, simulated), rolling statistics
+│       │   ├── store.py                   saved live data: save, update, list (data/local)
 │       │   ├── analysis.py                streaks, thresholds, rare events
 │       │   ├── viz.py                     the Plotly charts (nine analysis, five statistics)
 │       │   ├── report.py                  formatting, interactive table, CSV export
@@ -297,6 +323,7 @@ quant_dev/
 │   ├── test_smoke.py                      offline end-to-end pipeline check
 │   ├── test_api.py                        src/api against direct package calls
 │   ├── test_demo_data.py                  the demo files and the 'demo' data source
+│   ├── test_local_store.py                saving, updating and reading data/local, offline
 │   ├── test_price_return_stats.py         price_return options, methods, statistics, charts
 │   └── test_ta_tools.py                   ta_tools, offline
 │
@@ -359,6 +386,8 @@ can be retuned without touching the package.
 | `daily_returns_series` | Date-indexed decimal daily returns |
 | `compound_returns` | The compounded `n`-day return ending on each day: the package's one definition |
 | `demo_tickers` | The tickers with a file in `data/demo` |
+| `save_local`, `read_local` | Save or update a symbol's live data in `data/local`; read the saved bars |
+| `local_tickers`, `local_ticker_config` | What is saved; `{symbol: Params}` for it, thresholds from the ticker config |
 | `detect_streaks` | Every rolling window where all days are wins, or all losses |
 | `summarize_streaks` | One row per window: counts, frequencies, average returns |
 | `analyze_cumulative` | Rolling windows whose compounded return clears each threshold |
@@ -376,6 +405,7 @@ can be retuned without touching the package.
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
 | `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml` (or another config, such as `configs/demo_tickers.yaml`), with a built-in fallback |
+| `config_params` | One symbol's `Params` from the ticker config, or from its defaults if not listed |
 | `analyze_ticker`, `compare_tickers` | The whole pipeline for one ticker; cross-ticker streak and distribution tables |
 | `distribution_summary` | One row of return-distribution statistics, using the ticker's thresholds |
 | `price_range` | One-standard-deviation price band some days ahead, or over the hours left in a session |
@@ -535,6 +565,11 @@ typecheck`).
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-30
+- Saved live data (plan Phase 4a): `data_source='local'` reads Yahoo data saved as CSV in
+  `data/local/` (git-ignored). `save_local` downloads once and then adds only new bars,
+  reporting any bar Yahoo has revised, and never leaves a half-written file. Also a refresh
+  script, `scripts/update_local_data.py`, API endpoints, and in the dashboard a third data
+  choice, **Saved CSV (offline)**, with Save and Update buttons and a flag on stale data.
 - Demo data: `data/demo/` holds processed daily bars for ten tickers, Yahoo Finance data with
   0.01% seeded noise, labelled as not market data and for education only (see its README).
   `load_price_data` reads them with `data_source='demo'`, `configs/demo_tickers.yaml` lists

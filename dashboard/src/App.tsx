@@ -87,7 +87,18 @@ export default function App() {
 
       <main id="panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {!params ? (
-          tickers.error ? <p className="error">{tickers.error.message}</p> : <p className="loading">Loading tickers…</p>
+          tickers.error ? <p className="error">{tickers.error.message}</p>
+            : tickers.data && !tickers.data.tickers.length ? (
+              <section className="card">
+                <h2>Nothing saved yet</h2>
+                <p className="lede">
+                  Saved CSVs are live Yahoo data kept in <code>data/local/</code> (not committed), so
+                  later runs are offline and fast. To save one, choose <strong>Yahoo Finance (live)</strong>,
+                  pick a ticker and press <strong>Save to CSV</strong>. Or save every configured ticker
+                  from the repo root with <code>python scripts/update_local_data.py</code>.
+                </p>
+              </section>
+            ) : <p className="loading">Loading tickers…</p>
         ) : tab === 'overview' ? (
           <OverviewTab params={params} mode={mode} />
         ) : tab === 'streaks' ? (

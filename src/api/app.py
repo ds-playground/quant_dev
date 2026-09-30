@@ -10,7 +10,8 @@ from src.tools.price_return import (analyze_cumulative, arch_lm, autocorrelation
                                     drawdown_table, fit_student_t, jarque_bera, latest_snapshot,
                                     ljung_box, load_ticker_config, low_probability_view,
                                     return_moments, risk_ratios, summarize_cumulative,
-                                    summarize_streaks, tail_index, value_at_risk, variance_ratio)
+                                    summarize_streaks, tail_index, value_at_risk, variance_ratio,
+                                    local_ticker_config, local_tickers, save_local, store)
 from src.tools.price_return.params import DEFAULT_CONFIG_PATH, DEMO_CONFIG_PATH
 
 from . import cache
@@ -22,7 +23,7 @@ app = FastAPI(title='quant_dev API', version='0.2.0',
               description='The price-return analysis behind JSON, for the dashboard.')
 
 ChangeType = Literal['consecutive', 'cumulative']
-TickerSet = Literal['demo', 'yahoo']
+TickerSet = Literal['demo', 'yahoo', 'local']
 # Bootstrap resamples: the notebook's 1,000 by default, capped so one request stays within
 # seconds (about 2 s per 1,000 on ten years of daily data).
 N_BOOT = Query(1000, ge=100, le=2000)
@@ -54,22 +55,52 @@ def health():
     return {'status': 'ok', 'version': app.version}
 
 
-# The ticker lists the dashboard offers: the processed demo files, which work offline, or the
-# Yahoo Finance tickers analysed by the notebooks.
+# The ticker lists the dashboard offers: the processed demo files, which work offline; the
+# Yahoo Finance tickers analysed by the notebooks; and the live data saved to data/local.
 TICKER_SETS = {'demo': DEMO_CONFIG_PATH, 'yahoo': DEFAULT_CONFIG_PATH}
+
+
+def _ticker_config(ticker_set):
+    """{symbol: Params} for a set, and where it came from."""
+    if ticker_set == 'local':
+        return local_ticker_config(), str(store.LOCAL_DIR)
+    path = TICKER_SETS[ticker_set]
+    return load_ticker_config(path, verbose=False), str(path) if path.exists() else 'built-in defaults'
 
 
 @app.get('/api/tickers')
 def tickers(ticker_set: TickerSet = Query('demo', alias='set')):
-    """The tickers of a config (demo_tickers.yaml or tickers.yaml), with labels and parameters."""
-    path = TICKER_SETS[ticker_set]
-    config = load_ticker_config(path, verbose=False)
+    """A set's tickers with labels and parameters, and, for any ticker saved in data/local, what
+    is saved (rows, first and last date, last update)."""
+    config, source = _ticker_config(ticker_set)
+    saved = {t['symbol']: t for t in local_tickers()}
     return {
         'set': ticker_set,
-        'source': str(path) if path.exists() else 'built-in defaults',
+        'source': source,
         'tickers': [{'symbol': symbol, 'label': getattr(p, 'label', symbol),
-                     'params': clean(dataclasses.asdict(p))} for symbol, p in config.items()],
+                     'params': clean(dataclasses.asdict(p)), 'saved': saved.get(symbol)}
+                    for symbol, p in config.items()],
     }
+
+
+@app.get('/api/local')
+def local():
+    """The live data saved in data/local: each symbol's rows, date range and last update."""
+    return {'directory': str(store.LOCAL_DIR), 'tickers': local_tickers()}
+
+
+@app.post('/api/local/{symbol:path}/update')
+def update_local(symbol: str, start_date: str = Query('2016-01-01', pattern=r'^\d{4}-\d{2}-\d{2}$')):
+    """Save a symbol's Yahoo data to data/local, or bring the saved file up to date. Returns what
+    changed, including any saved bars Yahoo has revised. A failed download is a 422 (no such
+    symbol) or 502 (Yahoo failing) and leaves the file as it was."""
+    try:
+        return clean(save_local(symbol, start_date=start_date))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - any download failure is reported, not a 500
+        raise HTTPException(status_code=502,
+                            detail=f'Download failed: {type(exc).__name__}: {exc}') from exc
 
 
 @app.post('/api/overview')
@@ -200,7 +231,9 @@ def multi_ticker(ticker_set: TickerSet = Query('demo', alias='set'),
     """`rare_case_run`: `analyze_ticker` for every ticker of a set, then `compare_tickers`
     (the streak ratio uses `drill_n_days`, as the notebook does). A ticker that fails is listed
     under `failed` rather than failing the request."""
-    config = load_ticker_config(TICKER_SETS[ticker_set], verbose=False)
+    config, _ = _ticker_config(ticker_set)
+    if not config:
+        raise HTTPException(status_code=422, detail=f'The {ticker_set} set has no tickers yet.')
     results, tickers, failed = {}, [], []
     for symbol, p in config.items():
         try:

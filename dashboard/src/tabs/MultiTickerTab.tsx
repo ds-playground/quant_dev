@@ -6,7 +6,7 @@ import { DataTable } from '../components/DataTable';
 import { QueryState } from '../components/QueryState';
 import { isoDate, pctCell } from '../format';
 
-const SET_NAMES: Record<TickerSet, string> = { demo: 'demo', yahoo: 'Yahoo Finance' };
+const SET_NAMES: Record<TickerSet, string> = { demo: 'demo', yahoo: 'Yahoo Finance', local: 'saved' };
 
 /** rare_case_run: every ticker of the selected set, each with its configured thresholds, then
  *  the cross-ticker streak and distribution tables. Runs on request: the first run downloads

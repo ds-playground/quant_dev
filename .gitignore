@@ -110,3 +110,6 @@ notebooks/*.csv
 # Dashboard (dashboard/): npm packages and the production build
 dashboard/node_modules/
 dashboard/dist/
+
+# Live market data saved by src/tools/price_return/store.py: real Yahoo data, not for a public repo
+data/local/
