@@ -258,6 +258,7 @@ quant_dev/
 │   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
+│   ├── api_examples.ipynb                 example queries to every dashboard API endpoint
 │   ├── price_return_analysis.ipynb        single-ticker streak and rare-event analysis
 │   ├── price_return_statistics.ipynb      statistics of one ticker's returns, option sizing
 │   ├── rare_case_run.ipynb                config-driven multi-ticker run
@@ -309,6 +310,7 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 
 | Notebook | Status |
 |---|---|
+| `api_examples.ipynb` | Current, committed without outputs. Example calls to every endpoint of the dashboard API (`src/api`) over HTTP, with the answers as tables and charts; runs on the demo data by default, and starts the API inside the kernel if none is running. Needs the `api` and `stats` extras; not for Colab. |
 | `price_return_analysis.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
 | `price_return_statistics.ipynb` | Current, committed without outputs. One ticker (default `ES=F`, thresholds from `configs/tickers.yaml`): distribution and tails, dependence, drawdowns and risk, the rare-event probabilities with bootstrap intervals and model comparisons, and option sizing with the four P&L grids from the retired `test_es`. Needs the `stats` extra. |
 | `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
@@ -522,6 +524,8 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - The dashboard API is complete (plan Phase 2): streak and cumulative summaries, the rare-event
   table with live bounds, all 14 charts as Plotly JSON, the four statistics sections and the
   multi-ticker comparison, each equal to the package called directly.
+- New `notebooks/api_examples.ipynb`: example queries to every API endpoint, with the answers
+  shown as tables and charts, ending with one answer checked against the package directly.
 - New `event_probability_table` in `price_return.stats`, which the statistics notebook now
   calls instead of joining three tables in a cell.
 - `plot_streak_timeline` is 50 to 140 times faster, with an identical figure: it added one
