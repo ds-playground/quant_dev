@@ -384,3 +384,14 @@ def test_every_endpoint_reports_data_failures(path, monkeypatch):
     response = client.post(path, json={"data_source": "yahoo", "ticker": "ES=F"})
     assert response.status_code == 502 and "Yahoo unreachable" in response.json()["detail"]
     cache.cache_clear()
+
+
+def test_dashboard_params_type_has_every_params_field():
+    """dashboard/src/api.ts types the request body by hand; it must list the dataclass's fields."""
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).parent.parent / "dashboard" / "src" / "api.ts").read_text()
+    body = re.search(r"export interface Params \{(.*?)\n\}", source, re.S).group(1)
+    fields = re.findall(r"^\s+(\w+):", body, re.M)
+    assert fields == [f.name for f in dataclasses.fields(pr.Params)]
