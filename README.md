@@ -227,10 +227,12 @@ quant_dev/
 │
 ├── src/
 │   ├── api/                               FastAPI app for the dashboard: wraps price_return, no analysis
-│   │   ├── app.py                         endpoints (/api/health, /api/tickers, /api/overview)
+│   │   ├── app.py                         endpoints: health, tickers, overview, streaks, cumulative,
+│   │   │                                  rare-events, charts, statistics, multi-ticker
+│   │   ├── charts.py                      chart registry: name → viz.plot_* call
 │   │   ├── schemas.py                     request model generated from Params
 │   │   ├── serialize.py                   JSON conversion: NaN → null, ISO dates, Plotly figures
-│   │   └── cache.py                       LRU cache of loaded prices
+│   │   └── cache.py                       LRU caches: prices, rare-event tables, ticker runs
 │   └── tools/
 │       ├── price_return/                  the framework
 │       │   ├── __init__.py                re-exports the whole public API
@@ -365,6 +367,7 @@ can be retuned without touching the package.
 | `risk_ratios`, `rolling_risk` | Annualized return and volatility, Sharpe, Sortino, Calmar; rolling versions |
 | `stationary_bootstrap`, `bootstrap_interval` | Politis–Romano resampling indices; a percentile interval for any statistic |
 | `probability_intervals`, `model_probabilities` | Rare-event probabilities with bootstrap intervals; what i.i.d. normal and Student-t models predict |
+| `event_probability_table` | Both of those joined with the observed counts and episodes: the table `plot_event_probabilities` draws |
 | `plot_qq`, `plot_autocorrelation` | Q-Q against normal and t; autocorrelation panels with the 95% band |
 | `plot_drawdown`, `plot_rolling_risk` | Underwater chart; rolling volatility and Sharpe panels |
 | `plot_event_probabilities` | Observed probabilities with intervals against both models, log scale |
@@ -516,6 +519,13 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   generated from `Params`, and it computes nothing itself. The ticker list defaults to the
   demo set, so the dashboard runs offline. New `api` extra; `httpx2` joins `dev`.
 - `configs/tickers.yaml`'s header named a notebook that no longer exists; fixed.
+- The dashboard API is complete (plan Phase 2): streak and cumulative summaries, the rare-event
+  table with live bounds, all 14 charts as Plotly JSON, the four statistics sections and the
+  multi-ticker comparison, each equal to the package called directly.
+- New `event_probability_table` in `price_return.stats`, which the statistics notebook now
+  calls instead of joining three tables in a cell.
+- `plot_streak_timeline` is 50 to 140 times faster, with an identical figure: it added one
+  shape at a time, which took 54 s for SPX's 2-day streaks and over 5 minutes for CL's.
 
 ### 2026-09-29
 - New `price_return/stats.py` and `notebooks/price_return_statistics.ipynb`: distribution

@@ -40,7 +40,7 @@ from .stats import (return_moments, jarque_bera, fit_student_t, qq_points, tail_
                     value_at_risk, autocorrelation, ljung_box, variance_ratio, arch_lm,
                     drawdown_series, drawdown_table, max_drawdown, risk_ratios, rolling_risk,
                     stationary_bootstrap, bootstrap_interval, probability_intervals,
-                    model_probabilities)
+                    model_probabilities, event_probability_table)
 
 __all__ = [
     'Params',
@@ -73,5 +73,5 @@ __all__ = [
     'drawdown_series', 'drawdown_table', 'max_drawdown', 'risk_ratios', 'rolling_risk',
     # statistics: uncertainty on probabilities
     'stationary_bootstrap', 'bootstrap_interval', 'probability_intervals',
-    'model_probabilities',
+    'model_probabilities', 'event_probability_table',
 ]

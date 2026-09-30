@@ -34,6 +34,12 @@ def series_to_dict(series):
     return {str(k): clean(v) for k, v in series.items()}
 
 
+def frame_to_table(frame):
+    """A table as its column names in order plus one record per row. JavaScript objects put
+    integer-like keys first, so the column order is sent explicitly."""
+    return {'columns': [str(c) for c in frame.columns], 'records': frame_to_records(frame)}
+
+
 def frame_to_records(frame):
     """One dict per row, column names as keys; the index is dropped (reset it first to keep it)."""
     return [{str(k): clean(v) for k, v in row.items()} for row in frame.to_dict(orient='records')]

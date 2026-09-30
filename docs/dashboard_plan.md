@@ -105,7 +105,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README |
 | **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `2a1e61b`** |
 | **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `c45b0ca`** |
-| **2** | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests |
+| **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `PHASE2`** |
 | **3** | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab |
 | **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
 | **5** | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section |
@@ -199,6 +199,59 @@ yfinance); no analysis logic outside `src/tools/`.
   `rare_case_run` does.
 - **Tests:** the same round-trip parity for every endpoint, on demo and simulated data; every
   registered chart builds; the rare-event filters match `low_probability_view` called directly.
+  (Done: see Phase 2 notes.)
+
+### Phase 2 notes
+
+- **Endpoints.** The request body is always the `Params` JSON; what to show goes in the query.
+  - `POST /api/streaks`, `POST /api/cumulative`: `{summary}`, from `summarize_streaks` and
+    `summarize_cumulative`.
+  - `POST /api/rare-events?n_days=3&n_days=5&change_type=cumulative`: `low_probability_view` over
+    the cached `build_historical_analysis`, filtered by the body's `prob_min` and `prob_max`.
+    `n_days` must be in `streak_days` (422 otherwise). The response also gives `total_events`.
+  - `GET /api/charts` lists the 14 charts (9 `analysis`, 5 `statistics`) and the options each
+    reads. `POST /api/charts/{name}` returns the figure JSON. Options: `window`
+    (streak-timeline, rolling-risk), `top` (drawdown), and `n_days`, `n_boot`, `change_type`,
+    `change`, `n_years` (event-probabilities). Defaults are the notebooks'.
+  - `POST /api/statistics/{distribution|dependence|drawdowns|probabilities}`: the statistics
+    notebook's sections. `probabilities` takes `n_days` and `n_boot` (default 1,000, as in the
+    notebook, maximum 2,000, about 2 s per 1,000) and returns every event. The dashboard filters
+    to the rare ones for display, as the notebook does. `drawdowns` takes `top`. `rolling_risk` is
+    served as the `rolling-risk` chart only, since its table is a 2,500-row time series.
+  - `GET /api/multi-ticker?set=demo|yahoo&drill_n_days=3`: `rare_case_run`. Per ticker: label,
+    rows, dates and the drill table. Also the two `compare_tickers` tables, and `failed` (symbol
+    and error); if every ticker fails, the response is a 502. It is a GET: there is no body,
+    since the config sets each ticker's parameters. It takes about 9 s for the ten demo tickers
+    on the first call and is then cached.
+- **Tables** are `{columns, records}`: JavaScript objects put integer-like keys first, so the
+  column order is sent explicitly.
+- **Caches** (`cache.py`): prices (by data fields); the historical table (by data fields plus
+  `trade_days`, `return_thresholds`, `lookback_years`, `streak_days`, so moving `prob_max` or
+  `prob_min` only refilters); the event table (plus `n_days`, `n_boot`); `analyze_ticker` results
+  (by every field and the label). Failures are not cached.
+- **Errors:** a missing `stats` extra (scipy) → 501 with the install hint. Data failures → 422 or
+  502 on every endpoint, as in Phase 1 (tested on each).
+- **Package changes, both kept out of the API as the rules require:**
+  - `stats.event_probability_table(pct_change, n_days, p, n_boot, seed)` joins
+    `consecutive_analysis`'s counts, `probability_intervals` and `model_probabilities` row for
+    row. The statistics notebook did this in a cell; it now calls the function.
+  - `viz.plot_streak_timeline` sets all its streak shapes in one update. `add_vrect` re-validated
+    every existing shape, so the chart took 54 s for SPX 2-day streaks and 325 s for CL; it now
+    takes 0.8 s and 2.4 s. The figures are identical (JSON compared on nine ticker/window cases),
+    and the notebooks get the speed-up too.
+- **Tests:** 25 new API tests (45 in all). Every endpoint equals the package called directly in the test,
+  on demo and simulated data. All 14 charts equal the notebook's figure, and chart options reach
+  the plot. The probability bounds refilter the cached table, and bad requests are rejected. The
+  multi-ticker test uses a temporary config with a failing ticker. Two package tests: the event
+  table's joins, and the timeline's shapes against the streaks. 11 seeded mutations; the one
+  that first survived (an endpoint skipping the data-error mapping) led to the every-endpoint
+  error test. Suite: 267.
+- **Rendering:** the chart JSON from a live server renders in plotly.js in Chromium. Plotly 6
+  sends numeric arrays base64-encoded (`bdata`), which plotly.js 2.28 or newer decodes, so
+  Phase 3 needs a recent `plotly.js-dist-min`.
+- **For Phase 4, from the renders:** on `event-probabilities`, a range within one decade shows a
+  single tick label (the axis is set to decades only), and the two model labels can overlap at
+  the right end. Both are in `viz.py`, so both notebooks show them too.
 
 ## Phase 3: dashboard shell (`dashboard/`)
 
