@@ -104,7 +104,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 |---|---|---|
 | **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README |
 | **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `2a1e61b`** |
-| **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README |
+| **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `c45b0ca`** |
 | **2** | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests |
 | **3** | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab |
 | **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
