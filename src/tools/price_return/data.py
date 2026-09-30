@@ -3,14 +3,60 @@
 import numpy as np
 import pandas as pd
 
-from .params import _params
+from .params import _params, _repo_root
+
+# Processed daily bars for demos and offline work; see data/demo/README.md. Not market data.
+DEMO_DIR = _repo_root() / 'data' / 'demo'
+
+
+def demo_tickers():
+    """The tickers with a file in data/demo (`SPX` for `SPX_demo.csv`), sorted."""
+    return sorted(path.name[:-len('_demo.csv')] for path in DEMO_DIR.glob('*_demo.csv'))
+
+
+def _returns_from_closes(df, ticker):
+    """Add `return_pct` to a date / price frame, dropping returns that span a non-positive price."""
+    df['return_pct'] = df['price'].pct_change() * 100
+
+    # A percent change spanning a non-positive price is meaningless - WTI
+    # settled at -$37.63 on 2020-04-20, which yields a -306% "return" and a
+    # -127% one the next day. Drop those rather than let them distort every
+    # downstream statistic; a change between two positive prices is kept
+    # however large.
+    spans_nonpositive = (df['price'] <= 0) | (df['price'].shift(1) <= 0)
+    if spans_nonpositive.any():
+        flagged = df.loc[df['price'] <= 0, 'date'].dt.strftime('%Y-%m-%d').tolist()
+        print(f'Warning: {ticker} has {len(flagged)} non-positive price(s) '
+              f'({", ".join(flagged)}); dropping '
+              f'{int(spans_nonpositive.sum())} affected return(s).')
+        df.loc[spans_nonpositive, 'return_pct'] = np.nan
+
+    return df.dropna().reset_index(drop=True)
+
+
+def _closes_from_csv(path, p, what):
+    """The date / price / return_pct frame from a saved bars file (demo or local), end exclusive."""
+    # round_trip parses each close to the exact float written in the file.
+    raw = pd.read_csv(path, usecols=['Date', 'Close'], parse_dates=['Date'],
+                      float_precision='round_trip')
+    in_range = (raw['Date'] >= pd.Timestamp(p.start_date)) & (raw['Date'] < pd.Timestamp(p.end_date))
+    df = raw.loc[in_range].rename(columns={'Date': 'date', 'Close': 'price'})
+    if df.empty:
+        raise ValueError(f'No {what} for {p.ticker!r} between {p.start_date} and '
+                         f'{p.end_date}; the file covers {raw["Date"].iloc[0]:%Y-%m-%d} to '
+                         f'{raw["Date"].iloc[-1]:%Y-%m-%d}.')
+    return _returns_from_closes(df.reset_index(drop=True), p.ticker)
 
 
 def load_price_data(p=None, verbose=True):
-    """Return a date / price / return_pct frame, from Yahoo Finance or simulation.
+    """Return a date / price / return_pct frame, from Yahoo Finance, the demo files, or simulation.
 
-    `return_pct` is in percent (0.5 == +0.5%). The simulated series spans the same
-    start..end business-day range as the real one, so both paths are comparable.
+    `return_pct` is in percent (0.5 == +0.5%). `data_source` is 'yahoo' (downloads `ticker`),
+    'demo' (reads `data/demo/{ticker}_demo.csv`, processed data for offline use; see
+    `demo_tickers()`), 'local' (Yahoo data saved by `store.save_local` in data/local), or
+    'simulated'. For 'yahoo', 'demo' and 'local', `end_date` is exclusive. The
+    simulated series spans the same start..end business-day range as the real one, so the
+    paths are comparable.
     """
     p = _params(p)
 
@@ -32,23 +78,25 @@ def load_price_data(p=None, verbose=True):
         if isinstance(raw.columns, pd.MultiIndex):     # yfinance can return a (Price, Ticker) MultiIndex
             raw.columns = raw.columns.get_level_values(0)
         df = raw[['Close']].rename(columns={'Close': 'price'}).reset_index()
-        df = df.rename(columns={'Date': 'date'})
-        df['return_pct'] = df['price'].pct_change() * 100
+        df = df.rename(columns={'Date': 'date'}).rename_axis(columns=None)   # drop yfinance's 'Price'
+        df = _returns_from_closes(df, p.ticker)
 
-        # A percent change spanning a non-positive price is meaningless - WTI
-        # settled at -$37.63 on 2020-04-20, which yields a -306% "return" and a
-        # -127% one the next day. Drop those rather than let them distort every
-        # downstream statistic; a change between two positive prices is kept
-        # however large.
-        spans_nonpositive = (df['price'] <= 0) | (df['price'].shift(1) <= 0)
-        if spans_nonpositive.any():
-            flagged = df.loc[df['price'] <= 0, 'date'].dt.strftime('%Y-%m-%d').tolist()
-            print(f'Warning: {p.ticker} has {len(flagged)} non-positive price(s) '
-                  f'({", ".join(flagged)}); dropping '
-                  f'{int(spans_nonpositive.sum())} affected return(s).')
-            df.loc[spans_nonpositive, 'return_pct'] = np.nan
+    elif p.data_source == 'demo':
+        path = DEMO_DIR / f'{p.ticker}_demo.csv'
+        if not path.is_file():
+            raise ValueError(f'No demo data for ticker {p.ticker!r}. Demo tickers: '
+                             f'{", ".join(demo_tickers()) or "none"} (in {DEMO_DIR}).')
+        df = _closes_from_csv(path, p, 'demo data')
 
-        df = df.dropna().reset_index(drop=True)
+    elif p.data_source == 'local':
+        from . import store
+        path = store.local_path(p.ticker)
+        if not path.is_file():
+            saved = [t['symbol'] for t in store.local_tickers()]
+            raise ValueError(f'No saved data for {p.ticker!r}; save it first (save_local, or the '
+                             f"dashboard's Save to CSV). Saved: {', '.join(saved) or 'none'} "
+                             f'(in {path.parent}).')
+        df = _closes_from_csv(path, p, 'saved data')
 
     elif p.data_source == 'simulated':
         np.random.seed(p.random_seed)
@@ -62,7 +110,8 @@ def load_price_data(p=None, verbose=True):
         })
 
     else:
-        raise ValueError(f"data_source must be 'simulated' or 'yahoo', got {p.data_source!r}")
+        raise ValueError(f"data_source must be 'simulated', 'yahoo', 'demo' or 'local', "
+                         f"got {p.data_source!r}")
 
     df['date'] = pd.to_datetime(df['date'])
     if verbose:

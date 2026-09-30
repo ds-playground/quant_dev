@@ -15,6 +15,7 @@ from statistics import NormalDist
 import numpy as np
 import pandas as pd
 
+from .analysis import consecutive_analysis
 from .data import compound_returns
 from .params import _params
 
@@ -434,3 +435,19 @@ def model_probabilities(pct_change, n_days, p=None, thresholds=None, lookback_ye
                              'n_days': n_days, 'n_years': n_years,
                              'prob_normal': normal[j], 'prob_t': student[j]})
     return pd.DataFrame(rows)
+
+
+def event_probability_table(pct_change, n_days, p=None, n_boot=500, seed=0):
+    """Every rare-event probability for one holding period, with its uncertainty and the models.
+
+    One row per threshold x lookback x event type: `consecutive_analysis`'s `count` and
+    `episodes`, `probability_intervals`' `prob`, `lower` and `upper`, and `model_probabilities`'
+    `prob_normal` and `prob_t`. This is the table `plot_event_probabilities` draws.
+    """
+    p = _params(p)
+    keys = ['change_type', 'change', 'threshold', 'n_days', 'n_years']
+    observed = pd.concat([consecutive_analysis(pct_change, thr, n_days, n_years, p)
+                          for thr in p.return_thresholds for n_years in p.lookback_years])
+    return (probability_intervals(pct_change, n_days, p, n_boot=n_boot, seed=seed)
+            .merge(model_probabilities(pct_change, n_days, p, seed=seed), on=keys)
+            .merge(observed[keys + ['count', 'episodes']], on=keys))
