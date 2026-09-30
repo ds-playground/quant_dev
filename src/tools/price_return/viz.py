@@ -179,17 +179,15 @@ def plot_streak_timeline(df, streaks, p=None, window=None):
         line=dict(color='#B4B2A9', width=1), opacity=0.7
     ))
 
-    for s in streaks[window]['wins']:
-        fig.add_vrect(
-            x0=s['start'], x1=s['end'],
-            fillcolor='#1D9E75', opacity=0.15, line_width=0
-        )
-
-    for s in streaks[window]['losses']:
-        fig.add_vrect(
-            x0=s['start'], x1=s['end'],
-            fillcolor='#D85A30', opacity=0.15, line_width=0
-        )
+    # One shape per streak, set in a single update: add_vrect re-validates every shape already
+    # on the figure, so adding hundreds one by one takes quadratic time (a minute on ten years).
+    shaded = [(s, '#1D9E75') for s in streaks[window]['wins']]
+    shaded += [(s, '#D85A30') for s in streaks[window]['losses']]
+    fig.update_layout(shapes=[
+        dict(type='rect', xref='x', yref='y domain', x0=s['start'], x1=s['end'], y0=0, y1=1,
+             fillcolor=colour, opacity=0.15, line_width=0)
+        for s, colour in shaded
+    ])
 
     fig.add_hline(y=p.win_threshold,  line_dash='dot', line_color='#1D9E75', opacity=0.8)
     fig.add_hline(y=p.loss_threshold, line_dash='dot', line_color='#D85A30', opacity=0.8)

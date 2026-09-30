@@ -455,6 +455,31 @@ def test_probability_intervals_agree_with_consecutive_analysis():
         assert inside.mean() > 0.95
 
 
+def test_event_probability_table_joins_counts_intervals_and_models_row_for_row():
+    pytest.importorskip("scipy")
+    params = pr.Params(data_source="demo", ticker="SPX", start_date="2016-01-01")
+    r = pr.daily_returns_series(pr.add_rolling_stats(pr.load_price_data(params, verbose=False),
+                                                     params))
+    table = pr.event_probability_table(r, 3, params, n_boot=100)
+    keys = ["change_type", "change", "threshold", "n_days", "n_years"]
+    # One row per threshold x lookback x event type, nothing lost or duplicated in the joins.
+    assert len(table) == len(params.return_thresholds) * len(params.lookback_years) * 4
+    assert not table.duplicated(keys).any()
+    # Each column is its source's, on the same row.
+    bands = pr.probability_intervals(r, 3, params, n_boot=100)
+    models = pr.model_probabilities(r, 3, params)
+    for source, columns in ((bands, ["prob", "lower", "upper"]),
+                            (models, ["prob_normal", "prob_t"])):
+        joined = table.merge(source, on=keys, suffixes=("", "_src"))
+        for c in columns:
+            assert (joined[c] == joined[f"{c}_src"]).all()
+    for row in table.sample(10, random_state=0).itertuples():
+        ref = pr.consecutive_analysis(r, row.threshold, 3, row.n_years, params)
+        ref = ref[(ref["change_type"] == row.change_type) & (ref["change"] == row.change)].iloc[0]
+        assert (row.count, row.episodes) == (ref["count"], ref["episodes"])
+        assert row.prob == pytest.approx(ref["count"] / ref["n_windows"], abs=1e-12)
+
+
 def test_model_probabilities_normal_is_exact_and_matches_iid_data():
     pytest.importorskip("scipy")
     params = pr.Params()
@@ -503,6 +528,23 @@ def test_statistics_charts_build():
         # One y-scale per plot: panels may sit side by side or stacked, never overlaid.
         assert not any(getattr(fig.layout[a], "overlaying", None)
                        for a in fig.layout if a.startswith("yaxis")), name
+
+
+def test_streak_timeline_shades_each_streak_once_over_the_full_height():
+    params = pr.Params(data_source="demo", ticker="CL", start_date="2019-01-01",
+                       end_date="2021-01-01")
+    df = pr.load_price_data(params, verbose=False)
+    streaks = pr.detect_streaks(df, params)
+    for window in params.windows:
+        shapes = pr.plot_streak_timeline(df, streaks, params, window=window).layout.shapes
+        rects = [(pd.Timestamp(s.x0), pd.Timestamp(s.x1), s.fillcolor) for s in shapes
+                 if s.type == "rect"]
+        expected = ([(w["start"], w["end"], "#1D9E75") for w in streaks[window]["wins"]]
+                    + [(l["start"], l["end"], "#D85A30") for l in streaks[window]["losses"]])
+        assert rects == expected and len(rects) > 0
+        assert all((s.yref, s.y0, s.y1) == ("y domain", 0, 1) for s in shapes if s.type == "rect")
+        lines = sorted(s.y0 for s in shapes if s.type == "line")
+        assert lines == [params.loss_threshold, params.win_threshold]
 
 
 def test_autocorrelation_chart_draws_the_band_in_both_panels():
