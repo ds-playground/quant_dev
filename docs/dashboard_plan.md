@@ -310,11 +310,19 @@ yfinance); no analysis logic outside `src/tools/`.
   scales and the data untouched.
 - **Checks:** 13 Vitest tests (client, formatting, chart theming; two seeded mutations of the
   theming and two of the field check were each caught), the type check, the production build,
-  and 268 Python tests. A Playwright walk-through against the live API and Vite:
+  and 269 Python tests. A Playwright walk-through against the live API and Vite:
   - first load on SPX, a ticker change, applying thresholds, an invalid date range;
   - a placeholder tab and the Yahoo set (one readable error here, where Yahoo is blocked);
   - screenshots in light, in dark, and at 390 px wide (no horizontal scroll).
   Four charts load in about 3 s on a warm server.
+- **The Yahoo path, offline:** the API was also run with yfinance replaced by a stub serving each
+  demo file under the Yahoo symbol it came from (the manifest's `CL=F`, `GC=F`, `YM=F`, `RTY=F`,
+  `EURUSD=X`), in yfinance's own shape, and an empty frame for anything else. The dashboard's
+  Yahoo set then drew CL=F and GC=F in full, and ES=F gave one error. The multi-ticker call
+  loaded those five and listed the other seven as failed. Via the Yahoo path CL=F equals the
+  demo path's CL exactly. That is now `test_yahoo_path_matches_the_demo_path_on_the_same_file`
+  (it catches reading `Adj Close` or `auto_adjust=True`), the first offline test of
+  `price_return`'s Yahoo branch. Only yfinance's network behaviour remains for the owner's run.
 - **Deferred:** a table view for each chart (the dataviz accessibility twin): the charts have
   hover values, and the tables beside them carry the key numbers.
 - **For Phase 4, from the renders:** in `return-distribution`, the "Loss thr" and "Win thr"

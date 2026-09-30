@@ -395,3 +395,35 @@ def test_dashboard_params_type_has_every_params_field():
     body = re.search(r"export interface Params \{(.*?)\n\}", source, re.S).group(1)
     fields = re.findall(r"^\s+(\w+):", body, re.M)
     assert fields == [f.name for f in dataclasses.fields(pr.Params)]
+
+
+def test_yahoo_path_matches_the_demo_path_on_the_same_file(monkeypatch):
+    """The Yahoo branch, offline: a yfinance stub serves data/demo/CL_demo.csv as CL=F, in
+    yfinance's shape ((Price, Ticker) columns, an Adj Close that differs from Close). The
+    answer must equal the demo source's on the same file."""
+    import sys
+    import types
+
+    def download(ticker, start=None, end=None, auto_adjust=True, **kwargs):
+        assert auto_adjust is False
+        if ticker != "CL=F":
+            return pd.DataFrame()
+        bars = pd.read_csv("data/demo/CL_demo.csv", parse_dates=["Date"], index_col="Date")
+        bars = bars[(bars.index >= pd.Timestamp(start)) & (bars.index < pd.Timestamp(end))]
+        bars.insert(0, "Adj Close", bars["Close"] * 0.98)
+        bars.columns = pd.MultiIndex.from_product([bars.columns, [ticker]], names=["Price", "Ticker"])
+        return bars
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
+    cache.cache_clear()
+    dates = {"start_date": "2019-01-01", "end_date": "2021-01-01"}
+    yahoo = client.post("/api/overview", json={"data_source": "yahoo", "ticker": "CL=F", **dates}).json()
+    demo = client.post("/api/overview", json={"data_source": "demo", "ticker": "CL", **dates}).json()
+    for key in ("rows", "start", "end", "last_price", "snapshot"):
+        assert yahoo[key] == demo[key], key
+    yahoo_streaks = client.post("/api/streaks", json={"data_source": "yahoo", "ticker": "CL=F", **dates})
+    demo_streaks = client.post("/api/streaks", json={"data_source": "demo", "ticker": "CL", **dates})
+    assert yahoo_streaks.json() == demo_streaks.json()
+    missing = client.post("/api/overview", json={"data_source": "yahoo", "ticker": "ES=F", **dates})
+    assert missing.status_code == 422 and "No price data" in missing.json()["detail"]
+    cache.cache_clear()
