@@ -6,8 +6,9 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
 
 ## Picking this up
 
-- **Setup:** Python 3.12 or newer: `pip install -e ".[stats,dev]"` from the repo root (add `api`
-  once Phase 1 exists), then `pytest`; all tests pass offline. The dashboard needs Node 20 or
+- **Setup:** Python 3.12 or newer: `pip install -e ".[api,stats,dev]"` from the repo root, then
+  `pytest`; all tests pass offline. Try the API with `uvicorn src.api.app:app`, then open
+  `http://127.0.0.1:8000/docs`. The dashboard needs Node 20 or
   newer (from Phase 3): `npm install` in `dashboard/`.
 - **Phases are the unit of work.** Do one phase when asked, then stop; do not start the next one
   unprompted. Commit and push at the end of each phase.
@@ -91,7 +92,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | # | Phase | Deliverable |
 |---|---|---|
 | **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README |
-| **1** | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests |
+| **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, not yet committed** |
 | **2** | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests |
 | **3** | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab |
 | **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
@@ -116,6 +117,34 @@ analysis logic outside `src/tools/`.
 - **Tests (`tests/test_api.py`):** each endpoint's JSON round-trips to exactly what a direct
   package call returns on the same simulated `Params`. Unknown or invalid parameters give 422. A
   data-source failure (Yahoo) gives a clear error, not a 500 stack trace.
+
+### Phase 1 notes
+
+- `src/api/`: `app.py` (endpoints), `schemas.py` (`ParamsIn`, generated from
+  `dataclasses.fields(Params)` with the same types and defaults; `extra='forbid'`),
+  `serialize.py` (`clean`, `series_to_dict`, `frame_to_records`, `figure_to_json`), `cache.py`
+  (`prices`, `prepared_data`, an LRU cache of 32 downloads).
+- **Endpoints:** `GET /api/health`; `GET /api/tickers` (every configured ticker with its label and
+  full parameters); `POST /api/overview` (rows, date range, last price, `latest_snapshot`,
+  `distribution_summary`). FastAPI's own docs page is at `/docs`.
+- **Serialization:** values are converted one by one to Python types rather than through
+  `DataFrame.to_json`, which keeps only 10 significant digits by default. Floats round-trip JSON
+  exactly (tested on 1,000 values). JSON has no NaN or infinity, so non-finite numbers become
+  `null`; that includes an infinite Sortino or Calmar when there is no downside.
+- **Errors:** `load_price_data`'s ValueError (unknown ticker, unknown data source) → 422 with its
+  message; any other data-source failure (network, Yahoo) → 502 "Data source failed: …"; bad or
+  unknown parameters → 422 from the model.
+- **Cache key** is the data fields only (`DATA_FIELDS`: source, ticker, dates, simulation
+  settings). Changing thresholds, windows or `trade_days` reuses the downloaded prices; the
+  rolling statistics are recomputed per request (cheap). `end_date` defaults to today, so a new
+  day is a new key.
+- **Dependencies:** `api = ["fastapi", "uvicorn[standard]"]`; `dev` gains `httpx2`. Starlette 1.7's
+  test client imports `httpx2` first and warns when it falls back to `httpx`. `httpx2` is the
+  successor from httpx's author, published under the pydantic organisation.
+- **Tests:** `tests/test_api.py`, 14 tests. The overview must equal `latest_snapshot` /
+  `distribution_summary` called directly, exactly; also tickers against `load_ticker_config`, the
+  model against `Params`, serialization, both error paths, and the cache. Six seeded mutations were
+  each caught. Also run under a real uvicorn server with HTTP calls. Suite: 217.
 
 ## Phase 2: API complete
 

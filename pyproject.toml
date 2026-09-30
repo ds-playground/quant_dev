@@ -21,10 +21,12 @@ dependencies = [
 # secondary. `ta` is here only so notebooks/ta_package_evaluation.ipynb re-runs.
 # Optional because TA-Lib has needed a C toolchain on some platforms.
 [project.optional-dependencies]
-dev = ["pytest", "ipywidgets", "nbformat"]
+dev = ["pytest", "ipywidgets", "nbformat", "httpx2"]
 ta = ["pandas_ta", "ta", "TA-Lib"]
 # src.tools.price_return.stats needs scipy for chi-squared p-values and the Student-t fit.
 stats = ["scipy"]
+# src.api (the dashboard's API server) needs FastAPI and uvicorn.
+api = ["fastapi", "uvicorn[standard]"]
 
 [tool.setuptools.packages.find]
 where = ["."]
