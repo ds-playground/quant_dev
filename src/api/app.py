@@ -14,12 +14,12 @@ from src.tools.price_return import (analyze_cumulative, arch_lm, autocorrelation
                                     local_ticker_config, local_tickers, save_local, store)
 from src.tools.price_return.params import DEFAULT_CONFIG_PATH, DEMO_CONFIG_PATH
 
-from . import cache
+from . import cache, dashboard
 from .charts import CHARTS, ChartOptions
 from .schemas import ParamsIn, to_params
 from .serialize import clean, figure_to_json, frame_to_records, frame_to_table, series_to_dict
 
-app = FastAPI(title='quant_dev API', version='0.2.0',
+app = FastAPI(title='quant_dev API', version='0.3.0',
               description='The price-return analysis behind JSON, for the dashboard.')
 
 ChangeType = Literal['consecutive', 'cumulative']
@@ -52,7 +52,7 @@ def _load(p):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'version': app.version}
+    return {'status': 'ok', 'version': app.version, 'dashboard_built': dashboard.is_built()}
 
 
 # The ticker lists the dashboard offers: the processed demo files, which work offline; the
@@ -252,3 +252,7 @@ def multi_ticker(ticker_set: TickerSet = Query('demo', alias='set'),
     return {'set': ticker_set, 'drill_n_days': drill_n_days, 'tickers': tickers,
             'streaks': frame_to_table(streak_table), 'distribution': frame_to_table(dist_table),
             'failed': failed}
+
+
+# Last, so that every API route (and /docs) matches first.
+dashboard.add_dashboard_routes(app)

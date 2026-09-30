@@ -7,8 +7,8 @@ the table, and add a "Phase N notes" section with anything a later phase needs t
 ## Picking this up
 
 - **Setup:** Python 3.12 or newer: `pip install -e ".[api,stats,dev]"` from the repo root, then
-  `pytest`; all tests pass offline. Try the API with `uvicorn src.api.app:app`, then open
-  `http://127.0.0.1:8000/docs`. The dashboard needs Node 20 or newer: `npm install` once in
+  `pytest`; all tests pass offline. Run everything with `python -m src.api` (after
+  `npm run build` in `dashboard/`), or develop with `python scripts/dev.py`. The dashboard needs Node 20 or newer: `npm install` once in
   `dashboard/`, then `npm run dev` (http://localhost:5173) with the API running; `npm test`,
   `npm run typecheck` and `npm run build` are its checks.
 - **Data:** develop and test on the demo files (`data_source='demo'`, e.g. SPX; see the revision
@@ -116,7 +116,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `a8af3fa`** |
 | **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `47e8fe9`** |
 | **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
-| **5** | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section |
+| **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `PHASE5`** |
 | **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
@@ -478,9 +478,43 @@ The third data option: live data saved as plain CSV, downloaded once and then up
 
 - FastAPI mounts `dashboard/dist` as static files when it exists, so
   `python -m src.api` (`src/api/__main__.py`, uvicorn on 127.0.0.1:8000) serves everything.
-- `scripts/dev.sh` runs uvicorn with reload plus the Vite dev server, for development.
+- `scripts/dev.py` (done as `.py`, not `.sh`, to run on Windows too) runs uvicorn with reload
+  plus the Vite dev server, for development.
 - README "Dashboard" section: install (`pip install -e ".[api,stats]"`, then `npm install` and
   `npm run build` in `dashboard/`), run, and the architecture sketch.
+
+### Phase 5 notes
+
+- **`src/api/dashboard.py`:** a catch-all route, registered after every API route, so `/api/*`,
+  `/docs` and `/openapi.json` always match first.
+  - It serves `dashboard/dist`: `index.html` with `no-cache`, and the hashed `assets/` as
+    immutable for a year. Any other path without a file extension gets `index.html`.
+  - A missing file is a 404, and so is an unknown `/api/...` path: JSON, never the page.
+  - Paths are resolved and must stay inside `dist` (encoded `../` is refused; tested).
+  - The folder is looked up per request, so `npm run build` needs no restart. Before any build,
+    `/` is a 503 page with the three build commands.
+  - `/api/health` reports `dashboard_built`. API version 0.3.0.
+- **`python -m src.api`** (`src/api/__main__.py`): `--host` (default 127.0.0.1), `--port` (8000),
+  `--reload`, `--open`. It prints the URL, says how to build if needed, and warns when listening
+  beyond this computer (there is no login).
+- **Change from the plan:** `scripts/dev.py` instead of `scripts/dev.sh`, so the one launcher
+  works on Windows as well.
+  - It installs the npm packages if missing, then runs uvicorn with reload and `npm run dev`.
+  - Ctrl+C stops both, and it also stops if either one exits.
+  - Each server runs in its own process group, stopped as a group (`killpg`, or `taskkill /T` on
+    Windows). The first version stopped only `npm`, which left Vite running on :5173; a test now
+    checks that a server's own child process is stopped too.
+- **Checks:**
+  - 10 tests in `tests/test_serve.py`: page and assets, API precedence, missing files,
+    traversal, the not-built page, the runner's defaults and warnings, and the process-group
+    stop. 6 seeded mutations were caught.
+  - Every tab driven in Chromium against `python -m src.api` on port 8000 (same results as under
+    Vite, no errors).
+  - The not-built page, shown by moving the build aside while the server ran; restoring it
+    worked with no restart.
+  - `scripts/dev.py` started, served the API through Vite, and stopped cleanly on SIGINT with no
+    processes left.
+  - 312 Python tests, 17 Vitest tests.
 
 ## Phase 6: end-to-end check and docs
 
@@ -504,7 +538,7 @@ The third data option: live data saved as plain CSV, downloaded once and then up
   `data/demo/*`, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`,
   `tests/test_demo_data.py`,
   `dashboard/` (`package.json`, `vite.config.ts`, `src/{main,App,api}.tsx|ts`,
-  `src/components/*`, `src/tabs/*`, `e2e/smoke.spec.ts`), `scripts/dev.sh`,
+  `src/components/*`, `src/tabs/*`, `e2e/smoke.spec.ts`), `scripts/dev.py`,
   `docs/dashboard_plan.md`.
 - Modified: `pyproject.toml` (`api` extra, `httpx2` in dev), `.gitignore`, `README.md`;
   `src/tools/price_return/data.py` and `params.py` for the demo source (revision 1a).
