@@ -116,7 +116,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `a8af3fa`** |
 | **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `47e8fe9`** |
 | **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
-| **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `PHASE5`** |
+| **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `51e9cf0`** |
 | **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
