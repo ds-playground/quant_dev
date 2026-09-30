@@ -171,8 +171,12 @@ the dashboard has never been built, the page at `/` says how.
 
 **Develop:** `python scripts/dev.py` runs the API (restarting on Python changes) and the Vite
 dev server (updating the page on every React change) together, on http://localhost:5173, until
-Ctrl+C stops both. It works on Windows, macOS and Linux. The dashboard's checks are `npm test`,
-`npm run typecheck` and `npm run build` in `dashboard/`.
+Ctrl+C stops both. It works on Windows, macOS and Linux.
+
+**Check it:** in `dashboard/`, `npm test` (unit tests), `npm run typecheck`, and `npm run e2e`,
+which builds the dashboard, starts `python -m src.api` on port 8765 and drives every tab in
+Chromium on the demo data (about 30 s). The first time, run `npx playwright install chromium`;
+set `PYTHON` if your interpreter is not called `python`.
 
 ## Methodology
 
@@ -321,6 +325,7 @@ quant_dev/
 │
 ├── dashboard/                             React dashboard (Vite, TypeScript), talks to src/api
 │   ├── src/api.ts                         typed client for every endpoint
+│   ├── e2e/smoke.spec.ts                  end-to-end check of every tab (Playwright, npm run e2e)
 │   ├── src/components/                    parameter panel, Plotly chart, table, stat tiles
 │   └── src/tabs/                          one component per tab
 │
@@ -581,14 +586,17 @@ checks each API response against a direct package call, value for value, and
 `tests/test_demo_data.py` checks the demo files against their manifest and the `demo` data
 source against the files. New test groups are also checked by seeding deliberate bugs and
 confirming a test fails on each. The dashboard has its own unit tests (`npm test` in
-`dashboard/`, for the client, formatting and chart theming) and a type check (`npm run
-typecheck`).
+`dashboard/`, for the client, formatting and chart theming), a type check (`npm run
+typecheck`), and an end-to-end check (`npm run e2e`) that drives every tab of the built
+dashboard in Chromium against the real API; see "Dashboard".
 
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-09-30
+- The dashboard POC is complete (plan Phase 6): `npm run e2e` in `dashboard/` checks every tab
+  end to end, in Chromium, against `python -m src.api` on the demo data.
 - One command runs the dashboard (plan Phase 5): `python -m src.api` serves the built React app
   and the API together on http://127.0.0.1:8000, and `python scripts/dev.py` runs both
   development servers. See "Dashboard".

@@ -113,3 +113,7 @@ dashboard/dist/
 
 # Live market data saved by src/tools/price_return/store.py: real Yahoo data, not for a public repo
 data/local/
+
+# Playwright output (npm run e2e)
+dashboard/test-results/
+dashboard/playwright-report/
