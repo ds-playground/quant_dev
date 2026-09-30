@@ -4,7 +4,7 @@
 /** The Params dataclass (src/tools/price_return/params.py), as JSON. Every POST body is one.
  *  tests/test_api.py checks that these field names match the dataclass. */
 export interface Params {
-  data_source: 'demo' | 'yahoo' | 'simulated';
+  data_source: 'demo' | 'yahoo' | 'local' | 'simulated';
   ticker: string;
   start_date: string;
   end_date: string;
@@ -27,7 +27,7 @@ export interface Params {
   prob_min: number;
 }
 
-export type TickerSet = 'demo' | 'yahoo';
+export type TickerSet = 'demo' | 'yahoo' | 'local';
 export type Cell = string | number | boolean | null;
 
 /** A DataFrame: column names in order, and one record per row. */
@@ -36,10 +36,32 @@ export interface Table {
   records: Record<string, Cell>[];
 }
 
+/** What data/local holds for a symbol. */
+export interface Saved {
+  symbol: string;
+  rows: number;
+  first: string;
+  last: string;
+  updated: string | null;
+}
+
 export interface Ticker {
   symbol: string;
   label: string;
   params: Params;
+  saved: Saved | null;
+}
+
+/** The outcome of saving or updating a symbol in data/local. */
+export interface SaveResult {
+  symbol: string;
+  file: string;
+  created: boolean;
+  rows: number;
+  added: number;
+  first: string;
+  last: string;
+  revised: { date: string; column: string; saved: number; new: number }[];
 }
 
 export interface TickerList {
@@ -160,6 +182,10 @@ export const api = {
     request<Figure>('POST', `/charts/${name}`, p, options),
   statistics: <T = Record<string, unknown>>(p: Params, section: string, options: Query = {}) =>
     request<T>('POST', `/statistics/${section}`, p, options),
+  local: () => request<{ directory: string; tickers: Saved[] }>('GET', '/local'),
+  saveLocal: (symbol: string, startDate = '2016-01-01') =>
+    request<SaveResult>('POST', `/local/${encodeURIComponent(symbol)}/update`, undefined,
+                        { start_date: startDate }),
   multiTicker: (set: TickerSet, drillNDays = 3) =>
     request<MultiTicker>('GET', '/multi-ticker', undefined, { set, drill_n_days: drillNDays }),
 };

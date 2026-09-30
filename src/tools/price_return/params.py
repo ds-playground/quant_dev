@@ -28,7 +28,7 @@ class Params:
     """
 
     # ── Price data ───────────────────────────────────────────────────────
-    data_source: str = 'simulated'      # 'simulated', 'yahoo' or 'demo' (data/demo files)
+    data_source: str = 'simulated'      # 'simulated', 'yahoo', 'demo' (data/demo) or 'local' (data/local)
     ticker: str = 'AAPL'
     start_date: str = '2020-01-01'
     end_date: str = field(default_factory=_today)
@@ -119,6 +119,32 @@ def _build_params(defaults, override, symbol):
     merged['ticker'] = symbol
     return Params(**merged), labels.get('label')
 
+def _read_config(path):
+    """The raw YAML mapping at `path` and a description of its source (built-in if absent)."""
+    if not path.exists():
+        return _DEFAULT_TICKER_CONFIG, 'built-in defaults'
+    try:
+        import yaml
+    except ImportError as exc:                              # pragma: no cover
+        raise ImportError(
+            f'Reading {path} needs PyYAML - run `pip install pyyaml`.') from exc
+    with open(path, encoding='utf-8') as fh:
+        return yaml.safe_load(fh) or {}, str(path)
+
+
+def config_params(symbol, path=None):
+    """`symbol`'s Params from a ticker config: its own entry if listed, else the `defaults` block.
+
+    For symbols outside the configured set, such as one saved to data/local by hand, so that they
+    get the same thresholds a configured ticker would. The label is the configured one, or the
+    symbol.
+    """
+    raw, _ = _read_config(Path(DEFAULT_CONFIG_PATH if path is None else path))
+    p, label = _build_params(raw.get('defaults'), (raw.get('tickers') or {}).get(symbol), symbol)
+    p.label = label or symbol
+    return p
+
+
 def load_ticker_config(path=None, verbose=True):
     """Return an ordered {ticker: Params} mapping from a YAML config.
 
@@ -127,22 +153,10 @@ def load_ticker_config(path=None, verbose=True):
     may appear alongside `Params` fields; anything else raises.
     """
     path = Path(DEFAULT_CONFIG_PATH if path is None else path)
-
-    if path.exists():
-        try:
-            import yaml
-        except ImportError as exc:                          # pragma: no cover
-            raise ImportError(
-                f'Reading {path} needs PyYAML - run `pip install pyyaml`.') from exc
-        with open(path, encoding='utf-8') as fh:
-            raw = yaml.safe_load(fh) or {}
-        source = str(path)
-    else:
-        if verbose:
-            print(f'No config at {path}; using built-in defaults: '
-                  + ', '.join(_DEFAULT_TICKER_CONFIG['tickers']))
-        raw = _DEFAULT_TICKER_CONFIG
-        source = 'built-in defaults'
+    raw, source = _read_config(path)
+    if not path.exists() and verbose:
+        print(f'No config at {path}; using built-in defaults: '
+              + ', '.join(_DEFAULT_TICKER_CONFIG['tickers']))
 
     tickers = raw.get('tickers')
     if not tickers:

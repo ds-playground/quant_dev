@@ -18,10 +18,11 @@ The implementation is split across `params`, `data`, `analysis`, `viz`, `report`
 `src.tools.price_return` works exactly as it did when this was one module.
 """
 
-from .params import Params, load_ticker_config
+from .params import Params, load_ticker_config, config_params
 from .data import (load_price_data, add_rolling_stats, latest_snapshot,
                    show_latest_snapshot, daily_returns_series, compound_returns,
                    demo_tickers)
+from .store import save_local, read_local, local_tickers, local_ticker_config
 from .analysis import (detect_streaks, summarize_streaks, analyze_cumulative,
                        summarize_cumulative, consecutive_analysis,
                        build_historical_analysis, filter_low_probability,
@@ -47,6 +48,8 @@ __all__ = [
     # data
     'load_price_data', 'add_rolling_stats', 'latest_snapshot', 'show_latest_snapshot',
     'daily_returns_series', 'compound_returns', 'demo_tickers',
+    # saved live data (data/local)
+    'save_local', 'read_local', 'local_tickers', 'local_ticker_config',
     # streak & cumulative analysis
     'detect_streaks', 'summarize_streaks', 'analyze_cumulative', 'summarize_cumulative',
     # rare-event probabilities
@@ -61,7 +64,7 @@ __all__ = [
     # export
     'export_tables',
     # multi-ticker
-    'load_ticker_config', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
+    'load_ticker_config', 'config_params', 'analyze_ticker', 'distribution_summary', 'compare_tickers',
     # option sizing
     'price_range', 'move_probabilities', 'expected_pnl',
     # statistics: distribution and tails

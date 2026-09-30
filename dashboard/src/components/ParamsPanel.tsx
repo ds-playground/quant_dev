@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import type { Params, Ticker, TickerSet } from '../api';
+import { SavedData } from './SavedData';
 
 interface Draft {
   start_date: string;
@@ -59,7 +60,8 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply }
         <span>Data</span>
         <select value={tickerSet} onChange={(e) => onTickerSet(e.target.value as TickerSet)}>
           <option value="demo">Demo data (offline)</option>
-          <option value="yahoo">Yahoo Finance</option>
+          <option value="yahoo">Yahoo Finance (live)</option>
+          <option value="local">Saved CSV (offline)</option>
         </select>
       </label>
       <label>
@@ -73,7 +75,9 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply }
           }}
         >
           {tickers.map((t) => (
-            <option key={t.symbol} value={t.symbol}>{t.label} ({t.symbol})</option>
+            <option key={t.symbol} value={t.symbol}>
+              {t.label}{t.label === t.symbol ? '' : ` (${t.symbol})`}{tickerSet === 'local' && t.saved ? `, to ${t.saved.last}` : ''}
+            </option>
           ))}
         </select>
       </label>
@@ -101,6 +105,7 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply }
         </button>
       </div>
       {dirty && problem ? <p className="error inline" role="alert">{problem}</p> : null}
+      <SavedData tickerSet={tickerSet} ticker={selected} />
     </form>
   );
 }
