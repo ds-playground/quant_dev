@@ -1,7 +1,8 @@
-# Tickers analysed by dev/rare_case_run.ipynb.
+# Tickers analysed by notebooks/rare_case_run.ipynb (Yahoo Finance data). For the
+# processed demo data in data/demo, see configs/demo_tickers.yaml.
 #
 # Keys under `defaults` and under each ticker must be fields of the Params
-# dataclass in src/tools/price_return.py, with one exception: `label`, which is
+# dataclass in src/tools/price_return/params.py, with one exception: `label`, which is
 # display-only. Anything else raises, so a mistyped key cannot silently change
 # the analysis.
 #
