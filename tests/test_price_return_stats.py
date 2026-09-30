@@ -547,6 +547,49 @@ def test_streak_timeline_shades_each_streak_once_over_the_full_height():
         assert lines == [params.loss_threshold, params.win_threshold]
 
 
+def _event_table(prob, normal, student):
+    """A hand-built event table: one cumulative-above row per threshold, 5-year lookback."""
+    n = len(prob)
+    return pd.DataFrame({
+        "change_type": ["cumulative"] * n, "change": ["above"] * n,
+        "threshold": np.linspace(0.005, 0.03, n), "n_days": [3] * n, "n_years": [5] * n,
+        "prob": prob, "lower": np.array(prob) * 0.8, "upper": np.array(prob) * 1.2,
+        "prob_normal": normal, "prob_t": student})
+
+
+def test_event_chart_ticks_suit_the_range():
+    wide = _event_table([0.3, 0.1, 0.01, 0.001], [0.3, 0.08, 0.005, 0.0002], [0.3, 0.1, 0.01, 0.001])
+    narrow = _event_table([0.6, 0.4, 0.2, 0.1], [0.55, 0.4, 0.25, 0.12], [0.6, 0.42, 0.22, 0.11])
+    assert pr.plot_event_probabilities(wide, n_years=5).layout.yaxis.dtick == 1
+    assert pr.plot_event_probabilities(narrow, n_years=5).layout.yaxis.dtick == "D2"
+
+
+def test_event_chart_keeps_the_model_labels_apart():
+    def labels(normal_end, t_end):
+        table = _event_table([0.5, 0.2, 0.05, 0.01], [0.5, 0.2, 0.05, normal_end],
+                             [0.5, 0.2, 0.05, t_end])
+        fig = pr.plot_event_probabilities(table, n_years=5)
+        values = table[["prob", "lower", "upper", "prob_normal", "prob_t"]].to_numpy().ravel()
+        decades = np.log10(values.max() / values.min())
+        px_per_decade = 330 / decades                 # the plot's height over the axis span
+        return {a.text: (a.y, a.yshift or 0) for a in fig.layout.annotations}, px_per_decade
+
+    close, px = labels(0.0100, 0.0102)
+    (y_n, shift_n), (y_t, shift_t) = close["Normal model"], close["Student-t model"]
+    assert shift_t > 0 > shift_n                      # the higher line's label moves up
+    assert abs(y_t - y_n) * px + (shift_t - shift_n) == pytest.approx(14)   # one label height apart
+    far, _ = labels(0.0001, 0.01)
+    assert far["Normal model"][1] == far["Student-t model"][1] == 0
+
+
+def test_histogram_threshold_labels_sit_outside_their_lines():
+    params = pr.Params(win_threshold=0.2, loss_threshold=-0.2)
+    df = pr.load_price_data(params, verbose=False)
+    labels = {a.text: a for a in pr.plot_return_distribution(df, params).layout.annotations}
+    assert labels["Win thr"].x == 0.2 and labels["Win thr"].xanchor == "left"
+    assert labels["Loss thr"].x == -0.2 and labels["Loss thr"].xanchor == "right"
+
+
 def test_autocorrelation_chart_draws_the_band_in_both_panels():
     acf = pr.autocorrelation(normal_returns(500, 24))
     fig = pr.plot_autocorrelation(acf)

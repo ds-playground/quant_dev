@@ -114,7 +114,7 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 | **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `c45b0ca`** |
 | **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `6389d05`** |
 | **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `a8af3fa`** |
-| **4** | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker |
+| **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `PHASE4`** |
 | **4a** | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests |
 | **5** | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section |
 | **6** | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR |
@@ -345,6 +345,45 @@ yfinance); no analysis logic outside `src/tools/`.
   The bootstrap runs on request with a visible progress state.
 - **Multi-ticker:** runs over the selected ticker set (demo or Yahoo) on request; cross-ticker streak and
   distribution tables, and any failed tickers listed.
+
+### Phase 4 notes
+
+- **Tabs** (`dashboard/src/tabs/`):
+  - `StreaksTab`: the streak and cumulative tables with episodes, the counts and frequency charts,
+    and the timeline with a window control. The two-panel cumulative heatmap is full width.
+  - `RareEventsTab`: the notebook widget's controls (holding period, event type, and the
+    probability bounds as percentages). The bounds are debounced and validated; each change only
+    refilters the server's cached table (about 20 ms). An empty result says why and what to
+    change.
+  - `StatisticsTab`: the notebook's four sections. Key/value tables for the moments, Jarque–Bera,
+    Student-t and Hill; VaR and ES pivoted by method (`tables.varTable`, unit-tested); the
+    Ljung–Box, variance-ratio and ARCH-LM results; risk-ratio tiles and the deepest drawdowns;
+    and the Q-Q, autocorrelation, drawdown and rolling-risk charts. The bootstrap runs on request
+    (holding period, 500/1,000/2,000 resamples), with its progress on the button. A "rare only"
+    filter matches the notebook's cut, and the two event charts (above/below, longest lookback)
+    stack full width.
+  - `MultiTickerTab`: runs the selected set on request (about 8 s for the ten demo tickers,
+    then cached). Shows failed tickers, the streak and distribution comparisons, and one
+    collapsible rare-event table per ticker.
+- **Shared pieces:** `QueryState` (loading, error, and the previous result dimmed while
+  refetching), `DataTable` column `formats`/`labels`/`columns`, `KeyValues`, `useDebounced`.
+- **The three `viz.py` issues from Phases 2 and 3, fixed** (the notebooks get the fixes too):
+  - the histogram's threshold labels sit on the outer side of each line;
+  - `plot_event_probabilities` labels 1, 2 and 5 in each decade when its range is under two
+    decades (`dtick='D2'`), and keeps decade ticks otherwise;
+  - its two model labels are pushed a label height apart when their line ends are close, with a
+    wider right margin so they are not clipped.
+  Three tests, each checked by a seeded mutation.
+- **Checks:** 14 Vitest tests, the type check and build, and 272 Python tests. A Playwright
+  walk-through of every tab in light, dark and at 390 px:
+  - rare-event filters 46 → 21 → 13 events, cumulative only when chosen;
+  - invalid bounds blocked with a message;
+  - the bootstrap's progress state, and "rare only" at 46 of 104 events;
+  - multi-ticker's ten drill tables;
+  - no console errors and no horizontal scroll.
+  From the screenshots, the cumulative heatmap and the event charts went full width, the
+  dependence tables went two across (a p-value column was clipped at three), and the rare-event
+  count now says it covers every holding period.
 
 ## Phase 4a: saved live data (owner's request, 2026-09-30)
 

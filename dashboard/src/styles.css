@@ -164,3 +164,23 @@ th { color: var(--ink-2); font-weight: 600; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tile .value { font-size: 1.3rem; }
 }
+
+/* Phase 4: tab toolbars, section text, and the extra table layouts. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+.toolbar.inset { margin: 4px 0 16px; }
+.toolbar .actions { display: flex; gap: 8px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+label.check { flex-direction: row; align-items: center; gap: 6px; min-height: 34px; }
+label.check input { min-height: 0; }
+h3 { font-size: 0.9rem; margin: 20px 0 8px; color: var(--ink-2); }
+.lede { color: var(--ink-2); margin: 0 0 12px; max-width: 75ch; }
+.h2-note { color: var(--muted); font-weight: 400; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+table.kv th { font-weight: 400; color: var(--ink-2); }
+details { border-top: 1px solid var(--grid); padding: 8px 0; }
+details summary { cursor: pointer; color: var(--ink-2); }
+details[open] summary { margin-bottom: 8px; }
+.failures { margin: 0; padding-left: 20px; color: var(--ink-2); }
+@media (max-width: 1100px) {
+  .grid-3 { grid-template-columns: minmax(0, 1fr); }
+}
