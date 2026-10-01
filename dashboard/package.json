@@ -1,6 +1,7 @@
 {
   "name": "quant-dev-dashboard",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "description": "React dashboard over the price-return API in src/api",

@@ -656,6 +656,10 @@ images in `docs/dashboard.md` the same way; it checks nothing, so look at each i
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-10-01
+- **MIT License** (`LICENSE`, copyright Jones Wan), replacing "all rights reserved". Not
+  covered: the Pine scripts (their upstream licenses), `ta_tools`' `trendlines` (a port of a
+  CC BY-NC-SA 4.0 script, so under that license), and market data. `pyproject.toml` declares
+  `license = "MIT"`, which needs setuptools 77 or newer to build.
 - README: a **Development workflow** section with a diagram of the cycle every analysis
   follows: trading idea → notebook → tested package → API → dashboard → finding → new idea
   ([`docs/doc_update_plan.md`](docs/doc_update_plan.md)). The package function table is now
@@ -883,9 +887,17 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 
 ## License
 
-No license is granted. This is a personal work-in-progress repository and all
-rights are reserved.
+The code is released under the [MIT License](LICENSE), copyright (c) 2026 Jones Wan: use,
+copy, modify and share it, keeping the copyright notice. It comes **as is, without warranty
+of any kind**. It is research and education, not trading advice, and nothing here has been
+validated for trading.
 
-This does **not** extend to the Pine scripts, which carry their own upstream
-licenses as listed above; those terms govern those files and are not overridden
-by this notice.
+Not covered by the MIT License:
+
+- **The Pine scripts** in `pine_scripts/` keep their upstream licenses, listed in
+  [Pine scripts](#pine-scripts).
+- **`trendlines` in `src/tools/ta_tools/indicators.py`** is a port of LuxAlgo's Trendlines with
+  Breaks, which is CC BY-NC-SA 4.0. Treat that function as under the same license:
+  non-commercial use only, and adaptations shared alike.
+- **Market data** stays under its provider's terms: the processed Yahoo Finance files in
+  `data/demo`, and any data you download, such as Yahoo data saved in `data/local`.
