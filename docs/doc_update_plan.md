@@ -30,7 +30,7 @@ asked for:
 | # | Phase | Deliverable |
 |---|---|---|
 | **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `1585e90`** |
-| **2** | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented |
+| **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented |
 | **3** | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` |
 | **4** | Wrap-up | README layout, Tests and changelog; full checks; PR when asked |
 
@@ -52,7 +52,31 @@ asked for:
     page (no links pointed at the old anchor);
   - a changelog entry.
 
-## Phase 2: API page (`docs/api.md`)
+## Phase 2: API page (`docs/api.md`) ✅
+
+- **Examples shown:** A (request flow), B (endpoint map), C (rare-event sequence). **The owner
+  chose all three.** B heads the endpoint tables, A heads "How a query works", and C closes
+  "Caching", with its timings measured (about 0.5 s to build, 20 ms to refilter).
+- **Contents:**
+  - running the API alone, including the options and `/docs`;
+  - every route in four tables (reference, analysis, comparison, saved data);
+  - the `Params` body, with a units table;
+  - the response shapes;
+  - curl and Python examples, whose output was captured from `python -m src.api` on the demo
+    data;
+  - errors (422, 404, 502, 501);
+  - caching.
+
+  The README's Dashboard section links the page.
+- **Test:** `test_docs_api_md_lists_every_endpoint_and_no_other` compares the routes with the
+  `METHOD /api/...` names in the page. A missing row and a misspelt path each fail it. 324 tests.
+- **Checked:**
+  - every example was run, and the Python example's output is the real one;
+  - `{}` as a body analyses the simulated series;
+  - the error messages are quoted from the code;
+  - all three Mermaid blocks render.
+
+**As planned:**
 
 - **Examples first:**
   - the request flow: client → FastAPI validation → cache → `price_return` → JSON and Plotly
