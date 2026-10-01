@@ -170,8 +170,9 @@ recent bars; a revised value replaces the saved one and is reported. A failed do
 the saved file exactly as it was. `save_all` carries on past a symbol that fails and lists
 it under `failed`. From the command line, `python scripts/update_local_data.py [symbols...]`
 does the same, every ticker in `configs/tickers.yaml` by default, and exits with 1 if any
-symbol failed, so it can run on a schedule. In the dashboard, **Save to CSV** and **Update CSV** do the same
-for one ticker, and the Data control's **Saved CSV (offline)** lists what is saved.
+symbol failed, so it can run on a schedule. In the dashboard, **Download all 12 default
+tickers** does the same for the whole list, **Save to CSV** and **Update CSV** for one ticker,
+and the Data control's **Saved CSV (offline)** lists what is saved.
 
 ## Dashboard
 
@@ -662,6 +663,8 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 - `save_all` saves or updates every ticker in `configs/tickers.yaml` (or a list) in
   `data/local`, carrying on past a failure; `POST /api/local/update-all` and
   `scripts/update_local_data.py` call it ([`docs/data_and_license_plan.md`](docs/data_and_license_plan.md)).
+  In the dashboard, **Download all 12 default tickers** sends one such request, then lists each
+  ticker's result.
 - **MIT License** (`LICENSE`, copyright Jones Wan), replacing "all rights reserved". Not
   covered: the Pine scripts (their upstream licenses), `ta_tools`' `trendlines` (a port of a
   CC BY-NC-SA 4.0 script, so under that license), and market data. `pyproject.toml` declares

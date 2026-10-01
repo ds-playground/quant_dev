@@ -282,7 +282,12 @@ flowchart LR
     revised.
   - A ⚠ flag marks data more than four days old.
   - `data/local` is git-ignored, because it holds real market data.
-  - `python scripts/update_local_data.py` updates every configured ticker at once.
+  - **Download all 12 default tickers** saves or updates every ticker in
+    `configs/tickers.yaml` in one request. It is in the "Nothing saved yet" card and in the panel
+    under Yahoo Finance and Saved CSV. The answer comes when every ticker is done (a few seconds a
+    ticker the first time), with a count of tickers saved, updated and failed; **Each ticker**
+    lists them one by one. A ticker that fails does not stop the others.
+  - `python scripts/update_local_data.py` does the same from the command line.
 
 ## Theme and phone layout
 

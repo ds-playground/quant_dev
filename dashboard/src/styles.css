@@ -191,6 +191,9 @@ details[open] summary { margin-bottom: 8px; }
 .saved .flag { margin-left: 8px; color: var(--ink); background: var(--notice); border: 1px solid var(--notice-border); border-radius: 4px; padding: 1px 6px; }
 .saved .note { margin: 0; flex-basis: 100%; }
 .saved .error { flex-basis: 100%; }
+.saved + .download-all { border-top: none; padding-top: 0; }   /* one rule above both rows */
+.download-all details { flex-basis: 100%; }
+.download-all summary { cursor: pointer; }
 
 /* Other ticker: the symbol box beside the ticker picker. */
 .other-ticker { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
