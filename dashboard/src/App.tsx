@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAddedTickers } from './addedTickers';
 import { api, type Params, type Ticker, type TickerSet } from './api';
 import { ParamsPanel } from './components/ParamsPanel';
+import { DownloadAll } from './components/SavedData';
 import { initialMultiTicker, MultiTickerTab, type MultiTickerState } from './tabs/MultiTickerTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { RareEventsTab } from './tabs/RareEventsTab';
@@ -122,10 +123,12 @@ export default function App() {
                 <h2>Nothing saved yet</h2>
                 <p className="lede">
                   Saved CSVs are live Yahoo data kept in <code>data/local/</code> (not committed), so
-                  later runs are offline and fast. To save one, choose <strong>Yahoo Finance (live)</strong>,
-                  pick a ticker and press <strong>Save to CSV</strong>. Or save every configured ticker
-                  from the repo root with <code>python scripts/update_local_data.py</code>.
+                  later runs are offline and fast. Download every default ticker (the Yahoo Finance list
+                  in <code>configs/tickers.yaml</code>) at once here, or one at a time with{' '}
+                  <strong>Save to CSV</strong> under <strong>Yahoo Finance (live)</strong>. From the repo
+                  root, <code>python scripts/update_local_data.py</code> does the same.
                 </p>
+                <DownloadAll />
               </section>
             ) : <p className="loading">Loading tickers…</p>
         ) : tab === 'overview' ? (

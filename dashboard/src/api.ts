@@ -64,6 +64,12 @@ export interface SaveResult {
   revised: { date: string; column: string; saved: number; new: number }[];
 }
 
+/** The outcome of saving the whole default list: each symbol's result, and each failure. */
+export interface SaveAllResult {
+  saved: SaveResult[];
+  failed: { symbol: string; error: string }[];
+}
+
 export interface TickerList {
   set: TickerSet;
   source: string;
@@ -133,7 +139,8 @@ type Query = Record<string, string | number | (string | number)[] | null | undef
 
 /** An error response from the API: its status and the server's explanation. */
 export class ApiError extends Error {
-  constructor(public status: number, public detail: string) {
+  // `raw` is the server's detail as sent, for errors that carry more than a message.
+  constructor(public status: number, public detail: string, public raw?: unknown) {
     super(`${status}: ${detail}`);
   }
 }
@@ -171,7 +178,7 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown,
     } catch {
       // not JSON: keep the status text
     }
-    throw new ApiError(response.status, describe(detail));
+    throw new ApiError(response.status, describe(detail), detail);
   }
   return response.json() as Promise<T>;
 }
@@ -193,6 +200,8 @@ export const api = {
   saveLocal: (symbol: string, startDate = '2016-01-01') =>
     request<SaveResult>('POST', `/local/${encodeURIComponent(symbol)}/update`, undefined,
                         { start_date: startDate }),
+  saveAll: (startDate = '2016-01-01') =>
+    request<SaveAllResult>('POST', '/local/update-all', undefined, { start_date: startDate }),
   ticker: (symbol: string, set: TickerSet = 'yahoo') =>
     request<Ticker>('GET', '/ticker', undefined, { symbol, set }),
   compare: (tickers: Pick[], drillNDays = 3) =>

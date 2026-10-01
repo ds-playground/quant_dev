@@ -28,7 +28,7 @@ that is not derived from the market.
 |---|---|---|
 | **0** ✅ | License | `LICENSE` (MIT, Jones Wan); README License section with what it does not cover; `license` in `pyproject.toml` and `package.json` — **done, `c304972`** |
 | **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
-| **2** | Download-all button | the dashboard button, with each ticker's result |
+| **2** ✅ | Download-all button | the dashboard button, with each ticker's result |
 | **3** | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed |
 | **4** | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks default to saved data, falling back to simulated |
 | **5** | History rewrite (after merge) | `data/demo` removed from every commit; archive branches deleted. Run only with the owner's confirmation, after showing the commands |
@@ -43,6 +43,28 @@ that is not derived from the market.
   - market data.
 - `pyproject.toml` declares `license = "MIT"`, so it needs setuptools 77 or newer. A built wheel
   carries `License-Expression: MIT` and the file.
+
+## Phase 2: Download-all button ✅
+
+- **The owner's choice:** one request to `POST /api/local/update-all`, not one per ticker. It is
+  simpler, and the result lists every ticker at the end; there is no progress until then.
+- **Built:**
+  - `DownloadAll` in `dashboard/src/components/SavedData.tsx`, shown in the "Nothing saved yet"
+    card, and in the panel under Yahoo Finance and Saved CSV;
+  - the button names the count from the configured list ("Download all 12 default tickers");
+  - while it runs, it says how long to expect;
+  - afterwards it shows a summary line ("4 tickers: 2 saved, 1 updated, 1 failed.") and an
+    **Each ticker** list, and every view refetches;
+  - when every ticker fails (a 502), the list shows each error. For this, `ApiError` now keeps the
+    server's raw detail.
+- **Tests:**
+  - unit: `describeSaveAll`, and `failuresOf` (21 unit tests);
+  - end to end: a new test with the endpoint answered in the browser, since a real run would
+    download from Yahoo into `data/local`. It checks that one click sends one request and that
+    the result and failure are listed (10 end-to-end tests).
+- **Checked:** screenshots before, during and after a run, on the empty saved set.
+- **Docs:** `docs/dashboard.md` (Data choices), the README's Saved live data section, and the
+  changelog.
 
 ## Phase 1: Save all ✅
 

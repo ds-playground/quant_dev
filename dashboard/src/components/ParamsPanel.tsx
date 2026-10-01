@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import { SYMBOL, tidySymbol } from '../addedTickers';
 import type { Params, Ticker, TickerSet } from '../api';
-import { SavedData } from './SavedData';
+import { DownloadAll, SavedData } from './SavedData';
 
 const OTHER = '__other__';
 
@@ -184,6 +184,7 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply, 
       </div>
       {dirty && problem ? <p className="error inline" role="alert">{problem}</p> : null}
       <SavedData tickerSet={tickerSet} ticker={selected} />
+      {tickerSet !== 'demo' && tickers.length ? <DownloadAll /> : null}
     </form>
   );
 }

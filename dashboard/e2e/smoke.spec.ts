@@ -107,6 +107,28 @@ test('the saved-CSV choice loads without an error', async ({ page }) => {
   await expect(page.getByText('Nothing saved yet').or(page.locator('.tile').first())).toBeVisible();
 });
 
+test('download all: one request, then each ticker\'s result', async ({ page }) => {
+  // The endpoint is answered here: a real run would download from Yahoo into data/local.
+  let requests = 0;
+  await page.route('**/api/local/update-all*', (route) => {
+    requests += 1;
+    return route.fulfill({ json: {
+      saved: [{ symbol: 'ES=F', file: 'data/local/ES=F.csv', created: true, rows: 2700, added: 2700,
+                first: '2016-01-04', last: '2026-09-29', revised: [] }],
+      failed: [{ symbol: 'NG=F', error: 'ConnectionError: Yahoo unreachable' }],
+    } });
+  });
+  await page.locator('label:has-text("Data") select').selectOption('local');
+  // In the "Nothing saved yet" card, or in the panel once something is saved.
+  const button = page.getByRole('button', { name: 'Download all 12 default tickers' });
+  await button.click();
+  await expect(page.getByText('2 tickers: 1 saved, 1 failed.')).toBeVisible();
+  expect(requests).toBe(1);
+  await page.getByText('Each ticker').click();
+  await expect(page.getByText('Saved ES=F: 2,700 bars, 2016-01-04 to 2026-09-29.')).toBeVisible();
+  await expect(page.locator('.download-all li.error')).toContainText('NG=F: ConnectionError: Yahoo unreachable');
+});
+
 test('dark theme re-colours the page and the charts', async ({ page }) => {
   await expect(drawn(page)).toHaveCount(4);
   await page.locator('label:has-text("Theme") select').selectOption('dark');

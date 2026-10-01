@@ -30,7 +30,7 @@ describe('api', () => {
 
   it('turns an error response into an ApiError with the server explanation', async () => {
     mockFetch(422, { detail: "No demo data for ticker 'NOPE'." });
-    await expect(api.overview(params)).rejects.toEqual(new ApiError(422, "No demo data for ticker 'NOPE'."));
+    await expect(api.overview(params)).rejects.toEqual(new ApiError(422, "No demo data for ticker 'NOPE'.", "No demo data for ticker 'NOPE'."));
   });
 
   it('names the field in a validation error', async () => {
