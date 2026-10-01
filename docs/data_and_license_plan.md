@@ -27,7 +27,7 @@ that is not derived from the market.
 | # | Phase | Deliverable |
 |---|---|---|
 | **0** ✅ | License | `LICENSE` (MIT, Jones Wan); README License section with what it does not cover; `license` in `pyproject.toml` and `package.json` — **done, `c304972`** |
-| **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests |
+| **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
 | **2** | Download-all button | the dashboard button, with each ticker's result |
 | **3** | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed |
 | **4** | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks default to saved data, falling back to simulated |
