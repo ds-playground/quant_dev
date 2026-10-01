@@ -13,7 +13,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.tools.price_return import load_ticker_config, save_local  # noqa: E402
+from src.tools.price_return import save_all  # noqa: E402
+
+
+def report(entry):
+    """One line per symbol as it finishes, plus any saved values Yahoo has revised."""
+    if 'error' in entry:
+        print(f"{entry['symbol']}: FAILED, {entry['error']}")
+        return
+    action = 'saved' if entry['created'] else f"+{entry['added']} bars"
+    revised = f", {len(entry['revised'])} revised value(s)" if entry['revised'] else ''
+    print(f"{entry['symbol']}: {action}, {entry['rows']} bars {entry['first']} to {entry['last']}{revised}")
+    for change in entry['revised']:
+        print(f"    {change['date']} {change['column']}: {change['saved']} -> {change['new']}")
 
 
 def main(argv=None):
@@ -21,23 +33,12 @@ def main(argv=None):
     parser.add_argument('symbols', nargs='*', help='Yahoo symbols (default: configs/tickers.yaml)')
     parser.add_argument('--start', default='2016-01-01', help='first date for a new symbol')
     args = parser.parse_args(argv)
-    symbols = args.symbols or list(load_ticker_config(verbose=False))
 
-    failed = []
-    for symbol in symbols:
-        try:
-            r = save_local(symbol, start_date=args.start)
-        except Exception as exc:  # noqa: BLE001 - report and carry on with the rest
-            failed.append(symbol)
-            print(f'{symbol}: FAILED, {type(exc).__name__}: {exc}')
-            continue
-        action = 'saved' if r['created'] else f"+{r['added']} bars"
-        revised = f", {len(r['revised'])} revised value(s)" if r['revised'] else ''
-        print(f"{symbol}: {action}, {r['rows']} bars {r['first']} to {r['last']}{revised}")
-        for change in r['revised']:
-            print(f"    {change['date']} {change['column']}: {change['saved']} -> {change['new']}")
+    result = save_all(args.symbols or None, start_date=args.start, on_result=report)
+    failed = [f['symbol'] for f in result['failed']]
     if failed:
-        print(f'{len(failed)} of {len(symbols)} failed: {", ".join(failed)}')
+        total = len(failed) + len(result['saved'])
+        print(f'{len(failed)} of {total} failed: {", ".join(failed)}')
     return 1 if failed else 0
 
 

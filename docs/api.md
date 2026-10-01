@@ -74,6 +74,7 @@ flowchart LR
         direction TB
         L1["GET /local"]
         L2["POST /local/{symbol}/update"]
+        L3["POST /local/update-all"]
     end
     API --- REF
     API --- AN
@@ -120,6 +121,7 @@ The 14 chart names: `rolling-average`, `rolling-volatility`, `price-and-returns`
 |---|---|---|
 | `GET /api/local` | the folder, and each saved symbol's `rows`, `first` and `last` date and `updated` time | — |
 | `POST /api/local/{symbol}/update` | `save_local`: downloads the symbol from Yahoo the first time, or only the new bars afterwards. Returns `created`, `rows`, `added`, `first`, `last`, and `revised` (any saved bar Yahoo has changed). Bars are saved up to yesterday, and a failed download leaves the file as it was | `start_date` (default `2016-01-01`, first download only) |
+| `POST /api/local/update-all` | `save_all`: the same for every ticker in `configs/tickers.yaml`, or for the body's `{"symbols": [...]}` (1 to 50). Returns each symbol's result under `saved` and each failure, with its error, under `failed`; one failure does not stop the rest, and only if every symbol fails is it a 502 | `start_date`, as above |
 
 ## How a query works
 
@@ -309,8 +311,8 @@ Errors carry a `detail` that says what went wrong, never a stack trace:
 | 502 | the data source failed: Yahoo unreachable or rate-limiting, a failed download | `"Data source failed: ..."` |
 | 501 | a statistics function that needs scipy, which is not installed | `"This needs scipy; from the repo root run: pip install -e \".[stats]\""` |
 
-`/api/multi-ticker` is the exception: it lists failing tickers under `failed` and fails (502) only
-when every ticker does.
+`/api/multi-ticker` and `/api/local/update-all` are the exceptions: they list failing tickers under
+`failed` and fail (502) only when every ticker does.
 
 ## Caching
 

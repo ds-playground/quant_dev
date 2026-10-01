@@ -156,9 +156,10 @@ belong in a public repo. Each symbol is one file (`ES=F.csv`) in the demo files'
 `manifest.csv` of date ranges and update times.
 
 ```python
-from src.tools.price_return import save_local, local_tickers
+from src.tools.price_return import save_all, save_local, local_tickers
 
 save_local('ES=F')      # first time: the history since 2016; afterwards: just the new bars
+save_all()              # the same for every ticker in configs/tickers.yaml
 local_tickers()         # what is saved, from when to when
 P = Params(data_source='local', ticker='ES=F', start_date='2016-01-01')
 ```
@@ -166,9 +167,10 @@ P = Params(data_source='local', ticker='ES=F', start_date='2016-01-01')
 Bars are saved up to yesterday: today's is still changing until the close. An update
 re-downloads the last ten days as well as the new ones. Yahoo sometimes revises
 recent bars; a revised value replaces the saved one and is reported. A failed download leaves
-the saved file exactly as it was. To update every ticker in `configs/tickers.yaml` (or a list),
-run `python scripts/update_local_data.py [symbols...]`; it exits with 1 if any symbol failed,
-so it can run on a schedule. In the dashboard, **Save to CSV** and **Update CSV** do the same
+the saved file exactly as it was. `save_all` carries on past a symbol that fails and lists
+it under `failed`. From the command line, `python scripts/update_local_data.py [symbols...]`
+does the same, every ticker in `configs/tickers.yaml` by default, and exits with 1 if any
+symbol failed, so it can run on a schedule. In the dashboard, **Save to CSV** and **Update CSV** do the same
 for one ticker, and the Data control's **Saved CSV (offline)** lists what is saved.
 
 ## Dashboard
@@ -467,6 +469,7 @@ can be retuned without touching the package.
 | `compound_returns` | The compounded `n`-day return ending on each day: the package's one definition |
 | `demo_tickers` | The tickers with a file in `data/demo` |
 | `save_local`, `read_local` | Save or update a symbol's live data in `data/local`; read the saved bars |
+| `save_all` | `save_local` for every configured ticker (or a list), carrying on past failures |
 | `local_tickers`, `local_ticker_config` | What is saved; `{symbol: Params}` for it, thresholds from the ticker config |
 | `detect_streaks` | Every rolling window where all days are wins, or all losses |
 | `summarize_streaks` | One row per window: counts, frequencies, average returns |
@@ -656,6 +659,9 @@ images in `docs/dashboard.md` the same way; it checks nothing, so look at each i
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-10-01
+- `save_all` saves or updates every ticker in `configs/tickers.yaml` (or a list) in
+  `data/local`, carrying on past a failure; `POST /api/local/update-all` and
+  `scripts/update_local_data.py` call it ([`docs/data_and_license_plan.md`](docs/data_and_license_plan.md)).
 - **MIT License** (`LICENSE`, copyright Jones Wan), replacing "all rights reserved". Not
   covered: the Pine scripts (their upstream licenses), `ta_tools`' `trendlines` (a port of a
   CC BY-NC-SA 4.0 script, so under that license), and market data. `pyproject.toml` declares

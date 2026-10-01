@@ -22,7 +22,7 @@ from .params import Params, load_ticker_config, config_params
 from .data import (load_price_data, add_rolling_stats, latest_snapshot,
                    show_latest_snapshot, daily_returns_series, compound_returns,
                    demo_tickers)
-from .store import save_local, read_local, local_tickers, local_ticker_config
+from .store import save_local, save_all, read_local, local_tickers, local_ticker_config
 from .analysis import (detect_streaks, summarize_streaks, analyze_cumulative,
                        summarize_cumulative, consecutive_analysis,
                        build_historical_analysis, filter_low_probability,
@@ -49,7 +49,7 @@ __all__ = [
     'load_price_data', 'add_rolling_stats', 'latest_snapshot', 'show_latest_snapshot',
     'daily_returns_series', 'compound_returns', 'demo_tickers',
     # saved live data (data/local)
-    'save_local', 'read_local', 'local_tickers', 'local_ticker_config',
+    'save_local', 'save_all', 'read_local', 'local_tickers', 'local_ticker_config',
     # streak & cumulative analysis
     'detect_streaks', 'summarize_streaks', 'analyze_cumulative', 'summarize_cumulative',
     # rare-event probabilities

@@ -145,6 +145,32 @@ def save_local(symbol, start_date='2016-01-01', directory=None, now=None):
             'last': merged.index[-1].date().isoformat(), 'revised': revised}
 
 
+def save_all(symbols=None, start_date='2016-01-01', directory=None, now=None, config_path=None,
+             on_result=None):
+    """`save_local` for each symbol: by default every ticker in the ticker config
+    (configs/tickers.yaml), in its order. Duplicates are saved once.
+
+    A symbol that fails (no data, Yahoo unreachable) is listed under `failed` with its error and
+    the rest carry on; its saved file, if any, is left as it was. `on_result(entry)` is called as
+    each symbol finishes, with its `save_local` result or its failure, for progress reports.
+    Returns {'saved': [save_local results], 'failed': [{'symbol', 'error'}]}.
+    """
+    if symbols is None:
+        from .params import load_ticker_config
+        symbols = list(load_ticker_config(config_path, verbose=False))
+    saved, failed = [], []
+    for symbol in dict.fromkeys(symbols):
+        try:
+            entry = save_local(symbol, start_date=start_date, directory=directory, now=now)
+            saved.append(entry)
+        except Exception as exc:  # noqa: BLE001 - one bad symbol must not stop the others
+            entry = {'symbol': symbol, 'error': f'{type(exc).__name__}: {exc}'}
+            failed.append(entry)
+        if on_result:
+            on_result(entry)
+    return {'saved': saved, 'failed': failed}
+
+
 def _record(symbol, filename, bars, now, directory):
     """Update this symbol's manifest row."""
     manifest_path = _directory(directory) / MANIFEST
