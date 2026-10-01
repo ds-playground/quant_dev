@@ -34,7 +34,7 @@ single indicator, and four TradingView Pine scripts whose logic exists only as P
 a Python package of the owner's own: evaluate the three libraries, wrap the winner behind a
 consistent API, and port the Pine indicators to Python.
 
-Branch `dev/ta_tools` is cut from `master` at `b48164d`. **This branch is purely additive** —
+Branch `dev/ta_tools` is cut from `master` at `dc35ceb`. **This branch is purely additive** —
 `basic.py` and the old notebooks are not touched.
 
 Decisions already made (do not revisit):
@@ -55,14 +55,14 @@ Decisions already made (do not revisit):
 
 | # | Phase | Tasks | Deliverable | Depends on |
 |---|---|---|---|---|
-| **1** ✅ | Evaluate the three libraries | 1.1 enumerate coverage programmatically · 1.2 probe API shape on one series · 1.3 score against what the Pine ports need · 1.4 write the decision up | `notebooks/ta_package_evaluation.ipynb` + README section — **done, `17b2e89`** | — |
-| **2** ✅ | Package skeleton | 2.1 create `ta_tools/` with `__init__.py`, `__all__` · 2.2 `backend.py` — the single import site for **TA-Lib (primary) and pandas_ta (secondary)**, plus a `CAPABILITIES` map recording each primitive's source · 2.3 seeded **OHLC** bar simulator · 2.4 declare the dependency in `pyproject.toml` | importable package + offline fixture — **done, `b46dd0a`** | 1 |
-| **3** ✅ | Primitives — wrapped | 3.1 `sma`, `ema`, `stdev`, `atr` via TA-Lib · 3.2 breadth via pandas_ta where TA-Lib has nothing (`hma`, `alma`) · 3.3 uniform Series-in/Series-out + NaN warm-up contract · **3.4 `wma`, `bb`, `rsi` via TA-Lib** (added) | `overlap.py`, `volatility.py`, `momentum.py` — **done, `3a20a79`** (+ notebook `6162601`) | 2 |
-| **4** ✅ | Primitives — Pine gaps | 4.1 `linreg(series, length, offset)` · 4.2 `rma` (custom, for Pine seeding) · 4.3 `pivot_high/low(left, right)` with publication delay · 4.4 `change/crossover/crossunder/barssince/nz` · 4.5 stateful-recursion harness · 4.6 `true_range` + Pine-exact `atr` on `rma` (added) | `ta_tools/pine.py` — **done, `d03c717`** (+ notebook `af67f54`) | 3 |
-| **5** ✅ | Port: vectorisable indicator | 5.1 LinReg Candles + Slope | `ta_tools/indicators.py` — **done, `7b24c0f`** | 4 |
-| **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `18572ce`** | 4, 5 |
-| **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, `550ac82`** | 3–6 |
-| **8** ✅ | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests — **done, `ba40bf2`** (8.5 stays deferred) | 2 |
+| **1** ✅ | Evaluate the three libraries | 1.1 enumerate coverage programmatically · 1.2 probe API shape on one series · 1.3 score against what the Pine ports need · 1.4 write the decision up | `notebooks/ta_package_evaluation.ipynb` + README section — **done, `43e9d0b`** | — |
+| **2** ✅ | Package skeleton | 2.1 create `ta_tools/` with `__init__.py`, `__all__` · 2.2 `backend.py` — the single import site for **TA-Lib (primary) and pandas_ta (secondary)**, plus a `CAPABILITIES` map recording each primitive's source · 2.3 seeded **OHLC** bar simulator · 2.4 declare the dependency in `pyproject.toml` | importable package + offline fixture — **done, `4956be4`** | 1 |
+| **3** ✅ | Primitives — wrapped | 3.1 `sma`, `ema`, `stdev`, `atr` via TA-Lib · 3.2 breadth via pandas_ta where TA-Lib has nothing (`hma`, `alma`) · 3.3 uniform Series-in/Series-out + NaN warm-up contract · **3.4 `wma`, `bb`, `rsi` via TA-Lib** (added) | `overlap.py`, `volatility.py`, `momentum.py` — **done, `792939b`** (+ notebook `344d3e7`) | 2 |
+| **4** ✅ | Primitives — Pine gaps | 4.1 `linreg(series, length, offset)` · 4.2 `rma` (custom, for Pine seeding) · 4.3 `pivot_high/low(left, right)` with publication delay · 4.4 `change/crossover/crossunder/barssince/nz` · 4.5 stateful-recursion harness · 4.6 `true_range` + Pine-exact `atr` on `rma` (added) | `ta_tools/pine.py` — **done, `ff520e9`** (+ notebook `8b4907a`) | 3 |
+| **5** ✅ | Port: vectorisable indicator | 5.1 LinReg Candles + Slope | `ta_tools/indicators.py` — **done, `00a9190`** | 4 |
+| **6** ✅ | Port: stateful indicator | 6.1 slope methods (atr/stdev/linreg) · 6.2 recursive rails · 6.3 breakout latches · 6.4 backpaint vs realtime modes | Trendlines with Breaks — **done, `125a874`** | 4, 5 |
+| **7** ✅ | Close the test gaps | Most of the original 7.1–7.4 shipped with Phases 3–6 (see Phase 7 below). 7.1 equivariance beyond `linreg` · 7.2 no-look-ahead for `trendlines` `stdev` method | `tests/test_ta_tools.py` — **done, `2577869`** | 3–6 |
+| **8** ✅ | Data sources | 8.1 shared `_normalise(frame)` · 8.2 `load_bars(..., interval=)` for intraday Yahoo bars · 8.3 `read_bars(path, ...)` for files, incl. TradingView exports · 8.4 TradingView connector → CSV snapshot workflow · 8.5 further API adapters only when a real one is needed | `ta_tools/data.py`, tests — **done, `287aaed`** (8.5 stays deferred) | 2 |
 | **—** | *Deferred* | ZLSMA + Slope (from Phase 5) · Lorentzian Classification · ~~`basic.py` removal · old-notebook removal~~ (done, see `docs/price_return_plan.md`) | documented only | — |
 
 ## Phase 1 — Evaluate the three libraries

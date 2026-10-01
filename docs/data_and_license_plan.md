@@ -2,7 +2,7 @@
 
 ## Picking this up
 
-- **Branch:** `dev/data_and_license`, cut from `master` at `8f4747e` (the merge of the documentation
+- **Branch:** `dev/data_and_license`, cut from `master` at `4a18ad1` (the merge of the documentation
   update, PR #11).
 - **Working rules:** one phase per request, then stop. Each phase is committed and pushed, and
   its commit is recorded here. Tests stay offline.
@@ -26,12 +26,12 @@ that is not derived from the market.
 
 | # | Phase | Deliverable |
 |---|---|---|
-| **0** ✅ | License | `LICENSE` (MIT, Jones Wan); README License section with what it does not cover; `license` in `pyproject.toml` and `package.json` — **done, `c304972`** |
-| **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
-| **2** ✅ | Download-all button | the dashboard button, with each ticker's result — **done, `9c1e012`** |
-| **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed — **done, `8f9922f`** |
-| **4** ✅ | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks read saved data when there is some, with the synthetic tickers for offline runs — **done, `d84b9da`** |
-| **5** | History rewrite (after merge) | `data/demo` removed from every commit; archive branches deleted. Run only with the owner's confirmation, after showing the commands |
+| **0** ✅ | License | `LICENSE` (MIT, Jones Wan); README License section with what it does not cover; `license` in `pyproject.toml` and `package.json` — **done, `fb25833`** |
+| **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `6a29d2d`** |
+| **2** ✅ | Download-all button | the dashboard button, with each ticker's result — **done, `9b8837b`** |
+| **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed — **done, `e86ef58`** |
+| **4** ✅ | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks read saved data when there is some, with the synthetic tickers for offline runs — **done, `7e46fcc`** |
+| **5** ✅ | History rewrite (after merge) | `data/demo` removed from every commit; the AAPL outputs stripped from every version of `ta_tools_exploration.ipynb`; every branch but `master` deleted |
 
 ## Phase 0: License ✅
 
@@ -43,6 +43,38 @@ that is not derived from the market.
   - market data.
 - `pyproject.toml` declares `license = "MIT"`, so it needs setuptools 77 or newer. A built wheel
   carries `License-Expression: MIT` and the file.
+
+## Phase 5: History rewrite ✅
+
+- **The owner's choices:**
+  - rewrite this repository in place, not a new one;
+  - strip the outputs of `notebooks/ta_tools_exploration.ipynb`, which charted AAPL prices
+    downloaded from Yahoo;
+  - keep `master` only.
+- **Done on a mirror copy with git-filter-repo 2.47,** then force-pushed:
+  - `data/demo`, `scripts/make_demo_data.py` and `configs/demo_tickers.yaml` were removed from
+    every commit;
+  - every version of the notebook kept its cells and metadata, with its code-cell outputs blanked;
+  - all other branches were deleted: the three `archive/*` branches, every `dev/*` branch and
+    `pine-scripts-attribution-fixes`.
+- **Checked before the push:**
+  - no commit touches the removed paths, and no object of theirs remains;
+  - the notebook has no outputs in any version, and its sources are unchanged;
+  - the tip's tree differs from the old `master` only in that notebook;
+  - all 122 commits keep their author, date and message.
+- **Every commit hash changed.** Commits rewritten by `filter-repo` lose their signatures, so
+  even the untouched ones did, and GitHub no longer shows them as "Verified". `filter-repo` also
+  updated the short hashes in commit messages. The hashes recorded in the five plans were
+  updated with its commit map in this phase's commit, and each was checked to name the same
+  commit.
+- **Not removable by a push:** GitHub keeps a read-only ref for each pull request
+  (`refs/pull/1` to `12`). PR #10's diff, which added `data/demo`, and PR #12's, which removed
+  it, still show the files. Before the repository goes public, ask GitHub Support to remove
+  those PR refs and cached views. This is the last step of GitHub's "Removing sensitive data
+  from a repository" guide.
+- **Every existing clone is out of date:** re-clone, or `git fetch` and
+  `git reset --hard origin/master`. Do not push from an old clone; that would bring the old
+  history back.
 
 ## Phase 4: Docs and notebooks ✅
 

@@ -17,7 +17,7 @@ a later phase needs to know.
 
 ## Context
 
-`ta_tools` is finished and merged (`master` at `0051b6d`, archived as `archive/02_ta_tools`). The
+`ta_tools` is finished and merged (`master` at `978ca40`, archived as `archive/02_ta_tools`). The
 repo still carries the notebook-era code it grew out of: `src/tools/basic.py` and three `test_*`
 notebooks built on it, plus the frozen `price_return_analysis_v0.1.ipynb`. The owner wants legacy
 code removed wherever something equivalent already exists, and the price-return analysis
@@ -67,13 +67,13 @@ probabilities) · remove v0.1 · **keep `config.py`** (it feeds the owner's loca
 
 | # | Phase | Deliverable |
 |---|---|---|
-| **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `0051b6d`; this plan as `docs/price_return_plan.md` |
-| **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, `efd3337`** |
-| **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, `8eb2a7c`** |
-| **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `d739cb1`** |
-| **4** ✅ | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra — **done, `c7aea69`** |
-| **5** ✅ | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed — **done, `fb50ddd`** |
-| **6** ✅ | Docs | README methodology, notebooks table, changelog; plan statuses — **done, `ce50231`** |
+| **0** ✅ | Branch and plan | `dev/legacy_code_removal` from `master` at `978ca40`; this plan as `docs/price_return_plan.md` |
+| **1** ✅ | Port the option helpers | `src/tools/price_return/options.py` + tests — **done, `cd5677d`** |
+| **2** ✅ | Remove legacy | delete 5 files, drop `matplotlib`, README + `ta_tools_plan.md` updated — **done, `cca0745`** |
+| **3** ✅ | Fix existing methods | issues 1–3 above, each with a test that fails on the old code — **done, `0c847aa`** |
+| **4** ✅ | Statistics module | `src/tools/price_return/stats.py` + tests; `scipy` as optional `stats` extra — **done, `eaab57c`** |
+| **5** ✅ | Charts and new notebook | new `viz` functions; `notebooks/price_return_statistics.ipynb`; v0.5 refreshed — **done, `ed33638`** |
+| **6** ✅ | Docs | README methodology, notebooks table, changelog; plan statuses — **done, `8cffb2e`** |
 
 Working rules carried over from `docs/ta_tools_plan.md`: one phase per request, then stop;
 statistical code is checked against **independent references** (hand formulas, closed forms,
@@ -332,7 +332,7 @@ Plan statuses and commit hashes, as in the `ta_tools` plan.
   independent reference values", describes what the suites now check.
 - **Final verification:** a fresh Python 3.12 environment with `pip install -e ".[ta,stats,dev]"`
   passes all 203 tests, without matplotlib installed.
-- **All phases done.** Merged into `master` through PR #9 (`b44071f`). The owner's first
+- **All phases done.** Merged into `master` through PR #9 (`823529f`). The owner's first
   run of `price_return_statistics.ipynb` and `rare_case_run` on Yahoo data will show the real-ticker
   numbers that could not be produced here (Yahoo is blocked in this environment).
 

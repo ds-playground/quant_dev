@@ -34,7 +34,7 @@ Steps 1 and 2 already work in this repo: `price_return_analysis.ipynb` and
 tests, independent references). This POC proves step 3 on that package, running on the owner's
 computer. Docker and hosting (step 4) come afterwards.
 
-Branch `dev/react_dashboard_poc` was cut from `master` at `b44071f`.
+Branch `dev/react_dashboard_poc` was cut from `master` at `823529f`.
 
 ## Review of the workflow
 
@@ -109,16 +109,16 @@ React (dashboard/, Vite + TypeScript) ──/api/*──▶ FastAPI (src/api/) �
 
 | # | Phase | Deliverable |
 |---|---|---|
-| **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README — **done, `c264d0b`** |
-| **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `2a1e61b`** |
-| **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `c45b0ca`** |
-| **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `6389d05`** |
-| **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `a8af3fa`** |
-| **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `47e8fe9`** |
-| **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `a3482d4`** |
-| **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `51e9cf0`** |
-| **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `242d7b6`** |
-| **6a** ✅ | Owner's enhancements | Other ticker (any Yahoo symbol), a multi-ticker menu across sources, and saving stops at yesterday — **done, `d8c7050`** (follow-ups `2904c3a`, `f2a70a3`) |
+| **0** ✅ | Plan | this plan as `docs/dashboard_plan.md`, linked from the README — **done, `4aad084`** |
+| **1** ✅ | API core | `src/api/` app, parameter schema, serialization, cache; health, tickers and overview endpoints; `api` extra; tests — **done, `466dbfe`** |
+| **1a** ✅ | Revision: demo data | `data/demo` (ten processed files, README, manifest), `demo` data source, `configs/demo_tickers.yaml`, `scripts/make_demo_data.py`; `/api/tickers?set=`; tests; README — **done, `73a95b6`** |
+| **2** ✅ | API complete | streaks, cumulative, rare-event, chart, statistics and multi-ticker endpoints; tests — **done, `8829c3a`** |
+| **3** ✅ | Dashboard shell | `dashboard/` (Vite, React, TypeScript), parameter panel, tabs, Plotly chart component, Overview tab — **done, `7822c54`** |
+| **4** ✅ | Dashboard tabs | Streaks & cumulative, Rare events (live filters), Statistics, Multi-ticker — **done, `2fc98ea`** |
+| **4a** ✅ | Saved live data | `data/local/` CSV store of Yahoo data (git-ignored), `local` data source, save/update from the dashboard, a refresh script; tests — **done, `b6f7145`** |
+| **5** ✅ | One-command local run | FastAPI serves the built app; `python -m src.api`; a dev script for both servers; README "Dashboard" section — **done, `2e8c17a`** |
+| **6** ✅ | End-to-end check and docs | Playwright smoke test of every tab; README, changelog, plan statuses; PR — **done, `eb99364`** |
+| **6a** ✅ | Owner's enhancements | Other ticker (any Yahoo symbol), a multi-ticker menu across sources, and saving stops at yesterday — **done, `f171762`** (follow-ups `fc821f3`, `72b265a`) |
 
 Working rules, as in the earlier plans: one phase per request, then stop; commit and push at the
 end of each phase; tests stay offline (`data_source='demo'` or `'simulated'`, or a stubbed

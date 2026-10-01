@@ -2,7 +2,7 @@
 
 ## Picking this up
 
-- **Branch:** `dev/doc_update`, cut from `master` at `4f64225` (the merge of the dashboard POC,
+- **Branch:** `dev/doc_update`, cut from `master` at `6b77ec8` (the merge of the dashboard POC,
   PR #10, also kept as `archive/03_dashboard_poc`).
 - **Working rules:**
   - One phase per request.
@@ -29,10 +29,10 @@ asked for:
 
 | # | Phase | Deliverable |
 |---|---|---|
-| **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `1585e90`** |
-| **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented — **done, `649d43b`** |
-| **3** ✅ | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` — **done, `982c05c`** |
-| **4** ✅ | Wrap-up | README layout, Tests and changelog; full checks; PR when asked — **done, `f9c427c`** |
+| **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `7b5a590`** |
+| **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented — **done, `3b847a6`** |
+| **3** ✅ | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` — **done, `3170003`** |
+| **4** ✅ | Wrap-up | README layout, Tests and changelog; full checks; PR when asked — **done, `a91829e`** |
 
 ## Phase 1: README workflow diagram ✅
 
