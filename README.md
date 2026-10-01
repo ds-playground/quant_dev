@@ -37,6 +37,38 @@ The repo has four parts:
 4. A dashboard over the price-return analysis: an API in `src/api/` and a React app in
    `dashboard/`.
 
+## Development workflow
+
+Each analysis starts as a trading idea and is built in the same order, whichever package it
+lands in:
+
+```mermaid
+flowchart TB
+    Q(["A trading idea"]) --> N["<b>Notebook</b> · explore the methodology,<br/>prototype the analysis"]
+    N -->|formulate| P["<b>Python packages</b> · src/tools/<br/>tested against independent references"]
+    P --> A["<b>API</b> · src/api/ · wraps and serializes, never computes"]
+    A --> D["<b>Dashboard</b> · dashboard/ · explore and present"]
+    D --> F(["A finding"])
+    F -.->|a new idea| Q
+    classDef pkg fill:#e8f1fb,stroke:#2f6fb3,stroke-width:2px,color:#111;
+    class P pkg;
+```
+
+1. **Notebook.** The idea is explored in a notebook: which method fits, what the data shows,
+   and whether the question is worth answering. Scratch work lives in the git-ignored `dev/`, and
+   a notebook worth keeping moves to `notebooks/`.
+2. **Package.** What proves useful is formulated as functions in a package under `src/tools/`
+   (`price_return` and `ta_tools` so far). The package is tested against independent references
+   (see [Tests](#tests)) and has a plan in `docs/`. This is the part of the repo that keeps
+   growing: every new analysis is added here, once.
+3. **API.** `src/api/` exposes the package over HTTP. It only validates, calls and serializes,
+   so the numbers and charts are the package's own.
+4. **Dashboard.** `dashboard/` explores the results interactively and presents the findings.
+   A finding often raises a new idea, and the cycle starts again.
+
+Analysis is never written in the API or the React code. A notebook, a script, the API and the
+dashboard all give the same answer because they all call the same tested functions.
+
 ## Setup
 
 The project uses a conda environment (`quant_env`, Python 3.13). Install the package
@@ -412,7 +444,7 @@ notebooks. Everything under `src/` uses the `Params` dataclass instead, which is
 authoritative for the package. They overlap; that is intentional, so scratch work
 can be retuned without touching the package.
 
-## API
+## Package API
 
 `src/tools/price_return/`, grouped as it is in `__all__`:
 
@@ -611,6 +643,12 @@ dashboard in Chromium against the real API; see "Dashboard".
 ## Changelog
 
 Commit dates, newest first. This is a research repo, so there are no version tags.
+
+### 2026-10-01
+- README: a **Development workflow** section with a diagram of the cycle every analysis
+  follows: trading idea → notebook → tested package → API → dashboard → finding → new idea
+  ([`docs/doc_update_plan.md`](docs/doc_update_plan.md)). The package function table is now
+  headed **Package API**, so it is not confused with the HTTP API.
 
 ### 2026-09-30
 - Review of the documents and tests. The documents now agree with the code: the saved-data
