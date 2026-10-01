@@ -450,10 +450,10 @@ tracked. Expect the two copies to drift — `notebooks/` is the published one.
 
 | Notebook | Status |
 |---|---|
-| `api_examples.ipynb` | Current, committed without outputs. Example calls to every endpoint of the dashboard API (`src/api`) over HTTP, with the answers as tables and charts; runs on the demo data by default, and starts the API inside the kernel if none is running. Needs the `api` and `stats` extras; not for Colab. |
-| `price_return_analysis.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. |
-| `price_return_statistics.ipynb` | Current, committed without outputs. One ticker (default `ES=F`, thresholds from `configs/tickers.yaml`): distribution and tails, dependence, drawdowns and risk, the rare-event probabilities with bootstrap intervals and model comparisons, and option sizing with the four P&L grids from the retired `test_es`. Needs the `stats` extra. |
-| `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` and emits two cross-ticker summary tables. |
+| `api_examples.ipynb` | Current, committed without outputs. Example calls to every endpoint of the dashboard API (`src/api`) over HTTP, with the answers as tables and charts; runs on the synthetic tickers by default (`TICKER_SET = 'local'` for saved data, `'yahoo'` for live), and starts the API inside the kernel if none is running. Needs the `api` and `stats` extras; not for Colab. |
+| `price_return_analysis.ipynb` | Current. Single-ticker streak, threshold and rare-event analysis, built on `src/tools/price_return/`. Simulated data by default; the `data_source` comment lists the others. |
+| `price_return_statistics.ipynb` | Current, committed without outputs. One ticker (default `ES=F`, thresholds from `configs/tickers.yaml`; read from `data/local` when saved, else downloaded; a synthetic ticker such as `SYN-INDEX` runs offline): distribution and tails, dependence, drawdowns and risk, the rare-event probabilities with bootstrap intervals and model comparisons, and option sizing with the four P&L grids from the retired `test_es`. Needs the `stats` extra. |
+| `rare_case_run.ipynb` | Current. Config-driven; runs every ticker in `configs/tickers.yaml` (saved ones from `data/local`, the rest downloaded; or the synthetic tickers, offline) and emits two cross-ticker summary tables. |
 | `ta_package_evaluation.ipynb` | Committed with outputs. Compares TA-Lib, pandas_ta and ta; the basis for choosing TA-Lib. |
 | `ta_tools_primitives.ipynb` | Committed with outputs. How each `ta_tools` primitive is wrapped, and how it compares with Pine. |
 | `ta_tools_exploration.ipynb` | Current. AAPL since January 2023: moving averages, Bollinger Bands, both Pine ports, RSI and ATR. |
@@ -676,6 +676,10 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   with Student-t shocks, a scheduled sell-off, and one negative settle for SYN-OIL. The
   dashboard's offline choice, the API's default ticker set (now `synthetic`; API 0.4.0), the
   tests and the end-to-end checks use them. Real data comes from Yahoo, or from **Download all**.
+- Docs and notebooks on the synthetic tickers: the screenshots in `docs/dashboard.md` are retaken
+  on SYN-INDEX, with every number quoted re-read; the examples in `docs/api.md` are re-captured.
+  `price_return_statistics` and `rare_case_run` read a ticker from `data/local` when it is saved
+  and download only the rest; `api_examples` runs on the synthetic set.
 - `save_all` saves or updates every ticker in `configs/tickers.yaml` (or a list) in
   `data/local`, carrying on past a failure; `POST /api/local/update-all` and
   `scripts/update_local_data.py` call it ([`docs/data_and_license_plan.md`](docs/data_and_license_plan.md)).

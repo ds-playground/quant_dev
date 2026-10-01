@@ -30,7 +30,7 @@ that is not derived from the market.
 | **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
 | **2** ✅ | Download-all button | the dashboard button, with each ticker's result — **done, `9c1e012`** |
 | **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed — **done, `8f9922f`** |
-| **4** | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks default to saved data, falling back to simulated |
+| **4** ✅ | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks read saved data when there is some, with the synthetic tickers for offline runs |
 | **5** | History rewrite (after merge) | `data/demo` removed from every commit; archive branches deleted. Run only with the owner's confirmation, after showing the commands |
 
 ## Phase 0: License ✅
@@ -43,6 +43,34 @@ that is not derived from the market.
   - market data.
 - `pyproject.toml` declares `license = "MIT"`, so it needs setuptools 77 or newer. A built wheel
   carries `License-Expression: MIT` and the file.
+
+## Phase 4: Docs and notebooks ✅
+
+- **Screenshots:**
+  - all eight retaken with `npm run screenshots` on SYN-INDEX (six tickers in Multi-ticker), and
+    each one inspected;
+  - every number quoted in `docs/dashboard.md` re-read from them. For example, the bootstrap
+    example now shows the normal model under-predicting a 3-day fall of more than 5% by about
+    60 times, while the Student-t matches, as it should for Student-t shocks.
+- **`docs/api.md`:** the overview, rare-event, chart, comparison and Python examples re-captured
+  from `python -m src.api` on SYN-INDEX, SYN-OIL and SYN-FX. The Python example now shows an open
+  drawdown (no recovery by `end_date`), which the page explains. The error example, the
+  defaults, the data-source table and the sequence diagram's timing are updated.
+- **Notebooks (no outputs committed, so source edits only, each cell keeping its format):**
+  - `api_examples`: the synthetic set by default, or `'local'` / `'yahoo'`;
+  - `price_return_statistics`: a synthetic ticker runs offline, a saved one reads `data/local`,
+    and anything else downloads;
+  - `rare_case_run`: saved tickers come from `data/local` and the rest download; one line
+    switches to the synthetic tickers;
+  - `price_return_analysis`: the `data_source` comment lists the sources.
+
+  All four were run headless (nbclient) with no errors: the first two as committed, and the
+  statistics and multi-ticker notebooks on their offline settings, since Yahoo is blocked where
+  this was written.
+- **README:** the notebook table and a changelog line. Every "demo" left in the README is in the
+  changelog, which records history.
+- **Checks:** 337 pytest, the typecheck, 21 unit and 10 end-to-end tests; five Mermaid blocks
+  render; every relative link and anchor resolves.
 
 ## Phase 3: Synthetic data ✅
 

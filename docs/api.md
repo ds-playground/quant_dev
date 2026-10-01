@@ -41,8 +41,9 @@ The dashboard does not need to be built. Without a build the API runs as usual, 
 - `notebooks/api_examples.ipynb` calls every endpoint from Python and draws the answers as tables
   and charts. It starts a server itself if none is running.
 
-The examples on this page use the demo data (`data/demo`, processed data, not market data), so
-they run offline. Their output was captured from this code, trimmed where long.
+The examples on this page use the synthetic tickers (generated from code, not market data; see the
+README's [Synthetic data](../README.md#synthetic-data)), so they run offline. Their output was
+captured from this code, trimmed where long.
 
 ## Endpoints
 
@@ -87,7 +88,7 @@ flowchart LR
 | Endpoint | Returns | Query |
 |---|---|---|
 | `GET /api/health` | `status`, the API `version`, and whether the dashboard is built | — |
-| `GET /api/tickers` | a ticker set: each ticker's `symbol`, `label`, `params` (a ready-made request body) and what is `saved` of it in `data/local` | `set`: `demo` (default), `yahoo` or `local` |
+| `GET /api/tickers` | a ticker set: each ticker's `symbol`, `label`, `params` (a ready-made request body) and what is `saved` of it in `data/local` | `set`: `synthetic` (default), `yahoo` or `local` |
 | `GET /api/ticker` | the same for one symbol, listed in the config or not (unlisted symbols get the config's defaults) | `symbol` (letters, digits and `^ = . _ -`, e.g. `ES=F`, `^GSPC`); `set` (default `yahoo`) |
 | `GET /api/charts` | every chart name, its group, and the query options it reads | — |
 
@@ -111,7 +112,7 @@ The 14 chart names: `rolling-average`, `rolling-volatility`, `price-and-returns`
 
 | Endpoint | Returns | Inputs |
 |---|---|---|
-| `GET /api/multi-ticker` | `analyze_ticker` for every ticker of a set, then `compare_tickers`: cross-ticker streak and distribution tables | query: `set` (default `demo`), `drill_n_days` (1–250, default 3) |
+| `GET /api/multi-ticker` | `analyze_ticker` for every ticker of a set, then `compare_tickers`: cross-ticker streak and distribution tables | query: `set` (default `synthetic`), `drill_n_days` (1–250, default 3) |
 | `POST /api/multi-ticker` | the same for a chosen list, which may mix sets. When it does, each row's name says its source, so the same symbol live and saved can sit side by side | body: `{"tickers": [{"symbol": ..., "set": ...}, ...], "drill_n_days": 3}`, 1 to 30 tickers |
 
 **Saved data** (`data/local`, git-ignored; see the README's
@@ -133,7 +134,7 @@ flowchart TB
         V["<b>Validate</b><br/>ParamsIn, generated from Params<br/>unknown field → 422"] --> K["<b>Cache</b> · cache.py<br/>prices · rare-event table ·<br/>bootstrap · per-ticker results"] --> S["<b>Serialize</b> · serialize.py<br/>tables → columns + records<br/>NaN → null · dates → ISO"]
     end
     PKG["<b>src.tools.price_return</b><br/>load · analyse · plot"]
-    DATA[("demo files · Yahoo · data/local · simulated")]
+    DATA[("Yahoo · data/local · synthetic · simulated")]
     C -->|"JSON body: Params fields"| API
     API -->|"JSON tables, Plotly figures"| C
     API <-->|on a cache miss| PKG
@@ -156,8 +157,8 @@ the notebooks configure. The request model is generated from that dataclass
 
 | Field | Meaning | Units |
 |---|---|---|
-| `data_source` | `simulated` (default), `demo`, `yahoo` or `local` | — |
-| `ticker` | the symbol: a demo name (`SPX`), a Yahoo symbol (`ES=F`) or a saved one | — |
+| `data_source` | `simulated` (default), `synthetic`, `yahoo` or `local` | — |
+| `ticker` | the symbol: a synthetic one (`SYN-INDEX`), a Yahoo symbol (`ES=F`) or a saved one | — |
 | `start_date`, `end_date` | `YYYY-MM-DD`. `end_date` is exclusive and defaults to today | — |
 | `win_threshold`, `loss_threshold` | the daily return that counts as a win or a loss | percent: `0.5` is 0.5% |
 | `windows`, `cum_thresholds` | streak lengths in days; cumulative-move thresholds | days; percent |
@@ -180,21 +181,21 @@ The units differ between groups for historical reasons; the `Params` docstring l
 
 ## Examples
 
-**An overview** of the demo S&P 500 series over ten years:
+**An overview** of the synthetic equity index over ten years:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/api/overview -H 'Content-Type: application/json' \
-     -d '{"data_source": "demo", "ticker": "SPX", "start_date": "2016-01-01", "end_date": "2026-01-01"}'
+     -d '{"data_source": "synthetic", "ticker": "SYN-INDEX", "start_date": "2016-01-01", "end_date": "2026-01-01"}'
 ```
 
 ```json
 {
-  "ticker": "SPX", "data_source": "demo", "rows": 2513,
-  "start": "2016-01-05T00:00:00", "end": "2025-12-31T00:00:00", "last_price": 6845.279644,
-  "snapshot": {"annualized_return": 0.1638, "annualized_volatility": 0.1868,
-               "daily_avg_return": 0.000676, "daily_std_dev": 0.011817},
-  "distribution": {"ticker": "SPX", "drift (mean)": 0.0553, "median": 0.0738, "skew": -0.378,
-                   "days > +thr": 28.09, "days < -thr": 21.33, "up:down": 1.317}
+  "ticker": "SYN-INDEX", "data_source": "synthetic", "rows": 2607,
+  "start": "2016-01-05T00:00:00", "end": "2025-12-31T00:00:00", "last_price": 6367.668576,
+  "snapshot": {"annualized_return": 0.0983, "annualized_volatility": 0.1608,
+               "daily_avg_return": 0.000427, "daily_std_dev": 0.010169},
+  "distribution": {"ticker": "SYN-INDEX", "drift (mean)": 0.0478, "median": 0.056, "skew": -0.799,
+                   "days > +thr": 21.52, "days < -thr": 17.53, "up:down": 1.228}
 }
 ```
 
@@ -206,7 +207,8 @@ with the date it last happened:
 ```bash
 curl -s -X POST 'http://127.0.0.1:8000/api/rare-events?n_days=3&change_type=cumulative' \
      -H 'Content-Type: application/json' \
-     -d '{"data_source": "demo", "ticker": "SPX", "start_date": "2016-01-01", "end_date": "2026-01-01", "prob_max": 0.05}'
+     -d '{"data_source": "synthetic", "ticker": "SYN-INDEX", "start_date": "2016-01-01", "end_date": "2026-01-01",
+          "prob_max": 0.05}'
 ```
 
 ```json
@@ -218,8 +220,8 @@ curl -s -X POST 'http://127.0.0.1:8000/api/rare-events?n_days=3&change_type=cumu
                 "count", "episodes", "prob", "last_occurred"],
     "records": [
       {"change_type": "cumulative", "change": "above", "threshold": 0.025, "n_days": 3,
-       "n_years": 2, "n_obs": 500, "n_windows": 498, "count": 24, "episodes": 15,
-       "prob": 0.0482, "last_occurred": "2025-11-26"},
+       "n_years": 2, "n_obs": 500, "n_windows": 498, "count": 23, "episodes": 12,
+       "prob": 0.0462, "last_occurred": "2025-12-26"},
       ...
     ]
   }
@@ -227,15 +229,15 @@ curl -s -X POST 'http://127.0.0.1:8000/api/rare-events?n_days=3&change_type=cumu
 ```
 
 Read the first row as follows. Over the last 2 years there were 498 three-day windows, and the
-S&P 500 rose more than 2.5% in 24 of them. That makes `prob` = 24 / 498 = 4.8%. Overlapping
-windows are grouped into 15 separate episodes, and the last one ended on 2025-11-26. 22 of the 832 rows in the full table pass the
-filter.
+index rose more than 2.5% in 23 of them. That makes `prob` = 23 / 498 = 4.6%. Overlapping
+windows are grouped into 12 separate episodes, and the last one ended on 2025-12-26. 23 of the
+832 rows in the full table pass the filter.
 
 **A chart**, here the drawdown chart with its three deepest troughs labelled:
 
 ```bash
 curl -s -X POST 'http://127.0.0.1:8000/api/charts/drawdown?top=3' -H 'Content-Type: application/json' \
-     -d '{"data_source": "demo", "ticker": "SPX", "start_date": "2016-01-01", "end_date": "2026-01-01"}'
+     -d '{"data_source": "synthetic", "ticker": "SYN-INDEX", "start_date": "2016-01-01", "end_date": "2026-01-01"}'
 # {"data": [{"type": "scatter", ...}], "layout": {"title": {"text": "Drawdown from the running peak"}, ...}}
 ```
 
@@ -243,18 +245,19 @@ curl -s -X POST 'http://127.0.0.1:8000/api/charts/drawdown?top=3' -H 'Content-Ty
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/api/multi-ticker -H 'Content-Type: application/json' \
-     -d '{"tickers": [{"symbol": "SPX", "set": "demo"}, {"symbol": "CL", "set": "demo"},
-                      {"symbol": "EURUSD", "set": "demo"}], "drill_n_days": 3}'
+     -d '{"tickers": [{"symbol": "SYN-INDEX", "set": "synthetic"}, {"symbol": "SYN-OIL", "set": "synthetic"},
+                      {"symbol": "SYN-FX", "set": "synthetic"}], "drill_n_days": 3}'
 ```
 
 ```json
 {
   "set": null, "drill_n_days": 3,
-  "tickers": [{"symbol": "SPX", "set": "demo", "label": "S&P 500 index (demo)", "rows": 2699, ...}, ...],
+  "tickers": [{"symbol": "SYN-INDEX", "set": "synthetic", "label": "Synthetic equity index",
+               "rows": 2802, ...}, ...],
   "streaks": {"columns": ["ticker", "2d win/loss", "3d win/loss", "5d win/loss", "3d ratio"],
-              "records": [{"ticker": "S&P 500 index (demo)", "2d win/loss": "16.72 / 10.86",
-                           "3d win/loss": "6.67 / 3.63", "5d win/loss": "0.85 / 0.41",
-                           "3d ratio": 1.84}, ...]},
+              "records": [{"ticker": "Synthetic equity index", "2d win/loss": "15.57 / 10.75",
+                           "3d win/loss": "6.07 / 4.21", "5d win/loss": "0.57 / 0.68",
+                           "3d ratio": 1.44}, ...]},
   "distribution": {"columns": ["ticker", "drift (mean)", "median", "skew", "days > +thr",
                                "days < -thr", "up:down"], "records": [...]},
   "failed": []
@@ -263,8 +266,8 @@ curl -s -X POST http://127.0.0.1:8000/api/multi-ticker -H 'Content-Type: applica
 
 Each win/loss column gives the percentage of 2-, 3- or 5-day windows in which every day was a
 win, and the same for losses, using the ticker's own thresholds from its config. The ratio
-divides the two at `drill_n_days`: the S&P 500's 3-day winning runs are 1.84 times as common as
-its losing ones. A ticker that fails, such as a Yahoo
+divides the two at `drill_n_days`: the index's 3-day winning runs are 1.44 times as common as
+its losing ones, while the crude oil series' are about as common (0.99). A ticker that fails, such as a Yahoo
 symbol with no data, is listed under `failed` with its error, and the others are still compared.
 
 **From Python**, with only the standard library and pandas:
@@ -287,17 +290,20 @@ def get(path):
     with urlopen(BASE + path) as response:
         return json.load(response)
 
-# The body for SPX as its config sets it, over a fixed range.
-spx = next(t for t in get('/api/tickers?set=demo')['tickers'] if t['symbol'] == 'SPX')
-body = {**spx['params'], 'start_date': '2016-01-01', 'end_date': '2026-01-01'}
+# The body for SYN-INDEX as its config sets it, over a fixed range.
+index = next(t for t in get('/api/tickers?set=synthetic')['tickers'] if t['symbol'] == 'SYN-INDEX')
+body = {**index['params'], 'start_date': '2016-01-01', 'end_date': '2026-01-01'}
 
 table = post('/api/statistics/drawdowns?top=3', body)['drawdowns']
 print(pd.DataFrame(table['records'], columns=table['columns']))
 #       depth                 peak  ... days_to_trough days_to_recover
-# 0 -0.339110  2020-02-19T00:00:00  ...             23           103.0
-# 1 -0.254329  2022-01-03T00:00:00  ...            195           318.0
-# 2 -0.197638  2018-09-20T00:00:00  ...             65            81.0
+# 0 -0.292129  2019-08-15T00:00:00  ...            159           622.0
+# 1 -0.152067  2025-10-20T00:00:00  ...             46             NaN
+# 2 -0.128386  2022-11-03T00:00:00  ...            110            68.0
 ```
+
+The second drawdown had not recovered by `end_date`, so its `recovery` is `null` in the JSON and
+`days_to_recover` is NaN.
 
 ## Errors
 
@@ -306,7 +312,7 @@ Errors carry a `detail` that says what went wrong, never a stack trace:
 | Status | When | Example `detail` |
 |---|---|---|
 | 422 | a field that `Params` does not have, or a value of the wrong type | `[{"type": "extra_forbidden", "loc": ["body", "tickr"], "msg": "Extra inputs are not permitted"}]` |
-| 422 | a request that cannot succeed: an unknown demo ticker, an `n_days` not in `streak_days`, a symbol not saved | `"No demo data for ticker 'ZZZ'. Demo tickers: AAPL, CL, EURUSD, ..."` |
+| 422 | a request that cannot succeed: an unknown synthetic ticker, an `n_days` not in `streak_days`, a symbol not saved | `"No synthetic data for ticker 'ZZZ'. Synthetic tickers: SYN-INDEX, SYN-TECH, ..."` |
 | 404 | an unknown chart name | `"No chart 'nope'; charts: rolling-average, ..."` |
 | 502 | the data source failed: Yahoo unreachable or rate-limiting, a failed download | `"Data source failed: ..."` |
 | 501 | a statistics function that needs scipy, which is not installed | `"This needs scipy; from the repo root run: pip install -e \".[stats]\""` |
@@ -340,12 +346,12 @@ sequenceDiagram
     participant A as API (app.py)
     participant C as Cache (cache.py)
     participant P as price_return
-    D->>A: POST /api/rare-events?n_days=3<br/>{ticker: "SPX", prob_max: 0.05, ...}
+    D->>A: POST /api/rare-events?n_days=3<br/>{ticker: "SYN-INDEX", prob_max: 0.05, ...}
     A->>C: history(params)
     C->>P: build_historical_analysis()<br/>every threshold × holding period × lookback
     P-->>C: the full table (832 rows)
     A->>P: low_probability_view(n_days, prob bounds)
-    A-->>D: the rare events (about 0.5 s)
+    A-->>D: the rare events (about 0.4 s)
     Note over D,P: The user moves a probability bound or the holding period
     D->>A: POST /api/rare-events?n_days=5<br/>{..., prob_max: 0.02}
     A->>C: history(params)
@@ -354,4 +360,4 @@ sequenceDiagram
     A-->>D: the rare events (about 20 ms)
 ```
 
-The timings are for ten years of daily demo data on the machine these docs were written on.
+The timings are for ten years of daily synthetic data on the machine these docs were written on.
