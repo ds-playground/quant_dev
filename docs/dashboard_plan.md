@@ -627,6 +627,10 @@ All phases are done. The owner's first live run worked: the Yahoo set, and Save 
 which showed the partial-bar bug fixed in 6a. On a new machine, run `npx playwright install
 chromium` once before `npm run e2e`. Next steps beyond the POC are under "Deferred".
 
+User guides came afterwards, on `dev/doc_update` ([`docs/doc_update_plan.md`](doc_update_plan.md)):
+[`docs/dashboard.md`](dashboard.md) shows every tab with a screenshot, and [`docs/api.md`](api.md)
+documents the HTTP API.
+
 ## Deferred (documented, not built)
 
 - **Docker:** a multi-stage image (Node build → slim Python) plus `docker compose`. This is the
