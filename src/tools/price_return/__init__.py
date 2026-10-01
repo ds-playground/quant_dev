@@ -1,7 +1,7 @@
 """Historical price & return analysis.
 
 Behind the price-return notebooks and the dashboard API: loading a price series
-(Yahoo Finance, the demo files, saved live data, or simulated), deriving rolling
+(Yahoo Finance, saved live data, a synthetic series, or simulated), deriving rolling
 statistics, detecting win/loss streaks, measuring cumulative-threshold and rare-event
 probabilities, the statistics of the returns, and the Plotly charts for each.
 
@@ -20,9 +20,9 @@ The implementation is split across `params`, `data`, `analysis`, `viz`, `report`
 
 from .params import Params, load_ticker_config, config_params
 from .data import (load_price_data, add_rolling_stats, latest_snapshot,
-                   show_latest_snapshot, daily_returns_series, compound_returns,
-                   demo_tickers)
-from .store import save_local, read_local, local_tickers, local_ticker_config
+                   show_latest_snapshot, daily_returns_series, compound_returns)
+from .synthetic import synthetic_tickers, synthetic_bars
+from .store import save_local, save_all, read_local, local_tickers, local_ticker_config
 from .analysis import (detect_streaks, summarize_streaks, analyze_cumulative,
                        summarize_cumulative, consecutive_analysis,
                        build_historical_analysis, filter_low_probability,
@@ -47,9 +47,9 @@ __all__ = [
     'Params',
     # data
     'load_price_data', 'add_rolling_stats', 'latest_snapshot', 'show_latest_snapshot',
-    'daily_returns_series', 'compound_returns', 'demo_tickers',
+    'daily_returns_series', 'compound_returns', 'synthetic_tickers', 'synthetic_bars',
     # saved live data (data/local)
-    'save_local', 'read_local', 'local_tickers', 'local_ticker_config',
+    'save_local', 'save_all', 'read_local', 'local_tickers', 'local_ticker_config',
     # streak & cumulative analysis
     'detect_streaks', 'summarize_streaks', 'analyze_cumulative', 'summarize_cumulative',
     # rare-event probabilities

@@ -3,15 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from .params import _params, _repo_root
-
-# Processed daily bars for demos and offline work; see data/demo/README.md. Not market data.
-DEMO_DIR = _repo_root() / 'data' / 'demo'
-
-
-def demo_tickers():
-    """The tickers with a file in data/demo (`SPX` for `SPX_demo.csv`), sorted."""
-    return sorted(path.name[:-len('_demo.csv')] for path in DEMO_DIR.glob('*_demo.csv'))
+from .params import _params
 
 
 def _returns_from_closes(df, ticker):
@@ -35,10 +27,15 @@ def _returns_from_closes(df, ticker):
 
 
 def _closes_from_csv(path, p, what):
-    """The date / price / return_pct frame from a saved bars file (demo or local), end exclusive."""
+    """The date / price / return_pct frame from a saved bars file, end exclusive."""
     # round_trip parses each close to the exact float written in the file.
     raw = pd.read_csv(path, usecols=['Date', 'Close'], parse_dates=['Date'],
                       float_precision='round_trip')
+    return _closes_from_bars(raw, p, what)
+
+
+def _closes_from_bars(raw, p, what):
+    """The date / price / return_pct frame from Date / Close bars, end exclusive."""
     in_range = (raw['Date'] >= pd.Timestamp(p.start_date)) & (raw['Date'] < pd.Timestamp(p.end_date))
     df = raw.loc[in_range].rename(columns={'Date': 'date', 'Close': 'price'})
     if df.empty:
@@ -49,12 +46,12 @@ def _closes_from_csv(path, p, what):
 
 
 def load_price_data(p=None, verbose=True):
-    """Return a date / price / return_pct frame, from Yahoo Finance, the demo files, or simulation.
+    """Return a date / price / return_pct frame, from Yahoo Finance, saved data, or generated data.
 
     `return_pct` is in percent (0.5 == +0.5%). `data_source` is 'yahoo' (downloads `ticker`),
-    'demo' (reads `data/demo/{ticker}_demo.csv`, processed data for offline use; see
-    `demo_tickers()`), 'local' (Yahoo data saved by `store.save_local` in data/local), or
-    'simulated'. For 'yahoo', 'demo' and 'local', `end_date` is exclusive. The
+    'local' (Yahoo data saved by `store.save_local` in data/local), 'synthetic' (a generated,
+    market-shaped series; see `synthetic_tickers()`), or 'simulated' (i.i.d. normal returns from
+    the `sim_*` fields). For 'yahoo', 'local' and 'synthetic', `end_date` is exclusive. The
     simulated series spans the same start..end business-day range as the real one, so the
     paths are comparable.
     """
@@ -81,12 +78,10 @@ def load_price_data(p=None, verbose=True):
         df = df.rename(columns={'Date': 'date'}).rename_axis(columns=None)   # drop yfinance's 'Price'
         df = _returns_from_closes(df, p.ticker)
 
-    elif p.data_source == 'demo':
-        path = DEMO_DIR / f'{p.ticker}_demo.csv'
-        if not path.is_file():
-            raise ValueError(f'No demo data for ticker {p.ticker!r}. Demo tickers: '
-                             f'{", ".join(demo_tickers()) or "none"} (in {DEMO_DIR}).')
-        df = _closes_from_csv(path, p, 'demo data')
+    elif p.data_source == 'synthetic':
+        from .synthetic import synthetic_bars
+        bars = synthetic_bars(p.ticker).reset_index()[['Date', 'Close']]
+        df = _closes_from_bars(bars, p, 'synthetic data')
 
     elif p.data_source == 'local':
         from . import store
@@ -110,7 +105,7 @@ def load_price_data(p=None, verbose=True):
         })
 
     else:
-        raise ValueError(f"data_source must be 'simulated', 'yahoo', 'demo' or 'local', "
+        raise ValueError(f"data_source must be 'simulated', 'synthetic', 'yahoo' or 'local', "
                          f"got {p.data_source!r}")
 
     df['date'] = pd.to_datetime(df['date'])

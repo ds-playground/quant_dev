@@ -1,6 +1,6 @@
 """The FastAPI app. Endpoints call `src.tools` and serialize; they compute nothing themselves."""
 import dataclasses
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
@@ -12,20 +12,20 @@ from src.tools.price_return import (analyze_cumulative, arch_lm, autocorrelation
                                     ljung_box, load_ticker_config, low_probability_view,
                                     return_moments, risk_ratios, summarize_cumulative,
                                     summarize_streaks, tail_index, value_at_risk, variance_ratio,
-                                    local_ticker_config, local_tickers, save_local, store,
-                                    config_params, demo_tickers)
-from src.tools.price_return.params import DEFAULT_CONFIG_PATH, DEMO_CONFIG_PATH
+                                    local_ticker_config, local_tickers, save_all, save_local, store,
+                                    config_params, synthetic_tickers)
+from src.tools.price_return.params import DEFAULT_CONFIG_PATH, SYNTHETIC_CONFIG_PATH
 
 from . import cache, dashboard
 from .charts import CHARTS, ChartOptions
 from .schemas import ParamsIn, to_params
 from .serialize import clean, figure_to_json, frame_to_records, frame_to_table, series_to_dict
 
-app = FastAPI(title='quant_dev API', version='0.3.0',
+app = FastAPI(title='quant_dev API', version='0.4.0',
               description='The price-return analysis behind JSON, for the dashboard.')
 
 ChangeType = Literal['consecutive', 'cumulative']
-TickerSet = Literal['demo', 'yahoo', 'local']
+TickerSet = Literal['synthetic', 'yahoo', 'local']
 # Bootstrap resamples: the notebook's 1,000 by default, capped so one request stays within
 # seconds (about 2 s per 1,000 on ten years of daily data).
 N_BOOT = Query(1000, ge=100, le=2000)
@@ -57,9 +57,9 @@ def health():
     return {'status': 'ok', 'version': app.version, 'dashboard_built': dashboard.is_built()}
 
 
-# The ticker lists the dashboard offers: the processed demo files, which work offline; the
+# The ticker lists the dashboard offers: the synthetic series, generated offline; the
 # Yahoo Finance tickers analysed by the notebooks; and the live data saved to data/local.
-TICKER_SETS = {'demo': DEMO_CONFIG_PATH, 'yahoo': DEFAULT_CONFIG_PATH}
+TICKER_SETS = {'synthetic': SYNTHETIC_CONFIG_PATH, 'yahoo': DEFAULT_CONFIG_PATH}
 
 
 def _ticker_config(ticker_set):
@@ -76,7 +76,7 @@ def _entry(symbol, p, saved):
 
 
 @app.get('/api/tickers')
-def tickers(ticker_set: TickerSet = Query('demo', alias='set')):
+def tickers(ticker_set: TickerSet = Query('synthetic', alias='set')):
     """A set's tickers with labels and parameters, and, for any ticker saved in data/local, what
     is saved (rows, first and last date, last update)."""
     config, source = _ticker_config(ticker_set)
@@ -90,13 +90,14 @@ SYMBOL = r'^[A-Za-z0-9^=._-]{1,20}$'
 
 
 def _ticker_params(symbol, ticker_set):
-    """Params for any symbol in a set: its configured entry, or the config's defaults. The demo
-    set has only its files, and the saved set only what is saved."""
-    if ticker_set == 'demo':
-        if symbol not in demo_tickers():
-            raise HTTPException(status_code=422, detail=f'No demo data for {symbol!r}. Demo '
-                                                        f'tickers: {", ".join(demo_tickers())}.')
-        return config_params(symbol, DEMO_CONFIG_PATH)
+    """Params for any symbol in a set: its configured entry, or the config's defaults. The
+    synthetic set has only its own tickers, and the saved set only what is saved."""
+    if ticker_set == 'synthetic':
+        if symbol not in synthetic_tickers():
+            raise HTTPException(status_code=422, detail=f'No synthetic data for {symbol!r}. '
+                                                        f'Synthetic tickers: '
+                                                        f'{", ".join(synthetic_tickers())}.')
+        return config_params(symbol, SYNTHETIC_CONFIG_PATH)
     if ticker_set == 'local':
         config = local_ticker_config()
         if symbol not in config:
@@ -137,6 +138,23 @@ def update_local(symbol: str, start_date: str = Query('2016-01-01', pattern=r'^\
     except Exception as exc:  # noqa: BLE001 - any download failure is reported, not a 500
         raise HTTPException(status_code=502,
                             detail=f'Download failed: {type(exc).__name__}: {exc}') from exc
+
+
+class SymbolList(BaseModel):
+    symbols: list[Annotated[str, Field(pattern=SYMBOL)]] = Field(min_length=1, max_length=50)
+
+
+@app.post('/api/local/update-all')
+def update_all_local(body: SymbolList | None = None,
+                     start_date: str = Query('2016-01-01', pattern=r'^\d{4}-\d{2}-\d{2}$')):
+    """`save_all`: save or update every ticker in configs/tickers.yaml (or the body's `symbols`)
+    in data/local. Returns each symbol's result under `saved` and each failure under `failed`;
+    one failure does not stop the rest. A 502 only if every symbol failed."""
+    result = clean(save_all(body.symbols if body else None, start_date=start_date))
+    if result['failed'] and not result['saved']:
+        raise HTTPException(status_code=502, detail={'message': 'Every download failed',
+                                                     'failed': result['failed']})
+    return result
 
 
 @app.post('/api/overview')
@@ -285,7 +303,7 @@ def _compare(entries, drill_n_days):
 
 
 @app.get('/api/multi-ticker')
-def multi_ticker(ticker_set: TickerSet = Query('demo', alias='set'),
+def multi_ticker(ticker_set: TickerSet = Query('synthetic', alias='set'),
                  drill_n_days: int = Query(3, ge=1, le=250)):
     """`rare_case_run` over every ticker of a set (the streak ratio uses `drill_n_days`, as the
     notebook does)."""
@@ -306,13 +324,13 @@ class Selection(BaseModel):
     drill_n_days: int = Field(3, ge=1, le=250)
 
 
-SOURCE_NAMES = {'demo': 'demo', 'yahoo': 'live', 'local': 'saved'}
+SOURCE_NAMES = {'synthetic': 'synthetic', 'yahoo': 'live', 'local': 'saved'}
 
 
 @app.post('/api/multi-ticker')
 def multi_ticker_selection(body: Selection):
     """`rare_case_run` over a chosen list, which may mix sets: configured Yahoo tickers (live),
-    saved CSVs, demo files. When sources are mixed, each row's name says its source, so the same
+    saved CSVs, synthetic tickers. When sources are mixed, each row's name says its source, so the same
     symbol live and saved can be compared."""
     picks = list(dict.fromkeys((pick.symbol, pick.set) for pick in body.tickers))
     mixed = len({ticker_set for _, ticker_set in picks}) > 1
@@ -320,7 +338,7 @@ def multi_ticker_selection(body: Selection):
     for symbol, ticker_set in picks:
         p = _ticker_params(symbol, ticker_set)
         source = SOURCE_NAMES[ticker_set]
-        if mixed and source not in p.label.lower():         # demo labels already say "(demo)"
+        if mixed and source not in p.label.lower():         # "Synthetic ..." labels say so already
             label = f'{p.label} ({source})'
             p = dataclasses.replace(p)
             p.label = label

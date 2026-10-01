@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAddedTickers } from './addedTickers';
 import { api, type Params, type Ticker, type TickerSet } from './api';
 import { ParamsPanel } from './components/ParamsPanel';
+import { DownloadAll } from './components/SavedData';
 import { initialMultiTicker, MultiTickerTab, type MultiTickerState } from './tabs/MultiTickerTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { RareEventsTab } from './tabs/RareEventsTab';
@@ -23,7 +24,7 @@ type TabId = (typeof TABS)[number]['id'];
 export default function App() {
   const [themeChoice, setThemeChoice, mode] = useTheme();
   const [tab, setTab] = useState<TabId>('overview');
-  const [tickerSet, setTickerSet] = useState<TickerSet>('demo');
+  const [tickerSet, setTickerSet] = useState<TickerSet>('synthetic');
   const [params, setParams] = useState<Params | null>(null);
   const [multi, setMulti] = useState<MultiTickerState>(initialMultiTicker);
 
@@ -47,7 +48,7 @@ export default function App() {
   const list = [...configured, ...extra];
   const lookupsPending = tickerSet === 'yahoo' && lookups.some((q) => q.isPending);
 
-  // A new ticker list starts on its first ticker (SPX for the demo set), with its parameters.
+  // A new ticker list starts on its first ticker (SYN-INDEX for the synthetic set), with its parameters.
   useEffect(() => {
     if (!tickers.data || lookupsPending) return;
     if (list.length && !list.some((t) => t.symbol === params?.ticker)) setParams(list[0].params);
@@ -98,10 +99,10 @@ export default function App() {
         onApply={setParams}
       />
 
-      {params?.data_source === 'demo' ? (
+      {params?.data_source === 'synthetic' ? (
         <p className="notice" role="note">
-          <strong>Demo data:</strong> processed from Yahoo Finance with 0.01% random noise. Not
-          market data; for education only (see <code>data/demo/README.md</code>).
+          <strong>Synthetic data:</strong> generated from code, not market data. For learning the
+          analysis offline; for real prices, choose Yahoo Finance or Saved CSV.
         </p>
       ) : null}
 
@@ -122,10 +123,12 @@ export default function App() {
                 <h2>Nothing saved yet</h2>
                 <p className="lede">
                   Saved CSVs are live Yahoo data kept in <code>data/local/</code> (not committed), so
-                  later runs are offline and fast. To save one, choose <strong>Yahoo Finance (live)</strong>,
-                  pick a ticker and press <strong>Save to CSV</strong>. Or save every configured ticker
-                  from the repo root with <code>python scripts/update_local_data.py</code>.
+                  later runs are offline and fast. Download every default ticker (the Yahoo Finance list
+                  in <code>configs/tickers.yaml</code>) at once here, or one at a time with{' '}
+                  <strong>Save to CSV</strong> under <strong>Yahoo Finance (live)</strong>. From the repo
+                  root, <code>python scripts/update_local_data.py</code> does the same.
                 </p>
+                <DownloadAll />
               </section>
             ) : <p className="loading">Loading tickers…</p>
         ) : tab === 'overview' ? (

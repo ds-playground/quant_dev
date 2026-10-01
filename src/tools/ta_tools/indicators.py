@@ -58,6 +58,9 @@ def _trendline_slope(high, low, close, length, mult, calc_method):
 def trendlines(high, low, close, length=14, mult=1.0, calc_method='atr', backpaint=False):
     """Trendlines with Breaks (pine_scripts/Trendlines_with_Breaks_Style_Options.pine, LuxAlgo).
 
+    A port of a CC BY-NC-SA 4.0 script, so this function is under that license, not the repo's
+    MIT License: non-commercial use only, and adaptations shared alike (see the README).
+
     At each pivot high the upper trendline restarts from the pivot and then falls by a fixed
     slope per bar; the lower trendline does the same, rising, from each pivot low. A close above
     the upper line is an upper break, a close below the lower line a lower break; each fires once

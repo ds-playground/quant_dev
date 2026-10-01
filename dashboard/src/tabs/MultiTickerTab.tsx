@@ -9,14 +9,14 @@ import { isoDate, pctCell } from '../format';
 const GROUPS: { set: TickerSet; title: string }[] = [
   { set: 'yahoo', title: 'Default list · Yahoo Finance (live)' },
   { set: 'local', title: 'Saved CSV (offline)' },
-  { set: 'demo', title: 'Demo data (offline)' },
+  { set: 'synthetic', title: 'Synthetic data (offline)' },
 ];
 const MAX = 30;                               // the API's limit per comparison
-const SOURCE: Record<TickerSet, string> = { yahoo: 'live', local: 'saved', demo: 'demo' };
+const SOURCE: Record<TickerSet, string> = { yahoo: 'live', local: 'saved', synthetic: 'synthetic' };
 const key = (p: Pick) => `${p.set}:${p.symbol}`;
 
 /** rare_case_run over a chosen list: any mix of the configured Yahoo tickers (and those added in
- *  the ticker picker), saved CSVs and demo files, each with its configured thresholds. Runs on
+ *  the ticker picker), saved CSVs and synthetic tickers, each with its configured thresholds. Runs on
  *  request: the first run downloads (Yahoo) and analyses every ticker; later runs are cached. */
 /** What the tab keeps while other tabs are open: held by App, so it lasts until a page reload. */
 export interface MultiTickerState {
@@ -38,7 +38,7 @@ export function MultiTickerTab({ state, setState, addedSymbols = [] }: {
   const lists = useQueries({
     queries: GROUPS.map((g) => ({ queryKey: ['tickers', g.set], queryFn: () => api.tickers(g.set) })),
   });
-  const options: Record<TickerSet, { symbol: string; label: string }[]> = { yahoo: [], local: [], demo: [] };
+  const options: Record<TickerSet, { symbol: string; label: string }[]> = { yahoo: [], local: [], synthetic: [] };
   GROUPS.forEach((g, i) => {
     const listed = lists[i].data?.tickers.map((t) => ({ symbol: t.symbol, label: t.label })) ?? [];
     options[g.set] = g.set === 'yahoo'

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api, ApiError, type Params } from './api';
 
-const params = { ticker: 'SPX', data_source: 'demo' } as Params;
+const params = { ticker: 'SYN-INDEX', data_source: 'synthetic' } as Params;
 
 function mockFetch(status: number, body: unknown) {
   const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify(body), { status }));
@@ -29,8 +29,9 @@ describe('api', () => {
   });
 
   it('turns an error response into an ApiError with the server explanation', async () => {
-    mockFetch(422, { detail: "No demo data for ticker 'NOPE'." });
-    await expect(api.overview(params)).rejects.toEqual(new ApiError(422, "No demo data for ticker 'NOPE'."));
+    mockFetch(422, { detail: "No synthetic data for ticker 'NOPE'." });
+    await expect(api.overview(params)).rejects.toEqual(
+      new ApiError(422, "No synthetic data for ticker 'NOPE'.", "No synthetic data for ticker 'NOPE'."));
   });
 
   it('names the field in a validation error', async () => {

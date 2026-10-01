@@ -1,7 +1,7 @@
 """Offline tests for data/local, the store of saved live data (src/tools/price_return/store.py),
 and the API endpoints over it.
 
-The `yahoo` fixture (conftest.py) serves data/demo/CL_demo.csv as CL=F in yfinance's own shape,
+The `yahoo` fixture (conftest.py) serves the synthetic SYN-OIL bars as CL=F in yfinance's own shape,
 up to a movable "today", so saving and updating can be replayed without a network.
 """
 import datetime as dt
@@ -12,7 +12,6 @@ import pytest
 
 from src.tools import price_return as pr
 from src.tools.price_return import store
-from src.tools.price_return.data import DEMO_DIR
 
 
 def expected_bars(stub, symbol="CL=F", start="2016-01-01", until="2026-06-29"):
@@ -164,6 +163,43 @@ def test_saved_data_is_ignored_by_git():
     assert result.returncode == 0
 
 
+# ── Saving the whole list ───────────────────────────────────────────────────
+def test_save_all_saves_the_configured_list_once_each_in_order(yahoo):
+    configured = list(pr.load_ticker_config(verbose=False))
+    result = pr.save_all(now=NOW)
+    assert [call[0] for call in yahoo.calls] == configured
+    # The stub serves CL=F only: every other symbol fails, and none stops the rest.
+    assert [r["symbol"] for r in result["saved"]] == ["CL=F"]
+    assert [f["symbol"] for f in result["failed"]] == [s for s in configured if s != "CL=F"]
+    assert pd.testing.assert_frame_equal(pr.read_local("CL=F"), expected_bars(yahoo)) is None
+
+
+def test_one_failure_does_not_stop_the_rest_and_each_result_is_reported(yahoo):
+    seen = []
+    result = pr.save_all(["NOPE", "CL=F", "CL=F"], now=NOW, on_result=seen.append)
+    assert [e["symbol"] for e in seen] == ["NOPE", "CL=F"]                # a duplicate, once
+    [failure] = result["failed"]
+    assert failure["symbol"] == "NOPE" and failure["error"].startswith("ValueError:")
+    assert "no data for 'NOPE'" in failure["error"]
+    assert result["saved"] == [e for e in seen if "error" not in e] and result["saved"][0]["created"]
+    before = (store.LOCAL_DIR / "CL=F.csv").read_bytes()
+    yahoo.fail = ConnectionError("Yahoo unreachable")
+    assert pr.save_all(["CL=F"], now=NOW) == {
+        "saved": [], "failed": [{"symbol": "CL=F", "error": "ConnectionError: Yahoo unreachable"}]}
+    assert (store.LOCAL_DIR / "CL=F.csv").read_bytes() == before
+
+
+def test_a_second_run_downloads_only_from_the_overlap(yahoo):
+    pr.save_all(["CL=F"], now=NOW)
+    last = pr.read_local("CL=F").index[-1]
+    yahoo.until = pd.Timestamp("2026-07-31")
+    yahoo.calls.clear()
+    [entry] = pr.save_all(["CL=F"], now=dt.datetime(2026, 8, 1, 12, tzinfo=dt.timezone.utc))["saved"]
+    [(_, start, _)] = yahoo.calls
+    assert start == (last - pd.Timedelta(days=store.OVERLAP_DAYS)).date().isoformat()
+    assert entry["added"] == len(expected_bars(yahoo, until="2026-07-31").loc[last + pd.Timedelta(days=1):])
+
+
 # ── The API over data/local ─────────────────────────────────────────────────
 def test_update_endpoint_saves_then_updates(api):
     client, yahoo = api
@@ -181,7 +217,7 @@ def test_update_endpoint_saves_then_updates(api):
 
 def test_symbols_with_url_characters_save_under_their_own_name(api):
     client, yahoo = api
-    yahoo.bars["^GSPC"] = pd.read_csv(DEMO_DIR / "SPX_demo.csv", parse_dates=["Date"], index_col="Date")
+    yahoo.bars["^GSPC"] = pr.synthetic_bars("SYN-INDEX")
     assert client.post("/api/local/%5EGSPC/update").status_code == 200
     assert (store.LOCAL_DIR / "^GSPC.csv").is_file()
     assert [t["symbol"] for t in client.get("/api/local").json()["tickers"]] == ["^GSPC"]
@@ -231,6 +267,32 @@ def test_multi_ticker_runs_over_saved_data(api):
     client.post("/api/local/CL=F/update")
     body = client.get("/api/multi-ticker?set=local").json()
     assert [t["symbol"] for t in body["tickers"]] == ["CL=F"] and body["failed"] == []
+
+
+def test_update_all_endpoint_saves_the_list_or_the_chosen_symbols(api):
+    client, yahoo = api
+    configured = list(pr.load_ticker_config(verbose=False))
+    body = client.post("/api/local/update-all").json()
+    assert [r["symbol"] for r in body["saved"]] == ["CL=F"]
+    assert [f["symbol"] for f in body["failed"]] == [s for s in configured if s != "CL=F"]
+    assert [t["symbol"] for t in client.get("/api/local").json()["tickers"]] == ["CL=F"]
+    yahoo.bars["^GSPC"] = pr.synthetic_bars("SYN-INDEX")
+    body = client.post("/api/local/update-all", json={"symbols": ["^GSPC", "CL=F"]}).json()
+    assert [(r["symbol"], r["created"]) for r in body["saved"]] == [("^GSPC", True), ("CL=F", False)]
+    assert body["failed"] == []
+
+
+def test_update_all_endpoint_failures_and_limits(api):
+    client, yahoo = api
+    yahoo.fail = ConnectionError("Yahoo unreachable")
+    response = client.post("/api/local/update-all", json={"symbols": ["CL=F", "ES=F"]})
+    assert response.status_code == 502
+    assert [f["symbol"] for f in response.json()["detail"]["failed"]] == ["CL=F", "ES=F"]
+    yahoo.fail = None
+    for symbols in [[], ["../x"], ["A B"], [f"T{i}" for i in range(51)]]:
+        assert client.post("/api/local/update-all", json={"symbols": symbols}).status_code == 422
+    assert client.post("/api/local/update-all?start_date=2016-1-1").status_code == 422
+    assert not store.LOCAL_DIR.exists() or not any(store.LOCAL_DIR.glob("*.csv"))
 
 
 def test_refresh_script_updates_and_reports_failures(yahoo, capsys):
