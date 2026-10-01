@@ -1,0 +1,179 @@
+# Documentation update plan (`dev/doc_update`)
+
+## Picking this up
+
+- **Branch:** `dev/doc_update`, cut from `master` at `4f64225` (the merge of the dashboard POC,
+  PR #10, also kept as `archive/03_dashboard_poc`).
+- **Working rules:**
+  - One phase per request.
+  - Each phase opens by showing the owner example diagrams and stopping for a choice. Only then
+    are the contents written, committed and pushed, and the commit is recorded here.
+  - Every command and request shown on a page is run against the code before it is committed.
+- **Diagrams** are Mermaid blocks in the Markdown, which GitHub renders. The examples are rendered
+  to PNG outside the repo, with `mermaid` from npm in Chromium, and the same render checks each
+  committed block.
+
+## Context
+
+The dashboard POC is merged, and the repo is going public. The README described the four parts
+but did not show how they work together. The HTTP API and the dashboard were each covered only by
+a paragraph and by `/docs` (Swagger), with no page a newcomer could read on its own. The owner
+asked for:
+
+1. **README:** a diagram of the development workflow, in which the dashboard is used to develop
+   and to present analyses on top of continuously developed Python packages.
+2. **API page:** how to run the API on its own, a list of the endpoints, and how queries work.
+3. **Dashboard page:** a screenshot of each tab, with an explanation of its analysis.
+
+## Phases
+
+| # | Phase | Deliverable |
+|---|---|---|
+| **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `1585e90`** |
+| **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented — **done, `649d43b`** |
+| **3** ✅ | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` — **done, `982c05c`** |
+| **4** ✅ | Wrap-up | README layout, Tests and changelog; full checks; PR when asked — **done, `f9c427c`** |
+
+## Phase 1: README workflow diagram ✅
+
+- **Examples shown:**
+  - A (a cycle);
+  - B (layers: dashboard, API, packages, with notebooks on the side);
+  - C (a research loop and a delivery loop joined by the packages).
+- **The owner chose A, with these edits:**
+  - the cycle starts from **"A trading idea"**;
+  - the notebook step also **explores the methodology**;
+  - the notebook-to-package arrow reads **"formulate"**;
+  - the loop back reads **"a new idea"**.
+- **Contents:**
+  - the diagram, plus four numbered steps (notebook, package, API, dashboard) and the rule that
+    analysis lives only in the packages;
+  - the package function table is now headed `## Package API`, since the HTTP API gets its own
+    page (no links pointed at the old anchor);
+  - a changelog entry.
+
+## Phase 2: API page (`docs/api.md`) ✅
+
+- **Examples shown:** A (request flow), B (endpoint map), C (rare-event sequence). **The owner
+  chose all three.** B heads the endpoint tables, A heads "How a query works", and C closes
+  "Caching", with its timings measured (about 0.5 s to build, 20 ms to refilter).
+- **Contents:**
+  - running the API alone, including the options and `/docs`;
+  - every route in four tables (reference, analysis, comparison, saved data);
+  - the `Params` body, with a units table;
+  - the response shapes;
+  - curl and Python examples, whose output was captured from `python -m src.api` on the demo
+    data;
+  - errors (422, 404, 502, 501);
+  - caching.
+
+  The README's Dashboard section links the page.
+- **Test:** `test_docs_api_md_lists_every_endpoint_and_no_other` compares the routes with the
+  `METHOD /api/...` names in the page. A missing row and a misspelt path each fail it. 324 tests.
+- **Checked:**
+  - every example was run, and the Python example's output is the real one;
+  - `{}` as a body analyses the simulated series;
+  - the error messages are quoted from the code;
+  - all three Mermaid blocks render.
+
+**As planned:**
+
+- **Examples first:**
+  - the request flow: client → FastAPI validation → cache → `price_return` → JSON and Plotly
+    figures;
+  - the endpoint map, by group;
+  - the rare-event sequence: the full table is built and cached once, and later bound changes
+    only refilter.
+- **Contents:**
+  1. Run the API alone (`python -m src.api` or `uvicorn src.api.app:app --reload`, `--port`,
+     `--host`, `/docs`, `/openapi.json`).
+  2. A table of every route in `src/api/app.py`: method, path, purpose, inputs.
+  3. How a query works:
+     - the body is `Params`'s fields, and unknown fields give 422;
+     - data sources, with `end_date` exclusive;
+     - query parameters per endpoint;
+     - response shapes;
+     - errors;
+     - caching.
+  4. Worked examples (curl and Python), with trimmed real output on the demo data.
+  5. A test that every `/api/*` route appears in `docs/api.md`.
+
+## Phase 3: Dashboard page (`docs/dashboard.md`) ✅
+
+- **Examples shown:** A (page map), B (data-source choice), C (reading path). **The owner chose
+  A and B.** A opens "How the page works" and B heads "Data choices".
+- **Screenshots:**
+  - Eight images in `docs/images/dashboard/`: overview, streaks, rare-events (3-day cumulative,
+    rarer than 5%), statistics (sections 1–3), statistics-bootstrap (section 4 after a run),
+    multi-ticker (all ten demo tickers), dark, phone.
+  - The tab images are cropped from the tab bar down, so the header and panel appear only on the
+    overview.
+  - The statistics tab is split in two: a single image was 6,490 px tall.
+  - At 1280 px wide the images are 65–424 KB (2.1 MB in all). Four are over the planned 300 KB;
+    sharp text was kept over compression.
+  - Each image was inspected. Yahoo is blocked where this was written, so Other ticker… and Save
+    to CSV are described, not pictured.
+- **Tooling:** `dashboard/e2e/screenshots.ts` is a second Playwright project, `screenshots`.
+  `npm run screenshots` builds and runs it. `npm run e2e` now selects `--project=chromium`, so
+  it still runs the 9 tests.
+- **Contents:**
+  - the parameter panel;
+  - per tab, the question it answers, how to read each table and chart, the controls, and the
+    package functions behind it, with numbers read from the screenshots;
+  - the data choices;
+  - the theme and phone layout.
+
+  The README's Dashboard section links the page.
+- **Checked:**
+  - every number quoted against the images;
+  - the definitions against the code (for example, the streak table's average return is a mean
+    daily return, not a compounded one);
+  - both diagrams render, and every image link resolves;
+  - `npm run typecheck`, `npm test` (19) and `npm run e2e` (9) pass.
+
+**As planned:**
+
+- **Examples first:**
+  - the page map: the parameter panel → five tabs → the endpoints each calls;
+  - the data-source choice: Demo, Yahoo, Saved CSV, Other ticker…;
+  - a suggested reading path through the tabs.
+- **Screenshots:**
+  - `dashboard/e2e/screenshots.spec.ts`, run by `npm run screenshots` and not part of
+    `npm run e2e`, captures the demo data (SPX);
+  - one image per tab, the rare-event filters, dark theme and phone width;
+  - 1280 px wide, compressed, and every image inspected.
+- **Contents per tab:**
+  - what question the analysis answers;
+  - how to read each table and chart;
+  - the controls;
+  - the package functions behind it.
+
+## Phase 4: Wrap-up ✅
+
+- **README:**
+  - the layout lists `docs/api.md`, `docs/dashboard.md`, `docs/images/dashboard/`, this plan
+    and `dashboard/e2e/screenshots.ts`;
+  - `test_api.py`'s line and the Tests section mention the routes test;
+  - the dashboard checks mention `npm run screenshots`;
+  - a changelog line.
+
+  `docs/dashboard_plan.md`'s status points to the new pages.
+- **Checks:**
+  - `pytest`: 324 tests, passing from the repo root and from `tests/`;
+  - `npm run typecheck`;
+  - `npm test`: 19 tests;
+  - `npm run e2e`: 9 tests;
+  - `npm run screenshots`: 7 tests, and the retaken images are byte-identical to the committed
+    ones;
+  - a script found that every relative link and anchor in the README and `docs/` resolves.
+- **Not done here:** the PR into `master`, until the owner asks.
+
+**As planned:**
+
+- **README:**
+  - the layout lists `docs/api.md`, `docs/dashboard.md`, `docs/images/` and the screenshots
+    spec;
+  - the Tests section covers the routes-documented test;
+  - the changelog.
+- **Checks:** `pytest`, `npm run typecheck`, `npm test`, `npm run e2e`, `npm run screenshots`.
+- **PR** into `master` only when the owner asks.

@@ -12,7 +12,13 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: { baseURL: `http://127.0.0.1:${PORT}`, trace: 'retain-on-failure' },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } }],
+  projects: [
+    { name: 'chromium', testMatch: /\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } },
+    // The documentation's screenshots (e2e/screenshots.ts), run only by `npm run screenshots`.
+    { name: 'screenshots', testMatch: /screenshots\.ts$/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } },
+  ],
   webServer: {
     command: `${process.env.PYTHON ?? 'python'} -m src.api --port ${PORT}`,
     cwd: '..',
