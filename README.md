@@ -173,8 +173,9 @@ for one ticker, and the Data control's **Saved CSV (offline)** lists what is sav
 
 ## Dashboard
 
-A React dashboard over the same package, served with its API by one command
-([`docs/dashboard_plan.md`](docs/dashboard_plan.md)). Five tabs: Overview, Streaks &
+A React dashboard over the same package, served with its API by one command.
+**[`docs/dashboard.md`](docs/dashboard.md)** shows every tab with a screenshot and explains its
+analysis; the build plan is [`docs/dashboard_plan.md`](docs/dashboard_plan.md). Five tabs: Overview, Streaks &
 cumulative, Rare events (live filters), Statistics (the bootstrap on request) and Multi-ticker.
 Three data choices: the demo files (offline), Yahoo Finance (live), and live data you have
 saved as CSV (offline; see "Saved live data"). With Yahoo Finance, **Other ticker…** at the end
@@ -659,6 +660,14 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   - errors, and caching.
 
   A new test checks that the page lists exactly the API's routes.
+- [`docs/dashboard.md`](docs/dashboard.md), a page on the dashboard:
+  - a page map and a data-source diagram;
+  - a screenshot of every tab on the demo data, with what each analysis answers and how to read
+    its tables and charts;
+  - the data choices, the theme and the phone layout.
+
+  `npm run screenshots` in `dashboard/` retakes the images (`dashboard/e2e/screenshots.ts`, a
+  Playwright project kept out of `npm run e2e`).
 
 ### 2026-09-30
 - Review of the documents and tests. The documents now agree with the code: the saved-data

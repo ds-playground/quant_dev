@@ -31,7 +31,7 @@ asked for:
 |---|---|---|
 | **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `1585e90`** |
 | **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented — **done, `649d43b`** |
-| **3** | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` |
+| **3** ✅ | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` |
 | **4** | Wrap-up | README layout, Tests and changelog; full checks; PR when asked |
 
 ## Phase 1: README workflow diagram ✅
@@ -98,7 +98,40 @@ asked for:
   4. Worked examples (curl and Python), with trimmed real output on the demo data.
   5. A test that every `/api/*` route appears in `docs/api.md`.
 
-## Phase 3: Dashboard page (`docs/dashboard.md`)
+## Phase 3: Dashboard page (`docs/dashboard.md`) ✅
+
+- **Examples shown:** A (page map), B (data-source choice), C (reading path). **The owner chose
+  A and B.** A opens "How the page works" and B heads "Data choices".
+- **Screenshots:**
+  - Eight images in `docs/images/dashboard/`: overview, streaks, rare-events (3-day cumulative,
+    rarer than 5%), statistics (sections 1–3), statistics-bootstrap (section 4 after a run),
+    multi-ticker (all ten demo tickers), dark, phone.
+  - The tab images are cropped from the tab bar down, so the header and panel appear only on the
+    overview.
+  - The statistics tab is split in two: a single image was 6,490 px tall.
+  - At 1280 px wide the images are 65–424 KB (2.1 MB in all). Four are over the planned 300 KB;
+    sharp text was kept over compression.
+  - Each image was inspected. Yahoo is blocked where this was written, so Other ticker… and Save
+    to CSV are described, not pictured.
+- **Tooling:** `dashboard/e2e/screenshots.ts` is a second Playwright project, `screenshots`.
+  `npm run screenshots` builds and runs it. `npm run e2e` now selects `--project=chromium`, so
+  it still runs the 9 tests.
+- **Contents:**
+  - the parameter panel;
+  - per tab, the question it answers, how to read each table and chart, the controls, and the
+    package functions behind it, with numbers read from the screenshots;
+  - the data choices;
+  - the theme and phone layout.
+
+  The README's Dashboard section links the page.
+- **Checked:**
+  - every number quoted against the images;
+  - the definitions against the code (for example, the streak table's average return is a mean
+    daily return, not a compounded one);
+  - both diagrams render, and every image link resolves;
+  - `npm run typecheck`, `npm test` (19) and `npm run e2e` (9) pass.
+
+**As planned:**
 
 - **Examples first:**
   - the page map: the parameter panel → five tabs → the endpoints each calls;
