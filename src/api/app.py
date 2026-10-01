@@ -1,6 +1,6 @@
 """The FastAPI app. Endpoints call `src.tools` and serialize; they compute nothing themselves."""
 import dataclasses
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
@@ -12,7 +12,7 @@ from src.tools.price_return import (analyze_cumulative, arch_lm, autocorrelation
                                     ljung_box, load_ticker_config, low_probability_view,
                                     return_moments, risk_ratios, summarize_cumulative,
                                     summarize_streaks, tail_index, value_at_risk, variance_ratio,
-                                    local_ticker_config, local_tickers, save_local, store,
+                                    local_ticker_config, local_tickers, save_all, save_local, store,
                                     config_params, demo_tickers)
 from src.tools.price_return.params import DEFAULT_CONFIG_PATH, DEMO_CONFIG_PATH
 
@@ -137,6 +137,23 @@ def update_local(symbol: str, start_date: str = Query('2016-01-01', pattern=r'^\
     except Exception as exc:  # noqa: BLE001 - any download failure is reported, not a 500
         raise HTTPException(status_code=502,
                             detail=f'Download failed: {type(exc).__name__}: {exc}') from exc
+
+
+class SymbolList(BaseModel):
+    symbols: list[Annotated[str, Field(pattern=SYMBOL)]] = Field(min_length=1, max_length=50)
+
+
+@app.post('/api/local/update-all')
+def update_all_local(body: SymbolList | None = None,
+                     start_date: str = Query('2016-01-01', pattern=r'^\d{4}-\d{2}-\d{2}$')):
+    """`save_all`: save or update every ticker in configs/tickers.yaml (or the body's `symbols`)
+    in data/local. Returns each symbol's result under `saved` and each failure under `failed`;
+    one failure does not stop the rest. A 502 only if every symbol failed."""
+    result = clean(save_all(body.symbols if body else None, start_date=start_date))
+    if result['failed'] and not result['saved']:
+        raise HTTPException(status_code=502, detail={'message': 'Every download failed',
+                                                     'failed': result['failed']})
+    return result
 
 
 @app.post('/api/overview')
