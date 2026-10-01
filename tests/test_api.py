@@ -3,6 +3,8 @@ import dataclasses
 import datetime as dt
 import json
 import math
+import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -427,3 +429,18 @@ def test_multi_ticker_selection_refuses_an_unsaved_pick(api):
     client, _ = api
     response = client.post("/api/multi-ticker", json={"tickers": [{"symbol": "ES=F", "set": "local"}]})
     assert response.status_code == 422 and "not saved" in response.json()["detail"]
+
+
+# ── Documentation ───────────────────────────────────────────────────────────
+API_DOC = Path(__file__).resolve().parents[1] / "docs" / "api.md"
+
+
+def test_docs_api_md_lists_every_endpoint_and_no_other():
+    """docs/api.md names each route as `METHOD /api/path`, so a new endpoint cannot go
+    undocumented and a removed one cannot stay documented."""
+    from fastapi.routing import APIRoute
+    routes = {f"{method} {route.path.replace(':path', '')}"
+              for route in app.routes if isinstance(route, APIRoute)
+              and route.path.startswith("/api/") for method in route.methods}
+    documented = set(re.findall(r"`((?:GET|POST) /api/[^`?\s]*)`", API_DOC.read_text()))
+    assert routes == documented
