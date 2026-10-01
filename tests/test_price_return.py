@@ -457,7 +457,7 @@ def test_probability_intervals_agree_with_consecutive_analysis():
 
 def test_event_probability_table_joins_counts_intervals_and_models_row_for_row():
     pytest.importorskip("scipy")
-    params = pr.Params(data_source="demo", ticker="SPX", start_date="2016-01-01")
+    params = pr.Params(data_source="synthetic", ticker="SYN-INDEX", start_date="2016-01-01")
     r = pr.daily_returns_series(pr.add_rolling_stats(pr.load_price_data(params, verbose=False),
                                                      params))
     table = pr.event_probability_table(r, 3, params, n_boot=100)
@@ -531,7 +531,7 @@ def test_statistics_charts_build():
 
 
 def test_streak_timeline_shades_each_streak_once_over_the_full_height():
-    params = pr.Params(data_source="demo", ticker="CL", start_date="2019-01-01",
+    params = pr.Params(data_source="synthetic", ticker="SYN-OIL", start_date="2019-01-01",
                        end_date="2021-01-01")
     df = pr.load_price_data(params, verbose=False)
     streaks = pr.detect_streaks(df, params)

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// The screenshots in docs/dashboard.md: every tab on the demo data (SPX unless noted), at desktop
+// The screenshots in docs/dashboard.md: every tab on the synthetic data (SYN-INDEX unless noted), at desktop
 // width, plus the dark theme and a phone. Not part of `npm run e2e`; run `npm run screenshots`
 // after a change to the UI, then look at each image before committing it.
 
@@ -32,7 +32,7 @@ const TABS = 'nav.tabs';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('label:has-text("Ticker") select')).toHaveValue('SPX');
+  await expect(page.locator('label:has-text("Ticker") select')).toHaveValue('SYN-INDEX');
 });
 
 test('overview', async ({ page }) => {
@@ -65,10 +65,10 @@ test('statistics', async ({ page }) => {
 
 test('multi-ticker', async ({ page }) => {
   await page.getByRole('tab', { name: 'Multi-ticker' }).click();
-  const demo = page.locator('fieldset', { hasText: 'Demo data (offline)' });
-  await demo.getByRole('button', { name: 'All' }).click();
-  await page.getByRole('button', { name: 'Compare 10 tickers' }).click();
-  await expect(page.locator('main details')).toHaveCount(10);
+  const synthetic = page.locator('fieldset', { hasText: 'Synthetic data (offline)' });
+  await synthetic.getByRole('button', { name: 'All' }).click();
+  await page.getByRole('button', { name: 'Compare 6 tickers' }).click();
+  await expect(page.locator('main details')).toHaveCount(6);
   await shoot(page, 'multi-ticker', 0, { from: TABS });
 });
 

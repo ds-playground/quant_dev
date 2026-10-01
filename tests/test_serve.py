@@ -39,7 +39,7 @@ def test_the_api_and_its_docs_come_first(built):
     assert client.get("/openapi.json").json()["info"]["title"] == "quant_dev API"
     missing = client.get("/api/nope")
     assert missing.status_code == 404 and "dashboard" not in missing.text
-    assert client.post("/api/overview", json={"data_source": "demo", "ticker": "SPX"}).status_code == 200
+    assert client.post("/api/overview", json={"data_source": "synthetic", "ticker": "SYN-INDEX"}).status_code == 200
 
 
 def test_other_paths_get_the_page_but_missing_files_do_not(built):

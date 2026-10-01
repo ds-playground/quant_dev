@@ -1,7 +1,7 @@
 """Offline tests for data/local, the store of saved live data (src/tools/price_return/store.py),
 and the API endpoints over it.
 
-The `yahoo` fixture (conftest.py) serves data/demo/CL_demo.csv as CL=F in yfinance's own shape,
+The `yahoo` fixture (conftest.py) serves the synthetic SYN-OIL bars as CL=F in yfinance's own shape,
 up to a movable "today", so saving and updating can be replayed without a network.
 """
 import datetime as dt
@@ -12,7 +12,6 @@ import pytest
 
 from src.tools import price_return as pr
 from src.tools.price_return import store
-from src.tools.price_return.data import DEMO_DIR
 
 
 def expected_bars(stub, symbol="CL=F", start="2016-01-01", until="2026-06-29"):
@@ -218,7 +217,7 @@ def test_update_endpoint_saves_then_updates(api):
 
 def test_symbols_with_url_characters_save_under_their_own_name(api):
     client, yahoo = api
-    yahoo.bars["^GSPC"] = pd.read_csv(DEMO_DIR / "SPX_demo.csv", parse_dates=["Date"], index_col="Date")
+    yahoo.bars["^GSPC"] = pr.synthetic_bars("SYN-INDEX")
     assert client.post("/api/local/%5EGSPC/update").status_code == 200
     assert (store.LOCAL_DIR / "^GSPC.csv").is_file()
     assert [t["symbol"] for t in client.get("/api/local").json()["tickers"]] == ["^GSPC"]
@@ -277,7 +276,7 @@ def test_update_all_endpoint_saves_the_list_or_the_chosen_symbols(api):
     assert [r["symbol"] for r in body["saved"]] == ["CL=F"]
     assert [f["symbol"] for f in body["failed"]] == [s for s in configured if s != "CL=F"]
     assert [t["symbol"] for t in client.get("/api/local").json()["tickers"]] == ["CL=F"]
-    yahoo.bars["^GSPC"] = pd.read_csv(DEMO_DIR / "SPX_demo.csv", parse_dates=["Date"], index_col="Date")
+    yahoo.bars["^GSPC"] = pr.synthetic_bars("SYN-INDEX")
     body = client.post("/api/local/update-all", json={"symbols": ["^GSPC", "CL=F"]}).json()
     assert [(r["symbol"], r["created"]) for r in body["saved"]] == [("^GSPC", True), ("CL=F", False)]
     assert body["failed"] == []
