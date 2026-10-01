@@ -30,7 +30,7 @@ that is not derived from the market.
 | **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
 | **2** ✅ | Download-all button | the dashboard button, with each ticker's result — **done, `9c1e012`** |
 | **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed — **done, `8f9922f`** |
-| **4** ✅ | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks read saved data when there is some, with the synthetic tickers for offline runs |
+| **4** ✅ | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks read saved data when there is some, with the synthetic tickers for offline runs — **done, `d84b9da`** |
 | **5** | History rewrite (after merge) | `data/demo` removed from every commit; archive branches deleted. Run only with the owner's confirmation, after showing the commands |
 
 ## Phase 0: License ✅
