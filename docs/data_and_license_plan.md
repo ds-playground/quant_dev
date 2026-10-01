@@ -29,7 +29,7 @@ that is not derived from the market.
 | **0** ✅ | License | `LICENSE` (MIT, Jones Wan); README License section with what it does not cover; `license` in `pyproject.toml` and `package.json` — **done, `c304972`** |
 | **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
 | **2** ✅ | Download-all button | the dashboard button, with each ticker's result — **done, `9c1e012`** |
-| **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed |
+| **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed — **done, `8f9922f`** |
 | **4** | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks default to saved data, falling back to simulated |
 | **5** | History rewrite (after merge) | `data/demo` removed from every commit; archive branches deleted. Run only with the owner's confirmation, after showing the commands |
 
