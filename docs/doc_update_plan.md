@@ -32,7 +32,7 @@ asked for:
 | **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `1585e90`** |
 | **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented — **done, `649d43b`** |
 | **3** ✅ | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` — **done, `982c05c`** |
-| **4** ✅ | Wrap-up | README layout, Tests and changelog; full checks; PR when asked |
+| **4** ✅ | Wrap-up | README layout, Tests and changelog; full checks; PR when asked — **done, `f9c427c`** |
 
 ## Phase 1: README workflow diagram ✅
 
