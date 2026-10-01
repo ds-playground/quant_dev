@@ -219,7 +219,8 @@ Ctrl+C stops both. It works on Windows, macOS and Linux.
 **Check it:** in `dashboard/`, `npm test` (unit tests), `npm run typecheck`, and `npm run e2e`,
 which builds the dashboard, starts `python -m src.api` on port 8765 and drives every tab in
 Chromium on the demo data (about 30 s). The first time, run `npx playwright install chromium`;
-set `PYTHON` if your interpreter is not called `python`.
+set `PYTHON` if your interpreter is not called `python`. After a change to the UI,
+`npm run screenshots` retakes the images in `docs/dashboard.md` (about 45 s).
 
 ## Methodology
 
@@ -370,11 +371,16 @@ quant_dev/
 ├── dashboard/                             React dashboard (Vite, TypeScript), talks to src/api
 │   ├── src/api.ts                         typed client for every endpoint
 │   ├── e2e/smoke.spec.ts                  end-to-end check of every tab (Playwright, npm run e2e)
+│   ├── e2e/screenshots.ts                 the screenshots in docs/dashboard.md (npm run screenshots)
 │   ├── src/components/                    parameter panel, Plotly chart, table, stat tiles
 │   └── src/tabs/                          one component per tab
 │
 ├── docs/
+│   ├── api.md                             the HTTP API: running it, every endpoint, queries
+│   ├── dashboard.md                       the dashboard: every tab, with a screenshot
+│   ├── images/dashboard/                  those screenshots
 │   ├── dashboard_plan.md                  React dashboard POC plan, with status
+│   ├── doc_update_plan.md                 the plan for the pages above, with status
 │   ├── price_return_plan.md               legacy removal + price-return revamp plan, with status
 │   └── ta_tools_plan.md                   phased plan for ta_tools, with status
 ├── notebooks/                             tracked, promoted notebooks
@@ -397,7 +403,7 @@ quant_dev/
 │   ├── test_price_return.py               price_return options, methods, statistics, charts
 │   ├── test_demo_data.py                  the demo files, the 'demo' source, the Yahoo path against them
 │   ├── test_local_store.py                saving, updating and reading data/local, and its endpoints
-│   ├── test_api.py                        src/api against direct package calls
+│   ├── test_api.py                        src/api against direct package calls; docs/api.md's routes
 │   ├── test_serve.py                      serving the dashboard, `python -m src.api`, the dev launcher
 │   └── test_ta_tools.py                   ta_tools, offline
 │
@@ -633,7 +639,8 @@ All tests run offline, from the repo root or from `tests/`.
   the files, and the Yahoo path against the same files.
 - `test_local_store.py` covers saving and updating `data/local` (first save, updates,
   revisions, failed downloads and interrupted writes) and its endpoints.
-- `test_api.py` checks each API response against a direct package call, value for value.
+- `test_api.py` checks each API response against a direct package call, value for value, and
+  that `docs/api.md` names exactly the API's routes.
 - `test_serve.py` covers serving the built dashboard, `python -m src.api` and the dev launcher.
 
 The Yahoo-path tests run on a yfinance stand-in (`conftest.py`) that serves a demo file in
@@ -641,7 +648,8 @@ yfinance's own shape. New test groups are also checked by seeding deliberate bug
 confirming a test fails on each. The dashboard has its own unit tests (`npm test` in
 `dashboard/`, for the client, formatting and chart theming), a type check (`npm run
 typecheck`), and an end-to-end check (`npm run e2e`) that drives every tab of the built
-dashboard in Chromium against the real API; see "Dashboard".
+dashboard in Chromium against the real API; see "Dashboard". `npm run screenshots` retakes the
+images in `docs/dashboard.md` the same way; it checks nothing, so look at each image.
 
 ## Changelog
 
@@ -668,6 +676,9 @@ Commit dates, newest first. This is a research repo, so there are no version tag
 
   `npm run screenshots` in `dashboard/` retakes the images (`dashboard/e2e/screenshots.ts`, a
   Playwright project kept out of `npm run e2e`).
+- The repo layout, the Tests section and the dashboard checks list the new pages, the
+  screenshots spec and the routes test. Every relative link and anchor in the README and `docs/`
+  resolves.
 
 ### 2026-09-30
 - Review of the documents and tests. The documents now agree with the code: the saved-data

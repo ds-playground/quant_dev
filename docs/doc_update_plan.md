@@ -32,7 +32,7 @@ asked for:
 | **1** ✅ | README workflow diagram | `## Development workflow` after `## Purpose`; `## API` renamed `## Package API`; this plan — **done, `1585e90`** |
 | **2** ✅ | API page | `docs/api.md`: run the API alone, every endpoint, how a query works, worked examples; a test that every route is documented — **done, `649d43b`** |
 | **3** ✅ | Dashboard page | `docs/dashboard.md`: a screenshot and explanation per tab; `npm run screenshots` to regenerate the images in `docs/images/dashboard/` — **done, `982c05c`** |
-| **4** | Wrap-up | README layout, Tests and changelog; full checks; PR when asked |
+| **4** ✅ | Wrap-up | README layout, Tests and changelog; full checks; PR when asked |
 
 ## Phase 1: README workflow diagram ✅
 
@@ -148,7 +148,27 @@ asked for:
   - the controls;
   - the package functions behind it.
 
-## Phase 4: Wrap-up
+## Phase 4: Wrap-up ✅
+
+- **README:**
+  - the layout lists `docs/api.md`, `docs/dashboard.md`, `docs/images/dashboard/`, this plan
+    and `dashboard/e2e/screenshots.ts`;
+  - `test_api.py`'s line and the Tests section mention the routes test;
+  - the dashboard checks mention `npm run screenshots`;
+  - a changelog line.
+
+  `docs/dashboard_plan.md`'s status points to the new pages.
+- **Checks:**
+  - `pytest`: 324 tests, passing from the repo root and from `tests/`;
+  - `npm run typecheck`;
+  - `npm test`: 19 tests;
+  - `npm run e2e`: 9 tests;
+  - `npm run screenshots`: 7 tests, and the retaken images are byte-identical to the committed
+    ones;
+  - a script found that every relative link and anchor in the README and `docs/` resolves.
+- **Not done here:** the PR into `master`, until the owner asks.
+
+**As planned:**
 
 - **README:**
   - the layout lists `docs/api.md`, `docs/dashboard.md`, `docs/images/` and the screenshots
