@@ -16,9 +16,11 @@ only lays them out, formats them and handles the controls.
 - [Data choices](#data-choices)
 - [Theme and phone layout](#theme-and-phone-layout)
 
-The screenshots show the S&P 500 demo series (`SPX`, from `data/demo`: processed data, not
-market data) from 2016 to 2026-09-29, with the thresholds `configs/demo_tickers.yaml` sets for it
-(a win is a day above +0.2%, a loss a day below −0.2%). `npm run screenshots` in `dashboard/`
+The screenshots show the synthetic equity index (`SYN-INDEX`: generated from code, not market
+data; see the README's [Synthetic data](../README.md#synthetic-data)) from 2016 to 2026-09-30,
+with the thresholds `configs/synthetic_tickers.yaml` sets for it (a win is a day above +0.2%, a
+loss a day below −0.2%). The series has a scheduled sell-off in February and March 2020, which
+shows up in several charts. `npm run screenshots` in `dashboard/`
 retakes them all from the running app (`dashboard/e2e/screenshots.ts`).
 
 ## Start it
@@ -66,11 +68,11 @@ sent.
 The first four tabs analyse the chosen ticker. Each asks the API for its own tables and charts,
 and the answers are cached, so switching tabs or coming back is instant. **Multi-ticker** is
 separate: it has its own menu and compares several tickers at once. A yellow notice under the
-panel marks the demo data whenever it is shown.
+panel marks the synthetic data whenever it is shown.
 
 ## Overview
 
-![The Overview tab on the S&P 500 demo series](images/dashboard/overview.png)
+![The Overview tab on the synthetic equity index](images/dashboard/overview.png)
 
 **What it answers:** what the series looks like, and how it is behaving now.
 
@@ -78,7 +80,7 @@ panel marks the demo data whenever it is shown.
   - the last close;
   - the annualized return over the last `trade_days` (250) days, compounded;
   - the annualized volatility, which is the daily standard deviation × √250 (here
-    0.82% × √250 = 13.0%);
+    0.86% × √250 = 13.6%);
   - the mean daily return;
   - how many daily returns were loaded, and their range.
 
@@ -119,8 +121,8 @@ different ways.
   - **Avg Win/Loss Ret %** is the mean daily return on a streak's days, averaged over the
     streaks.
 
-  On the demo S&P 500, 16.7% of 2-day windows were win streaks against 10.9% loss streaks. The
-  two bar charts show the same counts and frequencies.
+  On SYN-INDEX, 15.6% of 2-day windows were win streaks against 10.8% loss streaks. The two bar
+  charts show the same counts and frequencies.
 - **Streak timeline:** daily returns with every streak window shaded, green for wins and red for
   losses. **Timeline window** chooses the streak length shown.
 - **Cumulative moves: the compounded return clears the threshold.** These are windows whose
@@ -163,8 +165,8 @@ Each row's columns:
 - **prob:** count ÷ windows.
 - **last seen:** the date the last such window ended.
 
-In the screenshot, a 3-day rise of more than 3% happened in 61 of 1,248 windows over five years
-(4.9%). Those formed 34 separate episodes, and the last one ended on 2026-08-05. A probability
+In the screenshot, a 3-day rise of more than 3% happened in 28 of 1,248 windows over five years
+(2.2%). Those formed 12 separate episodes, and the last one ended on 2026-08-04. A probability
 resting on a handful of episodes is fragile. When the 2-year and 5-year rows differ a lot, the
 estimate depends on the regime.
 
@@ -179,12 +181,12 @@ numbers can be trusted. It mirrors `notebooks/price_return_statistics.ipynb`, in
 
 1. **Distribution and tails.** These compare the daily returns with a normal distribution:
    - **Moments** and the **Jarque–Bera test.** Excess kurtosis is 0 for a normal; here it is
-     15.7, and the p-value is 0.
-   - **A Student-t fit.** Few degrees of freedom (2.65) means fat tails.
+     12, and the p-value is 0.
+   - **A Student-t fit.** Few degrees of freedom (2.98) means fat tails.
    - **The Hill tail index** for each tail. Below 4, kurtosis is not a stable number.
    - **Value at risk and expected shortfall** over 1, 5 and 10 days, at 95% and 99%, by three
      methods: historical, normal, and Cornish–Fisher. At 99% over one day the historical VaR
-     (3.26%) is well above the normal one (2.56%).
+     (2.30%) is well above the normal one (1.82%).
 
    The **Q-Q plot** sets sorted returns against normal and Student-t quantiles. Points bending
    away from the line are tails the model misses.
@@ -215,9 +217,11 @@ numbers can be trusted. It mirrors `notebooks/price_return_statistics.ipynb`, in
      log scale, for moves above and below.
 
    Observed well above both models means fatter tails or more dependence than an i.i.d. model
-   allows. For example, a 3-day fall of more than 5% happened in 0.80% of five-year windows; the
-   normal model gives 0.23%, the Student-t 0.56%. An interval that spans a multiple of the
-   estimate means the number is not precise enough to price on alone.
+   allows. For example, a 3-day fall of more than 5% happened in 0.40% of five-year windows. The
+   normal model gives 0.007%, nearly 60 times less, and the Student-t gives 0.41%. Here the fat
+   tails explain the gap, as they should: the series was generated with Student-t shocks. An
+   interval that spans a multiple of the estimate means the number is not precise enough to
+   price on alone.
 
 Package: `return_moments`, `jarque_bera`, `fit_student_t`, `tail_index`, `value_at_risk`,
 `autocorrelation`, `ljung_box`, `variance_ratio`, `arch_lm`, `risk_ratios`, `drawdown_table`,
@@ -227,14 +231,14 @@ Package: `return_moments`, `jarque_bera`, `fit_student_t`, `tail_index`, `value_
 
 ## Multi-ticker
 
-![The Multi-ticker tab comparing the ten demo tickers](images/dashboard/multi-ticker.png)
+![The Multi-ticker tab comparing the six synthetic tickers](images/dashboard/multi-ticker.png)
 
 **What it answers:** whether an instrument is unusual next to others.
 
 - **Choose the tickers.** The menu lists three groups:
   - the default Yahoo list, plus any tickers added with Other ticker…;
   - the saved CSVs;
-  - the demo files.
+  - the synthetic tickers.
 
   Pick from any mix of them, up to 30. **All** and **None** set a whole group. Nothing is chosen
   on a fresh page, and the choice stays while other tabs are open.
@@ -243,7 +247,7 @@ Package: `return_moments`, `jarque_bera`, `fit_student_t`, `tail_index`, `value_
   so the rows are comparable across asset classes.
 - **Streak frequency:** the share of 2-, 3- and 5-day windows that were win and loss streaks. The
   **ratio** divides the two at the chosen holding period: above 1, runs up outnumber runs down.
-  EUR/USD (0.89) is the only demo ticker below 1 apart from the 2× TSLA ETF.
+  Of the synthetic tickers, only the crude oil series (0.99) is below 1.
 - **Return distribution:** each ticker's drift, median, skew and share of threshold-clearing
   days.
 - **Rare events per ticker:** each ticker's rare-event table for the holding period. Open a row
@@ -260,18 +264,19 @@ Package: `analyze_ticker`, `compare_tickers`.
 ```mermaid
 flowchart LR
     DATA{"<b>Data</b> control"}
-    DATA --> DEMO["<b>Demo data (offline)</b><br/>data/demo · 10 tickers<br/>processed, not market data"]
+    DATA --> SYN["<b>Synthetic data (offline)</b><br/>6 tickers, generated from code<br/>not market data"]
     DATA --> YAHOO["<b>Yahoo Finance (live)</b><br/>configs/tickers.yaml"]
     DATA --> LOCAL["<b>Saved CSV (offline)</b><br/>data/local · git-ignored"]
     YAHOO --> OTHER["<b>Other ticker…</b><br/>any Yahoo symbol →<br/>the Added group"]
     YAHOO -->|"Save to CSV<br/>(bars up to yesterday)"| LOCAL
     LOCAL -->|"Update CSV<br/>(only the new bars)"| LOCAL
-    DEMO & YAHOO & LOCAL -.->|any mix| MULTI["<b>Multi-ticker</b> menu"]
+    SYN & YAHOO & LOCAL -.->|any mix| MULTI["<b>Multi-ticker</b> menu"]
 ```
 
-- **Demo data (offline):** ten tickers in `data/demo`, from 2016 to 2026-09. They are Yahoo bars
-  with 0.01% random noise added, for learning and for running everything offline. They are not
-  market data; do not trade on them.
+- **Synthetic data (offline):** six tickers generated from code (`synthetic.py`), from 2016 to
+  2026-09-30, for learning and for running everything offline. They have fat tails, volatility
+  clustering and a sell-off like real returns, but they are not market data; do not trade on
+  them.
 - **Yahoo Finance (live):** the tickers in `configs/tickers.yaml`, downloaded when chosen.
   - **Other ticker…** at the end of the list loads any Yahoo symbol (`AAPL`, `^GSPC`, `SI=F`).
     It gets the config's default thresholds and stays in an **Added** group in this browser;
