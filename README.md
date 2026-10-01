@@ -121,38 +121,47 @@ settings — and defaults to a self-contained simulated series, so `Params()` ru
 with no network access. Nothing is bound at import time: configure once, pass the
 object around, re-run.
 
-`data_source` is `'yahoo'` (downloaded), `'simulated'` (the default), `'demo'` (the
-processed daily files in `data/demo`, which run offline on market-shaped data), or `'local'`
-(Yahoo data you have saved; see "Saved live data").
+`data_source` is `'yahoo'` (downloaded), `'local'` (Yahoo data you have saved; see "Saved live
+data"), `'synthetic'` (a generated, market-shaped series; see "Synthetic data"), or
+`'simulated'` (the default: i.i.d. normal returns from the `sim_*` fields).
 
-## Demo data
+## Synthetic data
 
-`data/demo/` holds daily bars for ten tickers (SPX, NDQ, YM, CL, RTY, EURUSD, XAUUSD, AAPL,
-KO, TSLL), from 2016 to 2026-09. **They are processed data, not market data:** Yahoo Finance
-bars with 0.01% random noise added to every open, high, low, close and volume, provided for
-education and for running the notebooks, the dashboard and the tests offline. Do not use them
-for trading. [`data/demo/README.md`](data/demo/README.md) says how they were made
-(`scripts/make_demo_data.py`, seeded), and what to watch for, such as CL's negative close in
-April 2020 and XAUUSD being gold futures.
+No market data is committed to this repo. To run everything offline, the package generates six
+**synthetic tickers** from code: SYN-INDEX, SYN-TECH, SYN-GOLD, SYN-FX, SYN-OIL and SYN-LEV,
+business days from 2016 (SYN-LEV from August 2022) to 2026-09-30
+([`synthetic.py`](src/tools/price_return/synthetic.py)). **They are not market data.** Each is a
+GARCH(1,1) process with Student-t shocks, seeded from its name, so it has what real returns have
+and an i.i.d. normal series lacks:
+
+- fat tails;
+- volatility clustering, with calm and wild spells;
+- a scheduled sell-off, so drawdowns are worth charting;
+- for SYN-OIL, one settle below zero (2020-04-20), the case WTI crude posed in April 2020.
+
+The notebooks, the dashboard, the tests and the documentation's screenshots use them. Every
+machine gets the same series, though a NumPy upgrade may change the numbers (never their
+properties). For real prices, use `'yahoo'` or saved data.
 
 ```python
-from src.tools.price_return import demo_tickers, load_ticker_config
+from src.tools.price_return import synthetic_bars, synthetic_tickers, load_ticker_config
 
-P  = Params(data_source='demo', ticker='SPX', start_date='2016-01-01')
+P  = Params(data_source='synthetic', ticker='SYN-INDEX', start_date='2016-01-01')
 df = add_rolling_stats(load_price_data(P), P)
 
-demo_tickers()                                     # the tickers with a demo file
-load_ticker_config('configs/demo_tickers.yaml')    # all ten, labelled, with thresholds
+synthetic_tickers()                                     # the six names
+synthetic_bars('SYN-OIL')                               # its Open/High/Low/Close/Volume bars
+load_ticker_config('configs/synthetic_tickers.yaml')    # all six, labelled, with thresholds
 ```
 
-For `'yahoo'`, `'demo'` and `'local'` alike, `end_date` is exclusive and closes are as traded
-(not dividend-adjusted).
+For `'yahoo'`, `'local'` and `'synthetic'` alike, `end_date` is exclusive; Yahoo closes are as
+traded (not dividend-adjusted).
 
 ## Saved live data
 
 Live Yahoo data can be saved as plain CSV in `data/local/` and analysed offline with
 `data_source='local'`. The folder is **git-ignored**: it holds real market data, which does not
-belong in a public repo. Each symbol is one file (`ES=F.csv`) in the demo files' layout, plus a
+belong in a public repo. Each symbol is one file (`ES=F.csv`), Date and OHLCV columns, plus a
 `manifest.csv` of date ranges and update times.
 
 ```python
@@ -180,11 +189,11 @@ A React dashboard over the same package, served with its API by one command.
 **[`docs/dashboard.md`](docs/dashboard.md)** shows every tab with a screenshot and explains its
 analysis; the build plan is [`docs/dashboard_plan.md`](docs/dashboard_plan.md). Five tabs: Overview, Streaks &
 cumulative, Rare events (live filters), Statistics (the bootstrap on request) and Multi-ticker.
-Three data choices: the demo files (offline), Yahoo Finance (live), and live data you have
+Three data choices: the synthetic tickers (offline), Yahoo Finance (live), and live data you have
 saved as CSV (offline; see "Saved live data"). With Yahoo Finance, **Other ticker…** at the end
 of the ticker list loads any Yahoo symbol (it gets the defaults from `configs/tickers.yaml`), and
 keeps it in an "Added" group in this browser. The Multi-ticker tab compares any chosen mix of
-the configured and added Yahoo tickers, saved CSVs and demo files; the same symbol live and
+the configured and added Yahoo tickers, saved CSVs and synthetic tickers; the same symbol live and
 saved can sit side by side.
 
 ```
@@ -221,7 +230,7 @@ Ctrl+C stops both. It works on Windows, macOS and Linux.
 
 **Check it:** in `dashboard/`, `npm test` (unit tests), `npm run typecheck`, and `npm run e2e`,
 which builds the dashboard, starts `python -m src.api` on port 8765 and drives every tab in
-Chromium on the demo data (about 30 s). The first time, run `npx playwright install chromium`;
+Chromium on the synthetic data (about 40 s). The first time, run `npx playwright install chromium`;
 set `PYTHON` if your interpreter is not called `python`. After a change to the UI,
 `npm run screenshots` retakes the images in `docs/dashboard.md` (about 45 s).
 
@@ -328,15 +337,13 @@ quant_dev/
 │
 ├── configs/
 │   ├── tickers.yaml                       ticker set + per-ticker parameters (Yahoo data)
-│   └── demo_tickers.yaml                  the same for the ten demo files
+│   └── synthetic_tickers.yaml             the same for the six synthetic tickers
 │
 ├── data/
-│   ├── demo/                              processed daily bars (not market data) + README, manifest
 │   └── local/                             saved live Yahoo data (git-ignored; created on first save)
 │
 ├── scripts/
 │   ├── dev.py                             development: the API and the Vite dev server together
-│   ├── make_demo_data.py                  regenerates data/demo from Yahoo, with seeded noise
 │   └── update_local_data.py               saves or updates live data in data/local
 │
 ├── src/
@@ -354,7 +361,8 @@ quant_dev/
 │       ├── price_return/                  the framework
 │       │   ├── __init__.py                re-exports the whole public API
 │       │   ├── params.py                  Params + the ticker config that builds it
-│       │   ├── data.py                    price loading (Yahoo, demo, local, simulated), rolling statistics
+│       │   ├── data.py                    price loading (Yahoo, local, synthetic, simulated), rolling statistics
+│       │   ├── synthetic.py               the synthetic tickers: seeded GARCH-t bars, generated on use
 │       │   ├── store.py                   saved live data: save, update, list (data/local)
 │       │   ├── analysis.py                streaks, thresholds, rare events
 │       │   ├── viz.py                     the Plotly charts (nine analysis, five statistics)
@@ -404,7 +412,7 @@ quant_dev/
 │   ├── conftest.py                        shared fixtures: the yfinance stub, the API client, cache reset
 │   ├── test_smoke.py                      offline end-to-end pipeline check
 │   ├── test_price_return.py               price_return options, methods, statistics, charts
-│   ├── test_demo_data.py                  the demo files, the 'demo' source, the Yahoo path against them
+│   ├── test_synthetic_data.py             the synthetic series, the 'synthetic' source, the Yahoo path
 │   ├── test_local_store.py                saving, updating and reading data/local, and its endpoints
 │   ├── test_api.py                        src/api against direct package calls; docs/api.md's routes
 │   ├── test_serve.py                      serving the dashboard, `python -m src.api`, the dev launcher
@@ -463,12 +471,12 @@ can be retuned without touching the package.
 | Function | Purpose |
 |---|---|
 | `Params` | Every tunable value for a run |
-| `load_price_data` | A date / price / return_pct frame, from Yahoo Finance, the demo files or simulation |
+| `load_price_data` | A date / price / return_pct frame, from Yahoo Finance, saved data, the synthetic tickers or simulation |
 | `add_rolling_stats` | Adds `PCT Change {d}` / `{d} Av` / `{d} STD` columns plus the annualized pair |
 | `latest_snapshot`, `show_latest_snapshot` | Latest annualized and daily mean/vol |
 | `daily_returns_series` | Date-indexed decimal daily returns |
 | `compound_returns` | The compounded `n`-day return ending on each day: the package's one definition |
-| `demo_tickers` | The tickers with a file in `data/demo` |
+| `synthetic_tickers`, `synthetic_bars` | The synthetic tickers; one's generated daily bars |
 | `save_local`, `read_local` | Save or update a symbol's live data in `data/local`; read the saved bars |
 | `save_all` | `save_local` for every configured ticker (or a list), carrying on past failures |
 | `local_tickers`, `local_ticker_config` | What is saved; `{symbol: Params}` for it, thresholds from the ticker config |
@@ -488,7 +496,7 @@ can be retuned without touching the package.
 | `plot_streak_timeline` | Returns with win/loss streak periods shaded |
 | `plot_cumulative_heatmap`, `plot_cumulative_counts` | Threshold-clearing counts and frequencies |
 | `export_tables` | Write a `{filename: DataFrame}` mapping to CSV |
-| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml` (or another config, such as `configs/demo_tickers.yaml`), with a built-in fallback |
+| `load_ticker_config` | `{ticker: Params}` from `configs/tickers.yaml` (or another config, such as `configs/synthetic_tickers.yaml`), with a built-in fallback |
 | `config_params` | One symbol's `Params` from the ticker config, or from its defaults if not listed |
 | `analyze_ticker`, `compare_tickers` | The whole pipeline for one ticker; cross-ticker streak and distribution tables |
 | `distribution_summary` | One row of return-distribution statistics, using the ticker's thresholds |
@@ -639,15 +647,16 @@ All tests run offline, from the repo root or from `tests/`.
   implementations, formulas written out in the test, and seeded simulations with known
   answers (Pareto tails, AR(1) and GARCH paths, bootstrap coverage). `test_ta_tools.py` does
   the same for `ta_tools`.
-- `test_demo_data.py` checks the demo files against their manifest, the `demo` source against
-  the files, and the Yahoo path against the same files.
+- `test_synthetic_data.py` checks that the synthetic series have their intended properties (fat
+  tails, volatility clustering, the sell-off, the negative settle, independent tickers), the
+  `synthetic` source against the bars, and the Yahoo path against the same bars.
 - `test_local_store.py` covers saving and updating `data/local` (first save, updates,
   revisions, failed downloads and interrupted writes) and its endpoints.
 - `test_api.py` checks each API response against a direct package call, value for value, and
   that `docs/api.md` names exactly the API's routes.
 - `test_serve.py` covers serving the built dashboard, `python -m src.api` and the dev launcher.
 
-The Yahoo-path tests run on a yfinance stand-in (`conftest.py`) that serves a demo file in
+The Yahoo-path tests run on a yfinance stand-in (`conftest.py`) that serves synthetic bars in
 yfinance's own shape. New test groups are also checked by seeding deliberate bugs and
 confirming a test fails on each. The dashboard has its own unit tests (`npm test` in
 `dashboard/`, for the client, formatting and chart theming), a type check (`npm run
@@ -660,6 +669,13 @@ images in `docs/dashboard.md` the same way; it checks nothing, so look at each i
 Commit dates, newest first. This is a research repo, so there are no version tags.
 
 ### 2026-10-01
+- **No market data in the repo.** The demo data (`data/demo`, Yahoo Finance bars with 0.01%
+  noise), `scripts/make_demo_data.py` and `configs/demo_tickers.yaml` are removed, and so is
+  the `'demo'` source. In their place, six **synthetic tickers** generated from code
+  (`synthetic.py`, `data_source='synthetic'`, `configs/synthetic_tickers.yaml`): seeded GARCH(1,1)
+  with Student-t shocks, a scheduled sell-off, and one negative settle for SYN-OIL. The
+  dashboard's offline choice, the API's default ticker set (now `synthetic`; API 0.4.0), the
+  tests and the end-to-end checks use them. Real data comes from Yahoo, or from **Download all**.
 - `save_all` saves or updates every ticker in `configs/tickers.yaml` (or a list) in
   `data/local`, carrying on past a failure; `POST /api/local/update-all` and
   `scripts/update_local_data.py` call it ([`docs/data_and_license_plan.md`](docs/data_and_license_plan.md)).
@@ -908,5 +924,5 @@ Not covered by the MIT License:
 - **`trendlines` in `src/tools/ta_tools/indicators.py`** is a port of LuxAlgo's Trendlines with
   Breaks, which is CC BY-NC-SA 4.0. Treat that function as under the same license:
   non-commercial use only, and adaptations shared alike.
-- **Market data** stays under its provider's terms: the processed Yahoo Finance files in
-  `data/demo`, and any data you download, such as Yahoo data saved in `data/local`.
+- **Market data** you download, such as Yahoo data saved in `data/local`, stays under its
+  provider's terms. None is committed to this repo.

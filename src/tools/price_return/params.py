@@ -28,7 +28,7 @@ class Params:
     """
 
     # ── Price data ───────────────────────────────────────────────────────
-    data_source: str = 'simulated'      # 'simulated', 'yahoo', 'demo' (data/demo) or 'local' (data/local)
+    data_source: str = 'simulated'      # 'simulated', 'synthetic', 'yahoo' or 'local' (data/local)
     ticker: str = 'AAPL'
     start_date: str = '2020-01-01'
     end_date: str = field(default_factory=_today)
@@ -84,8 +84,8 @@ def _repo_root():
 
 
 DEFAULT_CONFIG_PATH = _repo_root() / 'configs' / 'tickers.yaml'
-# The same tickers' shape over the processed files in data/demo, for offline use.
-DEMO_CONFIG_PATH = _repo_root() / 'configs' / 'demo_tickers.yaml'
+# The synthetic tickers (synthetic.py), generated from code: the offline list.
+SYNTHETIC_CONFIG_PATH = _repo_root() / 'configs' / 'synthetic_tickers.yaml'
 
 _DEFAULT_TICKER_CONFIG = {
     'defaults': {

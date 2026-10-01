@@ -4,7 +4,7 @@
 /** The Params dataclass (src/tools/price_return/params.py), as JSON. Every POST body is one.
  *  tests/test_api.py checks that these field names match the dataclass. */
 export interface Params {
-  data_source: 'demo' | 'yahoo' | 'local' | 'simulated';
+  data_source: 'synthetic' | 'yahoo' | 'local' | 'simulated';
   ticker: string;
   start_date: string;
   end_date: string;
@@ -27,7 +27,7 @@ export interface Params {
   prob_min: number;
 }
 
-export type TickerSet = 'demo' | 'yahoo' | 'local';
+export type TickerSet = 'synthetic' | 'yahoo' | 'local';
 export type Cell = string | number | boolean | null;
 
 /** A DataFrame: column names in order, and one record per row. */

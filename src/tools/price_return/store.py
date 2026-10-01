@@ -1,7 +1,7 @@
 """Live data saved as plain CSV: download from Yahoo Finance once, then update on request.
 
 Each symbol is one file in `data/local/` (git-ignored: it is real market data), in the same
-layout as the demo files: Date, Open, High, Low, Close, Volume, as traded (`auto_adjust=False`).
+layout as `synthetic_bars`: Date, Open, High, Low, Close, Volume, as traded (`auto_adjust=False`).
 `manifest.csv` beside them records each file's range and when it was last updated.
 
 An update downloads only from a few days before the last saved bar and merges. The overlap
@@ -25,7 +25,7 @@ COLUMNS = ['Open', 'High', 'Low', 'Close', 'Volume']
 MANIFEST = 'manifest.csv'
 # Calendar days re-downloaded before the last saved bar on an update: about a trading week.
 OVERLAP_DAYS = 10
-# Prices are saved to 6 decimals, as the demo files are; revisions are compared at that precision.
+# Prices are saved to 6 decimals; revisions are compared at that precision.
 DECIMALS = 6
 _SAFE = re.compile(r'[A-Za-z0-9=^._-]')
 

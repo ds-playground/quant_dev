@@ -8,7 +8,7 @@ import pytest
 
 from src.api import cache
 from src.tools.price_return import store
-from src.tools.price_return.data import DEMO_DIR
+from src.tools.price_return.synthetic import synthetic_bars
 
 
 @pytest.fixture(autouse=True)
@@ -20,14 +20,13 @@ def fresh_api_cache():
 
 
 class YahooStub:
-    """Stands in for yfinance, offline: serves data/demo/CL_demo.csv as CL=F, in yfinance's own
+    """Stands in for yfinance, offline: serves the synthetic SYN-OIL bars as CL=F, in yfinance's own
     shape ((Price, Ticker) columns, and an Adj Close that differs from Close, so reading the
     wrong column shows), and only up to `until`, a movable "today". Other symbols get an empty
     frame, as Yahoo returns for an unknown one. More symbols can be added to `bars`."""
 
     def __init__(self):
-        bars = pd.read_csv(DEMO_DIR / "CL_demo.csv", parse_dates=["Date"], index_col="Date")
-        self.bars = {"CL=F": bars}
+        self.bars = {"CL=F": synthetic_bars("SYN-OIL")}
         self.until = pd.Timestamp("2026-06-30")
         self.fail = None                     # an exception to raise instead of answering
         self.calls = []

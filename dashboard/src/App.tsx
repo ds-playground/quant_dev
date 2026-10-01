@@ -24,7 +24,7 @@ type TabId = (typeof TABS)[number]['id'];
 export default function App() {
   const [themeChoice, setThemeChoice, mode] = useTheme();
   const [tab, setTab] = useState<TabId>('overview');
-  const [tickerSet, setTickerSet] = useState<TickerSet>('demo');
+  const [tickerSet, setTickerSet] = useState<TickerSet>('synthetic');
   const [params, setParams] = useState<Params | null>(null);
   const [multi, setMulti] = useState<MultiTickerState>(initialMultiTicker);
 
@@ -48,7 +48,7 @@ export default function App() {
   const list = [...configured, ...extra];
   const lookupsPending = tickerSet === 'yahoo' && lookups.some((q) => q.isPending);
 
-  // A new ticker list starts on its first ticker (SPX for the demo set), with its parameters.
+  // A new ticker list starts on its first ticker (SYN-INDEX for the synthetic set), with its parameters.
   useEffect(() => {
     if (!tickers.data || lookupsPending) return;
     if (list.length && !list.some((t) => t.symbol === params?.ticker)) setParams(list[0].params);
@@ -99,10 +99,10 @@ export default function App() {
         onApply={setParams}
       />
 
-      {params?.data_source === 'demo' ? (
+      {params?.data_source === 'synthetic' ? (
         <p className="notice" role="note">
-          <strong>Demo data:</strong> processed from Yahoo Finance with 0.01% random noise. Not
-          market data; for education only (see <code>data/demo/README.md</code>).
+          <strong>Synthetic data:</strong> generated from code, not market data. For learning the
+          analysis offline; for real prices, choose Yahoo Finance or Saved CSV.
         </p>
       ) : null}
 

@@ -76,12 +76,12 @@ def test_health():
                                                 "dashboard_built": dashboard.is_built()}
 
 
-@pytest.mark.parametrize("query, path", [("", pr.params.DEMO_CONFIG_PATH),       # demo by default
+@pytest.mark.parametrize("query, path", [("", pr.params.SYNTHETIC_CONFIG_PATH),  # synthetic by default
                                          ("?set=yahoo", pr.params.DEFAULT_CONFIG_PATH)])
 def test_tickers_are_the_ticker_config(query, path):
     body = client.get("/api/tickers" + query).json()
     config = pr.load_ticker_config(path, verbose=False)
-    assert body["set"] == ("yahoo" if "yahoo" in query else "demo")
+    assert body["set"] == ("yahoo" if "yahoo" in query else "synthetic")
     assert body["source"] == str(path)
     assert [t["symbol"] for t in body["tickers"]] == list(config)
     for entry in body["tickers"]:
@@ -90,11 +90,11 @@ def test_tickers_are_the_ticker_config(query, path):
         assert entry["params"] == via_json(clean(dataclasses.asdict(p)))
 
 
-def test_the_default_list_starts_on_spx_and_loads_offline():
+def test_the_default_list_starts_on_syn_index_and_loads_offline():
     first = client.get("/api/tickers").json()["tickers"][0]
     response = client.post("/api/overview", json=first["params"])
     assert response.status_code == 200
-    assert response.json()["ticker"] == first["symbol"] == "SPX"
+    assert response.json()["ticker"] == first["symbol"] == "SYN-INDEX"
 
 
 def test_unknown_ticker_set_is_rejected():
@@ -103,7 +103,7 @@ def test_unknown_ticker_set_is_rejected():
 
 @pytest.mark.parametrize("payload", [
     SIMULATED,
-    {"data_source": "demo", "ticker": "CL", "start_date": "2019-06-01", "end_date": "2021-06-01"},
+    {"data_source": "synthetic", "ticker": "SYN-OIL", "start_date": "2019-06-01", "end_date": "2021-06-01"},
 ])
 def test_overview_matches_the_package_exactly(payload):
     response = client.post("/api/overview", json=payload)
@@ -144,7 +144,7 @@ def test_prices_are_cached_by_the_data_fields_only(monkeypatch):
 
 
 # ── Phase 2: analysis, rare events, charts, statistics, multi-ticker ─────────
-DEMO = {"data_source": "demo", "ticker": "SPX", "start_date": "2019-01-01"}
+SYN = {"data_source": "synthetic", "ticker": "SYN-INDEX", "start_date": "2019-01-01"}
 
 
 def direct(payload):
@@ -159,7 +159,7 @@ def table(frame):
                      "records": frame_to_records(frame)})
 
 
-@pytest.mark.parametrize("payload", [DEMO, SIMULATED])
+@pytest.mark.parametrize("payload", [SYN, SIMULATED])
 def test_streak_and_cumulative_summaries_match_the_package(payload):
     p, df, _ = direct(payload)
     body = client.post("/api/streaks", json=payload).json()
@@ -175,7 +175,7 @@ def test_streak_and_cumulative_summaries_match_the_package(payload):
     ("?n_days=5&change_type=cumulative", [5], "cumulative"),
 ])
 def test_rare_events_match_low_probability_view(query, n_days, change_type):
-    payload = {**DEMO, "prob_max": 0.2, "prob_min": 0.001}
+    payload = {**SYN, "prob_max": 0.2, "prob_min": 0.001}
     p, _, r = direct(payload)
     expected = pr.low_probability_view(pr.build_historical_analysis(r, p), n_days, p,
                                        change_type=change_type)
@@ -189,16 +189,16 @@ def test_moving_the_probability_bounds_refilters_the_cached_table(monkeypatch):
     real = cache.build_historical_analysis
     monkeypatch.setattr(cache, "build_historical_analysis",
                         lambda *a, **k: calls.append(1) or real(*a, **k))
-    wide = client.post("/api/rare-events", json={**DEMO, "prob_max": 0.5}).json()
-    narrow = client.post("/api/rare-events", json={**DEMO, "prob_max": 0.01}).json()
+    wide = client.post("/api/rare-events", json={**SYN, "prob_max": 0.5}).json()
+    narrow = client.post("/api/rare-events", json={**SYN, "prob_max": 0.01}).json()
     assert len(calls) == 1
     assert 0 < len(narrow["events"]["records"]) < len(wide["events"]["records"])
-    client.post("/api/rare-events", json={**DEMO, "lookback_years": [1, 3]})
+    client.post("/api/rare-events", json={**SYN, "lookback_years": [1, 3]})
     assert len(calls) == 2                     # a new lookback is a new table
 
 
 def test_rare_events_reject_a_holding_period_not_computed():
-    response = client.post("/api/rare-events?n_days=7", json=DEMO)
+    response = client.post("/api/rare-events?n_days=7", json=SYN)
     assert response.status_code == 422 and "streak_days" in response.json()["detail"]
 
 
@@ -227,20 +227,20 @@ def _reference_charts(p, df, r):
 
 def test_every_chart_is_the_notebook_figure():
     pytest.importorskip("scipy")
-    p, df, r = direct(DEMO)
+    p, df, r = direct(SYN)
     reference = _reference_charts(p, df, r)
     listed = client.get("/api/charts").json()["charts"]
     assert [c["name"] for c in listed] == list(reference)
     assert [c["group"] for c in listed].count("statistics") == 5
     for name, fig in reference.items():
-        response = client.post(f"/api/charts/{name}?n_boot=100", json=DEMO)
+        response = client.post(f"/api/charts/{name}?n_boot=100", json=SYN)
         assert response.status_code == 200, name
         assert response.json() == figure_to_json(fig), name
 
 
 def test_chart_options_reach_the_plot():
     pytest.importorskip("scipy")
-    p, df, r = direct(DEMO)
+    p, df, r = direct(SYN)
     cases = {
         "streak-timeline?window=3": pr.plot_streak_timeline(df, pr.detect_streaks(df, p), p,
                                                            window=3),
@@ -252,18 +252,18 @@ def test_chart_options_reach_the_plot():
                                         "consecutive", "below", n_years=2),
     }
     for path, fig in cases.items():
-        assert client.post(f"/api/charts/{path}", json=DEMO).json() == figure_to_json(fig), path
+        assert client.post(f"/api/charts/{path}", json=SYN).json() == figure_to_json(fig), path
 
 
 def test_unknown_chart_is_a_404_listing_the_charts():
-    response = client.post("/api/charts/pie", json=DEMO)
+    response = client.post("/api/charts/pie", json=SYN)
     assert response.status_code == 404 and "rolling-average" in response.json()["detail"]
 
 
 def test_statistics_sections_match_the_package():
     pytest.importorskip("scipy")
-    p, _, r = direct(DEMO)
-    post = lambda section, q="": client.post(f"/api/statistics/{section}{q}", json=DEMO).json()
+    p, _, r = direct(SYN)
+    post = lambda section, q="": client.post(f"/api/statistics/{section}{q}", json=SYN).json()
     assert post("distribution") == via_json({
         "moments": series_to_dict(pr.return_moments(r)),
         "jarque_bera": series_to_dict(pr.jarque_bera(r)),
@@ -286,7 +286,7 @@ def test_statistics_sections_match_the_package():
 @pytest.mark.parametrize("path", ["/api/statistics/tails", "/api/statistics/probabilities?n_boot=5000",
                                   "/api/statistics/drawdowns?top=0"])
 def test_bad_statistics_requests_are_rejected(path):
-    assert client.post(path, json=DEMO).status_code == 422
+    assert client.post(path, json=SYN).status_code == 422
 
 
 def test_a_missing_stats_extra_is_a_501_with_the_install_hint(monkeypatch):
@@ -295,12 +295,12 @@ def test_a_missing_stats_extra_is_a_501_with_the_install_hint(monkeypatch):
     def no_scipy(returns):
         raise ImportError('This needs scipy; from the repo root run: pip install -e ".[stats]"')
     monkeypatch.setattr(api_app, "fit_student_t", no_scipy)
-    response = client.post("/api/statistics/distribution", json=DEMO)
+    response = client.post("/api/statistics/distribution", json=SYN)
     assert response.status_code == 501 and ".[stats]" in response.json()["detail"]
 
 
 def _write_config(tmp_path, tickers):
-    lines = ["defaults: {data_source: demo, start_date: '2019-01-01'}", "tickers:"]
+    lines = ["defaults: {data_source: synthetic, start_date: '2019-01-01'}", "tickers:"]
     lines += [f"  {symbol}: {{label: {label}}}" for symbol, label in tickers]
     path = tmp_path / "tickers.yaml"
     path.write_text("\n".join(lines) + "\n")
@@ -309,27 +309,27 @@ def _write_config(tmp_path, tickers):
 
 def test_multi_ticker_is_rare_case_run(tmp_path, monkeypatch):
     import src.api.app as api_app
-    path = _write_config(tmp_path, [("SPX", "S&P demo"), ("NOPE", "Missing"), ("KO", "KO demo")])
-    monkeypatch.setitem(api_app.TICKER_SETS, "demo", path)
+    path = _write_config(tmp_path, [("SYN-INDEX", "Index"), ("NOPE", "Missing"), ("SYN-GOLD", "Gold")])
+    monkeypatch.setitem(api_app.TICKER_SETS, "synthetic", path)
     body = client.get("/api/multi-ticker?drill_n_days=2").json()
 
     config = pr.load_ticker_config(path, verbose=False)
-    results = {s: pr.analyze_ticker(config[s], drill_n_days=2) for s in ("SPX", "KO")}
+    results = {s: pr.analyze_ticker(config[s], drill_n_days=2) for s in ("SYN-INDEX", "SYN-GOLD")}
     streak_table, dist_table = pr.compare_tickers(results, ratio_window=2)
     assert body["streaks"] == table(streak_table)
     assert body["distribution"] == table(dist_table)
-    assert [t["symbol"] for t in body["tickers"]] == ["SPX", "KO"]
-    assert [t["label"] for t in body["tickers"]] == ["S&P demo", "KO demo"]
+    assert [t["symbol"] for t in body["tickers"]] == ["SYN-INDEX", "SYN-GOLD"]
+    assert [t["label"] for t in body["tickers"]] == ["Index", "Gold"]
     for entry in body["tickers"]:
         r = results[entry["symbol"]]
         assert entry["drill"] == table(r["drill"]) and entry["rows"] == len(r["df"])
     assert [f["symbol"] for f in body["failed"]] == ["NOPE"]
-    assert "No demo data" in body["failed"][0]["error"]
+    assert "No synthetic data" in body["failed"][0]["error"]
 
 
 def test_multi_ticker_with_every_ticker_failing_is_a_502(tmp_path, monkeypatch):
     import src.api.app as api_app
-    monkeypatch.setitem(api_app.TICKER_SETS, "demo", _write_config(tmp_path, [("NOPE", "x")]))
+    monkeypatch.setitem(api_app.TICKER_SETS, "synthetic", _write_config(tmp_path, [("NOPE", "x")]))
     response = client.get("/api/multi-ticker")
     assert response.status_code == 502
     assert response.json()["detail"]["failed"][0]["symbol"] == "NOPE"
@@ -342,8 +342,8 @@ POST_ENDPOINTS = ["/api/overview", "/api/streaks", "/api/cumulative", "/api/rare
 
 @pytest.mark.parametrize("path", POST_ENDPOINTS)
 def test_every_endpoint_reports_data_failures(path, monkeypatch):
-    response = client.post(path, json={"data_source": "demo", "ticker": "ES=F"})
-    assert response.status_code == 422 and "Demo tickers" in response.json()["detail"]
+    response = client.post(path, json={"data_source": "synthetic", "ticker": "ES=F"})
+    assert response.status_code == 422 and "Synthetic tickers" in response.json()["detail"]
 
     def offline(*args, **kwargs):
         raise ConnectionError("Yahoo unreachable")
@@ -371,8 +371,8 @@ def test_ticker_lookup_gives_any_symbol_its_parameters(api):
         ("AAPL", "yahoo", 0.2)                                   # tickers.yaml's defaults
     listed = client.get("/api/ticker?symbol=EURUSD=X").json()   # yahoo is the default set
     assert (listed["label"], listed["params"]["win_threshold"]) == ("EUR/USD", 0.1)
-    assert client.get("/api/ticker?symbol=SPX&set=demo").json()["params"]["data_source"] == "demo"
-    assert client.get("/api/ticker?symbol=ES=F&set=demo").status_code == 422
+    assert client.get("/api/ticker?symbol=SYN-INDEX&set=synthetic").json()["params"]["data_source"] == "synthetic"
+    assert client.get("/api/ticker?symbol=ES=F&set=synthetic").status_code == 422
     assert client.get("/api/ticker?symbol=CL=F&set=local").status_code == 422   # not saved yet
     client.post("/api/local/CL=F/update")
     saved = client.get("/api/ticker?symbol=CL=F&set=local").json()
@@ -399,11 +399,11 @@ def test_multi_ticker_compares_a_chosen_mix_of_sources(api):
     client.post("/api/local/CL=F/update")
     body = client.post("/api/multi-ticker", json={"drill_n_days": 2, "tickers": [
         {"symbol": "CL=F", "set": "yahoo"}, {"symbol": "CL=F", "set": "local"},
-        {"symbol": "SPX", "set": "demo"}, {"symbol": "CL=F", "set": "yahoo"}]}).json()   # a repeat
+        {"symbol": "SYN-INDEX", "set": "synthetic"}, {"symbol": "CL=F", "set": "yahoo"}]}).json()   # a repeat
     assert [(t["symbol"], t["set"]) for t in body["tickers"]] == [
-        ("CL=F", "yahoo"), ("CL=F", "local"), ("SPX", "demo")]
+        ("CL=F", "yahoo"), ("CL=F", "local"), ("SYN-INDEX", "synthetic")]
     names = [r["ticker"] for r in body["distribution"]["records"]]
-    assert names == ["Crude oil futures (live)", "Crude oil futures (saved)", "S&P 500 index (demo)"]
+    assert names == ["Crude oil futures (live)", "Crude oil futures (saved)", "Synthetic equity index"]
     live, saved = body["distribution"]["records"][:2]             # same bars, live and saved
     assert {k: v for k, v in live.items() if k != "ticker"} == {k: v for k, v in saved.items() if k != "ticker"}
     assert body["streaks"]["columns"][-1] == "2d ratio"

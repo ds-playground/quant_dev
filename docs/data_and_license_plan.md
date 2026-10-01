@@ -29,7 +29,7 @@ that is not derived from the market.
 | **0** ✅ | License | `LICENSE` (MIT, Jones Wan); README License section with what it does not cover; `license` in `pyproject.toml` and `package.json` — **done, `c304972`** |
 | **1** ✅ | Save all | `save_all` in `store.py`: `save_local` over the default list, one failure not stopping the rest; `POST /api/local/update-all`; the refresh script uses it; tests — **done, `97c1fe0`** |
 | **2** ✅ | Download-all button | the dashboard button, with each ticker's result — **done, `9c1e012`** |
-| **3** | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed |
+| **3** ✅ | Synthetic data | a seeded synthetic series for the tests, end-to-end checks and screenshots; the `demo` source, `data/demo`, its script and config removed |
 | **4** | Docs and notebooks | screenshots and examples retaken on the synthetic series; notebooks default to saved data, falling back to simulated |
 | **5** | History rewrite (after merge) | `data/demo` removed from every commit; archive branches deleted. Run only with the owner's confirmation, after showing the commands |
 
@@ -43,6 +43,58 @@ that is not derived from the market.
   - market data.
 - `pyproject.toml` declares `license = "MIT"`, so it needs setuptools 77 or newer. A built wheel
   carries `License-Expression: MIT` and the file.
+
+## Phase 3: Synthetic data ✅
+
+- **Examples shown, approved as shown:**
+  - six tickers' price paths: SYN-INDEX, SYN-TECH, SYN-GOLD, SYN-FX, SYN-OIL, SYN-LEV;
+  - SYN-INDEX's returns, fat-tailed distribution and autocorrelation.
+
+  The owner chose a `synthetic` data source generated on use, not committed files.
+- **Built:**
+  - `src/tools/price_return/synthetic.py`: GARCH(1,1) with Student-t shocks, seeded from the
+    ticker name. It adds a scheduled sell-off per ticker, a cap on daily moves, and SYN-OIL's
+    negative settle on 2020-04-20. Business days to 2026-09-30, no files.
+  - `synthetic_tickers()` and `synthetic_bars()` are exported.
+  - `data_source='synthetic'`; `configs/synthetic_tickers.yaml` (FX and the leveraged fund get
+    their own thresholds).
+  - The API's offline ticker set is `synthetic` (version 0.4.0).
+  - The dashboard: "Synthetic data (offline)", with a notice that it is not market data.
+- **Removed:** `data/demo/`, `scripts/make_demo_data.py`, `configs/demo_tickers.yaml`, the
+  `'demo'` source, `demo_tickers`, `DEMO_CONFIG_PATH` and `tests/test_demo_data.py`.
+- **Tests:**
+  - `tests/test_synthetic_data.py` checks properties, not exact numbers, since NumPy may change
+    its random stream:
+    - well-formed business-day bars, the same on every call;
+    - a caller's edit does not reach the cache;
+    - independent tickers (pairwise correlation under 0.2);
+    - volatility near the profile's;
+    - excess kurtosis above 2;
+    - lag-1 autocorrelation of absolute returns above 0.1, and of returns under 0.1;
+    - the sell-off (index drawdown beyond 15%);
+    - the negative settle dropping two returns;
+    - the source, the date filter and its errors;
+    - the config;
+    - the Yahoo path against SYN-OIL.
+  - The Yahoo stand-in in `conftest.py` serves SYN-OIL's bars as CL=F.
+  - The API, price-return, local-store and serve tests moved to synthetic tickers.
+- **Counts:** 337 pytest tests, passing from the repo root and `tests/`; 21 unit tests; 10
+  end-to-end tests (now on SYN-INDEX and SYN-OIL, with six tickers in Multi-ticker).
+- **Eight seeded bugs,** each failing a test:
+  - no volatility clustering;
+  - normal shocks;
+  - no negative settle;
+  - one seed for all tickers (caught after the correlation test replaced a weaker one);
+  - the cached frame handed out;
+  - no sell-off;
+  - the source reading Open;
+  - an inclusive end date.
+- **README:** a Synthetic data section replaces Demo data, plus the data sources, the layout,
+  Package API, Tests, License and changelog.
+- **Left for phase 4:**
+  - the notebooks, which still name `demo`;
+  - `docs/api.md` and `docs/dashboard.md`, whose examples and screenshots are of the demo data;
+  - the README's notebook row.
 
 ## Phase 2: Download-all button ✅
 

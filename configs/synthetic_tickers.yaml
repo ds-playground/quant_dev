@@ -1,0 +1,27 @@
+# The synthetic tickers: price series generated from code (src/tools/price_return/synthetic.py),
+# not market data, so everything runs offline with no downloaded data. Load with
+#   load_ticker_config('configs/synthetic_tickers.yaml')
+# The dashboard's ticker list uses this file by default, and the tests and screenshots use these
+# series.
+#
+# Same rules as configs/tickers.yaml: keys must be Params fields, or `label`.
+
+defaults:
+  data_source: synthetic
+  start_date: '2016-01-01'
+  win_threshold: 0.2
+  loss_threshold: -0.2
+  windows: [2, 3, 5]
+  prob_max: 0.10
+  prob_min: 0.0001
+
+tickers:
+  SYN-INDEX: {label: Synthetic equity index}
+  SYN-TECH:  {label: Synthetic tech index}
+  SYN-GOLD:  {label: Synthetic gold}
+  # About half the index's volatility, so the thresholds are halved, as for FX in tickers.yaml.
+  SYN-FX:    {label: Synthetic currency pair, win_threshold: 0.1, loss_threshold: -0.1}
+  # Settles below zero on 2020-04-20; load_price_data drops the two returns spanning it.
+  SYN-OIL:   {label: Synthetic crude oil}
+  # About three times the index's volatility, and trading only since August 2022.
+  SYN-LEV:   {label: Synthetic 2x leveraged fund, win_threshold: 0.5, loss_threshold: -0.5}

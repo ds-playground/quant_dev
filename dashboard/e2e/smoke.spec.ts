@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// Every tab of the dashboard against the real API, on the demo data (offline). Each test starts
-// from a fresh page on SPX. Charts count as drawn once plotly.js has rendered their SVG.
+// Every tab of the dashboard against the real API, on the synthetic data (offline). Each test
+// starts from a fresh page on SYN-INDEX. Charts count as drawn once plotly.js has rendered their SVG.
 
 const drawn = (page: Page) => page.locator('.plot:has(.main-svg)');
 const settled = (page: Page) =>
@@ -14,14 +14,14 @@ test.beforeEach(async ({ page }) => {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto('/');
-  await expect(page.locator('label:has-text("Ticker") select')).toHaveValue('SPX');
+  await expect(page.locator('label:has-text("Ticker") select')).toHaveValue('SYN-INDEX');
 });
 
 test.afterEach(() => {
   expect(errors, 'browser errors').toEqual([]);
 });
 
-test('overview: tiles, four charts, the demo notice', async ({ page }) => {
+test('overview: tiles, four charts, the synthetic-data notice', async ({ page }) => {
   await expect(page.locator('.tile')).toHaveCount(5);
   await expect(drawn(page)).toHaveCount(4);
   await expect(page.getByRole('note')).toContainText(/not market data/i);
@@ -30,9 +30,9 @@ test('overview: tiles, four charts, the demo notice', async ({ page }) => {
 
 test('changing the ticker and the thresholds reloads the views', async ({ page }) => {
   await settled(page);
-  const spxPrice = await page.locator('.tile .value').first().textContent();
-  await page.locator('label:has-text("Ticker") select').selectOption('CL');
-  await expect(page.locator('.tile .value').first()).not.toHaveText(spxPrice!);
+  const indexPrice = await page.locator('.tile .value').first().textContent();
+  await page.locator('label:has-text("Ticker") select').selectOption('SYN-OIL');
+  await expect(page.locator('.tile .value').first()).not.toHaveText(indexPrice!);
   await page.locator('label:has-text("Win above") input').fill('1');
   await page.locator('label:has-text("Loss below") input').fill('-1');
   await page.getByRole('button', { name: 'Apply' }).click();
@@ -78,27 +78,27 @@ test('statistics: four sections and the bootstrap on request', async ({ page }) 
 
 test('multi-ticker: the chosen tickers on request', async ({ page }) => {
   await page.getByRole('tab', { name: 'Multi-ticker' }).click();
-  const demo = page.locator('fieldset', { hasText: 'Demo data (offline)' });
+  const synthetic = page.locator('fieldset', { hasText: 'Synthetic data (offline)' });
   // Nothing is chosen on a fresh page.
-  await expect(demo.getByRole('checkbox')).toHaveCount(10);
+  await expect(synthetic.getByRole('checkbox')).toHaveCount(6);
   await expect(page.getByRole('checkbox', { checked: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Compare 0 tickers' })).toBeDisabled();
-  await demo.getByRole('button', { name: 'All' }).click();
-  await page.getByRole('button', { name: 'Compare 10 tickers' }).click();
-  await expect(page.locator('main details')).toHaveCount(10);
+  await synthetic.getByRole('button', { name: 'All' }).click();
+  await page.getByRole('button', { name: 'Compare 6 tickers' }).click();
+  await expect(page.locator('main details')).toHaveCount(6);
   // The choice and the results stay while another tab is open.
   await page.getByRole('tab', { name: 'Overview' }).click();
   await page.getByRole('tab', { name: 'Multi-ticker' }).click();
-  await expect(demo.getByRole('checkbox', { checked: true })).toHaveCount(10);
-  await expect(page.locator('main details')).toHaveCount(10);
+  await expect(synthetic.getByRole('checkbox', { checked: true })).toHaveCount(6);
+  await expect(page.locator('main details')).toHaveCount(6);
   // A smaller choice: none, then two.
-  await demo.getByRole('button', { name: 'None' }).click();
+  await synthetic.getByRole('button', { name: 'None' }).click();
   await expect(page.getByRole('button', { name: 'Compare 0 tickers' })).toBeDisabled();
-  await demo.getByRole('checkbox', { name: /Apple/ }).check();
-  await demo.getByRole('checkbox', { name: /Coca-Cola/ }).check();
+  await synthetic.getByRole('checkbox', { name: /Synthetic gold/ }).check();
+  await synthetic.getByRole('checkbox', { name: /Synthetic crude oil/ }).check();
   await page.getByRole('button', { name: 'Compare 2 tickers' }).click();
   await expect(page.locator('main details')).toHaveCount(2);
-  await expect(page.locator('main details summary')).toContainText([/Apple/, /Coca-Cola/]);
+  await expect(page.locator('main details summary')).toContainText([/Synthetic gold/, /Synthetic crude oil/]);
 });
 
 test('the saved-CSV choice loads without an error', async ({ page }) => {

@@ -96,7 +96,7 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply, 
       <label>
         <span>Data</span>
         <select value={tickerSet} onChange={(e) => onTickerSet(e.target.value as TickerSet)}>
-          <option value="demo">Demo data (offline)</option>
+          <option value="synthetic">Synthetic data (offline)</option>
           <option value="yahoo">Yahoo Finance (live)</option>
           <option value="local">Saved CSV (offline)</option>
         </select>
@@ -184,7 +184,7 @@ export function ParamsPanel({ tickerSet, onTickerSet, tickers, params, onApply, 
       </div>
       {dirty && problem ? <p className="error inline" role="alert">{problem}</p> : null}
       <SavedData tickerSet={tickerSet} ticker={selected} />
-      {tickerSet !== 'demo' && tickers.length ? <DownloadAll /> : null}
+      {tickerSet !== 'synthetic' && tickers.length ? <DownloadAll /> : null}
     </form>
   );
 }

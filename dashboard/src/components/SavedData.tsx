@@ -77,7 +77,7 @@ export function SavedData({ tickerSet, ticker }: { tickerSet: TickerSet; ticker:
     mutationFn: (symbol: string) => api.saveLocal(symbol),
     onSuccess: () => client.invalidateQueries(),
   });
-  if (tickerSet === 'demo' || !ticker) return null;
+  if (tickerSet === 'synthetic' || !ticker) return null;
 
   const saved = ticker.saved;
   const age = saved ? ageInDays(saved.last) : null;
