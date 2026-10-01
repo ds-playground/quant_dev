@@ -203,8 +203,10 @@ python -m src.api          # then open http://127.0.0.1:8000  (--open opens it f
 ```
 
 It listens on this computer only. `--port` changes the port; `--host 0.0.0.0` would expose
-it to your network, and it has no login, so it warns. The API's own documentation is at
-http://127.0.0.1:8000/docs, and `notebooks/api_examples.ipynb` queries it from Python. After
+it to your network, and it has no login, so it warns. **[`docs/api.md`](docs/api.md)** covers
+running the API on its own, every endpoint and how a query works. The interactive
+documentation is at http://127.0.0.1:8000/docs, and `notebooks/api_examples.ipynb` queries the
+API from Python. After
 pulling dashboard changes, run `npm install` and `npm run build` in `dashboard/` again
 (`npm install` picks up any new packages); no restart is needed. If
 the dashboard has never been built, the page at `/` says how.
@@ -649,6 +651,14 @@ Commit dates, newest first. This is a research repo, so there are no version tag
   follows: trading idea → notebook → tested package → API → dashboard → finding → new idea
   ([`docs/doc_update_plan.md`](docs/doc_update_plan.md)). The package function table is now
   headed **Package API**, so it is not confused with the HTTP API.
+- [`docs/api.md`](docs/api.md), a page on the HTTP API. It covers:
+  - running the API on its own;
+  - every endpoint, grouped, with its query options;
+  - how a query works (the `Params` body, units, response shapes), with diagrams;
+  - worked examples captured from the demo data;
+  - errors, and caching.
+
+  A new test checks that the page lists exactly the API's routes.
 
 ### 2026-09-30
 - Review of the documents and tests. The documents now agree with the code: the saved-data
