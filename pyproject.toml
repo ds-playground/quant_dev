@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]   # the SPDX `license` string below
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,6 +9,8 @@ description = "Historical price & return analysis framework, plus TradingView Pi
 readme = "README.md"
 requires-python = ">=3.12"   # pandas_ta (the ta extra) publishes nothing for 3.11
 authors = [{ name = "Jones Wan" }]
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "pandas",
     "numpy",
