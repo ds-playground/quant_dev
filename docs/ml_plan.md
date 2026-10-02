@@ -363,7 +363,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | **0** ✅ | Plan | this document and its example charts; the owner's choices — **done, `e432564`** (choices confirmed 2026-10-02) |
 | **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `2559ec2`** |
 | **2** ✅ | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. — **done, `879d0cf`** |
-| **3** | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM |
+| **3** ✅ | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM; the notebook moved onto the package (owner's agreement, 2026-10-02) — **done, `8265b41`, `PHASE3`** |
 | **4** | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests |
 | **5** | API | `/api/ml/*` endpoints: run on request and cached, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
 | **6** | Dashboard | an **ML forecasts** tab with direction and range sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
@@ -373,6 +373,83 @@ The test suite stays fast: LightGBM and GRU tests use small models and few folds
 two or three synthetic tickers where five are not needed. A slow mark is added only if a phase
 measures the suite past about a minute. Phase 3 did: the LightGBM sanity checks need the five
 long tickers, so `tests/test_ml_gbm.py` is marked `slow`. It still runs with a plain `pytest`.
+
+## Phase 3 notes
+
+- **Built** (`8265b41`):
+  - `gbm.LightGBMModel`: the Phase 1 settings, now in the package;
+  - `evaluate`:
+    - the runner, `walk_forward_forecasts`;
+    - `evaluate` and `evaluate_many`, which runs tickers in parallel processes with forecasts
+      identical to a serial run;
+    - the checks, `direction_scores`, `range_table` and `range_check`;
+    - `feature_importance` and `planted_signal_bars`;
+  - `viz`: six Plotly charts, styled like `price_return`'s;
+  - 43 public names in `__all__`. Importing the package still loads neither LightGBM nor PyTorch.
+- **A model is any object with two methods.** `direction(d, train, test)` returns
+  up-probabilities, and `quantiles(d, train, test, taus)` returns sorted return quantiles; each
+  also returns a dict of what the fold learnt. The notebook's GRU now has the same two methods
+  and runs through the same runner, which is the shape Phase 4 needs.
+- **The notebook imports the package** (the owner's agreement). Only the GRU is still defined
+  there. Its RSI is now Wilder's, so the direction numbers moved slightly from Phase 1; for
+  example SYN-INDEX's gain went from −0.0015 to −0.0020.
+- **The second seeded leak changed** (a change to *The sanity checks, as tests*).
+  - Measured on SYN-INDEX with 5-day labels: a splitter that keeps the 4 purged rows per fold
+    scores the same as one that purges them. The gain was −0.0066 unpurged against −0.0105
+    purged, and both pass the chance check.
+  - Four leaked rows in about 2,000 cannot move an out-of-sample score, so no outcome check can
+    catch that bug. The purge stays tested structurally (Phase 2).
+  - The seeded leak is now a centred 5-day average, a realistic look-ahead bug. It is caught:
+    a gain of 0.098, with a 99% interval from 0.081.
+- **The planted signal is now stronger:** each sign repeats the last 60% of the time, not 58%.
+  - At 58%, with Wilder's RSI, the 99% interval's lower end was only +0.0004: found, but one
+    feature change from a flaky test.
+  - At 60% the gain is 0.0126 (lower end 0.0047), against a most-possible of about 0.020.
+- **The slow mark:** `tests/test_ml_gbm.py` is marked `slow`. A plain `pytest` still runs it.
+  `-m "not slow"` gives a quick run.
+  - The whole suite: 412 tests in 79 s.
+  - Without the slow tests: 398 in 41 s.
+  - The 14 LightGBM tests take about 35 s, 25 of them fitting the five long tickers in
+    parallel.
+  - The leak controls cap the trees at 60, enough for a leak to show.
+
+**Results, LightGBM, out of sample 2019 to 2026** (the notebook and the tests agree):
+
+| | SYN-INDEX | SYN-TECH | SYN-GOLD | SYN-FX | SYN-OIL |
+|---|---|---|---|---|---|
+| direction gain over the base rate | −0.0020 | −0.0008 | −0.0004 | −0.0012 | −0.0031 |
+| its 99% interval, upper end | −0.0001 | +0.0009 | +0.0012 | +0.0019 | +0.0010 |
+| range: pinball gain over the constant band | 2.6% | 7.0% | 3.5% | 3.7% | 8.3% |
+| 68% coverage | 66.8% | 69.0% | 66.9% | 67.9% | 67.1% |
+| miss after miss ÷ after hit (constant band) | 1.16 (1.70) | 1.31 (1.86) | 1.01 (1.23) | 1.02 (1.32) | 1.07 (1.93) |
+
+Pooled range gain 5.1% (95% interval 3.6% to 6.8%). The GRU, in the notebook: every direction
+check passes, and the pooled range gain is 4.2% (2.7% to 6.0%). It still under-covers (64.5% to
+67.2% at 68%, 84.7% to 88.4% at 90%), the open item for Phase 4.
+
+- **The end-to-end no-look-ahead test** fits only the fold that tests the date. It keeps the
+  bars up to the date and one more (whose close is only that date's label). At three dates, the
+  direction forecast and all five quantiles are identical to the bit.
+- **Nine seeded bugs, each caught by the test aimed at it:**
+  - quantiles not rescaled by σ_t;
+  - the refit including the test rows;
+  - quantiles in the wrong order;
+  - early stopping on the fit rows;
+  - forecasts shifted a row;
+  - the chance check reading the wrong end of its interval;
+  - the range gain's sign flipped;
+  - the planted signs starting at zero (the Phase 1 bug);
+  - the bands drawn on the forecast day instead of the next.
+- **A flaw in the seeded-bug harness, found and fixed.** Python's bytecode cache checks a source
+  file's size and its modification time to the second. A bug that kept the line's length (`1.0`
+  to `0.0`) could leave stale compiled code running into the next mutation's run, and two bugs
+  were credited to the wrong tests. The harness now runs with `-B` and no bytecode, and every
+  bug was rechecked. Phase 2's results stand: none of its same-length bugs was followed by a run
+  on another file.
+- **Runtimes:**
+  - the notebook took 25 minutes here, because the test suite was running at the same time
+    (14 minutes alone in Phase 1);
+  - LightGBM on all six tickers: 45 s in parallel.
 
 ## Phase 2 notes
 

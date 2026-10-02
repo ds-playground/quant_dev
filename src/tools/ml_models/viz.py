@@ -108,7 +108,8 @@ def plot_folds(fc):
             fig.add_trace(go.Scatter(x=[x0, x1], y=[k + 1, k + 1], mode='lines', line=dict(color=color, width=6),
                                      name=name, legendgroup=name, showlegend=bool(k == 0)))
     fig = _style(fig, f'{fc.ticker}: walk-forward folds', 120 + 14 * len(fc.folds), y_title='fold')
-    fig.update_yaxes(autorange='reversed', showgrid=False)
+    fig.update_yaxes(autorange='reversed', showgrid=False,
+                     tickvals=[1, *range(5, len(fc.folds) + 1, 5)])
     return fig
 
 
