@@ -373,7 +373,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `2559ec2`** |
 | **2** ✅ | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. — **done, `879d0cf`** |
 | **3** ✅ | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM; the notebook moved onto the package (owner's agreement, 2026-10-02) — **done, `8265b41`, `75a4397`** |
-| **4** ✅ | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests; recalibrated ranges and three input sets (owner's decisions, Phase 4) — **done, `PHASE4`** |
+| **4** ✅ | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests; recalibrated ranges and three input sets (owner's decisions, Phase 4) — **done, `1cbc9dc`, `031e256`, `446dc4a`, `PHASE4`** |
 | **5** | API | `/api/ml/*` endpoints: run on request and cached, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
 | **6** | Dashboard | an **ML forecasts** tab with direction and range sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
 | **7** | Wrap-up | README: Setup (the extra), layout, Package API, Tests, notebook table, changelog. The owner runs the notebook on saved data. Checks in full; a PR when asked. |
@@ -384,6 +384,103 @@ measures the suite past about a minute. Phase 3 did: the LightGBM sanity checks 
 long tickers, so `tests/test_ml_gbm.py` is marked `slow`. It still runs with a plain `pytest`.
 The GRU's tests (`tests/test_ml_sequence.py`) are marked `slow` too, and retrain every 252 rows
 instead of 63, over the same test days (owner's decision, Phase 4).
+
+## Phase 4 notes
+
+- **Built:**
+  - `sequence.GRUModel`, the notebook's GRU moved into the package. It has the same
+    `direction()` and `quantiles()` interface as `LightGBMModel`, imports PyTorch only when a
+    model is fitted, and leaves PyTorch's thread count and deterministic flag as it found them.
+  - `windows`, `quantile_shift` and `GRU_INPUTS` (47 public names in all).
+  - `walk_forward_forecasts` takes `first_train` and `step`, so a run can retrain less often over
+    the same test days.
+  - `evaluate_many` spawns its processes rather than forking them: forking after PyTorch has
+    started its threads can hang.
+  - At step 63, with the 16 features and no recalibration, the package GRU reproduces the
+    Phase 3 notebook's SYN-INDEX numbers exactly.
+- **Each day is forecast on its own.**
+  - Batched, PyTorch's kernels round differently with the batch's size. So a day's forecast
+    moved, by about 1e-8, with the other days forecast beside it.
+  - The end-to-end no-look-ahead test caught it: the cut fold forecasts fewer days.
+  - It only shows with 16 inputs, so that test now runs on two input sets.
+- **The owner's decisions (2026-10-02), with the evidence shown:**
+  - **Recalibration** (decision 8; `docs/images/ml/gru_recalibration.png`, from
+    `scripts/ml_gru_recalibration.py`). Each τ's forecast is shifted by the τ-quantile of the
+    network's own errors on the validation tail, inside the training window. On the 16 features,
+    the five long tickers:
+    - at the plan's 63-row retraining, 90% coverage rose from 84.7–88.4% to 88.7–90.2%. Pinball
+      loss moved between −0.8% and +0.3% against the uncorrected GRU.
+    - at 252 rows, the uncorrected GRU collapsed on SYN-INDEX: 56.1% coverage at 68%, and a
+      pinball loss 1.8% worse than the constant band. Recalibrated: 65.4%, and 2.2% better than
+      the constant band.
+  - **Tests at 252 rows on the five tickers** (decision 9): the plan's 63 takes about four times
+    as long.
+  - **Three input sets, kept until a model is trained on real data** (decision 10).
+- **Why three input sets.**
+  - On the plan's 16 features, the GRU found no planted signal: a gain of +0.0009, with the 99%
+    interval from −0.0044. LightGBM found +0.0126.
+  - These did not help:
+    - retraining every 63 rows (−0.0008);
+    - a higher learning rate (+0.0025);
+    - patience 15 (+0.0009);
+    - a 10-day window (+0.0004);
+    - no weight decay (+0.0008);
+    - a smaller network, 4 units (−0.0023) or 8 (+0.0054).
+  - Given only `ret_0`, the same GRU finds it: +0.0123 (99% interval from 0.0038), even over 60
+    days. Sixteen features over 60 days is 960 inputs per example against about 1,600 training
+    rows, and the network fits noise.
+  - For reference, a two-cell frequency table on the sign of `ret_0` gains +0.027.
+- **A fault found while closing test gaps.** With recalibration on, the network was seeded from
+  the first row it forecast, a validation row, not the fold's first test row. That was not a
+  leak, but the direction and range networks were seeded differently and the docstring was
+  wrong. Each fold's seed now comes from its first test row, and every number above was rerun
+  after the fix.
+
+**Results, the notebook, retraining every 252 rows** (five long tickers; LightGBM at 63 as in
+Phase 3):
+
+| GRU inputs | direction gain | 99% interval, highest upper end | 68% coverage | 90% coverage | pooled range gain (95%) | planted signal |
+|---|---|---|---|---|---|---|
+| `returns_range` (default) | −0.0016 to +0.0013 | +0.0035 | 66.8–68.8% | 88.8–89.9% | 4.6% (3.2–6.4%) | found, +0.0120 |
+| `returns` | −0.0021 to +0.0013 | +0.0029 | 66.6–69.0% | 88.3–90.1% | 4.6% (3.1–6.3%) | found, +0.0123 |
+| `features` | −0.0042 to +0.0007 | +0.0057 | 65.4–69.2% | 87.4–90.7% | 4.4% (2.9–6.2%) | not found, +0.0009 |
+
+Every input set passes the direction check and the range check on all five tickers.
+
+- **Tests** (`tests/test_ml_sequence.py`, marked `slow`; 20 run by default, 2 more opt-in):
+  - Unit tests: windows, ordered outputs, determinism, restoring PyTorch's settings, the best
+    epoch kept exactly, the recalibration arithmetic, the default inputs, and the end-to-end
+    no-look-ahead test on two input sets.
+  - The sanity checks for the default inputs, the planted signal for all three (strict expected
+    failure for the 16 features), and both leaks.
+  - The other two input sets' five-ticker checks are marked `exhaustive`: `pytest -m exhaustive`,
+    2 tests, 3.2 minutes. Run here; both pass.
+  - Suite: 431 passed and 1 expected failure in 5.0 minutes. `-m "not slow"` runs 398 in
+    43 s. The GRU fixture alone takes about 4 minutes (four cores, spawned processes, one
+    thread each).
+- **Seeded bugs in the GRU.**
+  - The first run caught 4 of 9. The tests had five gaps:
+    - batched inference showed only with 16 inputs;
+    - a flipped recalibration shift was too small to move coverage;
+    - earlier tests had already set PyTorch's thread count to the value the model restores to;
+    - nothing pinned the default inputs;
+    - nothing checked that the best epoch's weights are kept.
+  - Closing them found the seeding fault above, which was added as a tenth bug.
+  - All 10 are now caught, each by the test aimed at it:
+    - windows reaching a row ahead;
+    - batched inference;
+    - standardizing with all rows;
+    - recalibrating on the test rows;
+    - the shift flipped;
+    - the thread count not restored;
+    - recalibration off;
+    - the 16 features as the default;
+    - the last epoch kept;
+    - seeding from the first row forecast.
+- **Runtimes:**
+  - The notebook runs in about 10 minutes alone: LightGBM at 63 rows, the three GRU input sets
+    at 252. It took 18 minutes when run beside the evidence script.
+  - The evidence script takes 10–15 minutes.
 
 ## Phase 3 notes
 
