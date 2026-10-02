@@ -344,6 +344,7 @@ quant_dev/
 │
 ├── scripts/
 │   ├── dev.py                             development: the API and the Vite dev server together
+│   ├── ml_plan_charts.py                  the example charts in docs/ml_plan.md (synthetic data)
 │   └── update_local_data.py               saves or updates live data in data/local
 │
 ├── src/

@@ -20,9 +20,9 @@
 - **Real data:** Yahoo is blocked in the cloud sessions this is built in. Real-data runs happen
   on the owner's computer, after `save_all()` (or **Download all** in the dashboard) has filled
   `data/local`.
-- **The charts in this plan** are made from the synthetic tickers only, by a scratch script in
-  the git-ignored `dev/` (`dev/ml_plan_charts.py`). The numbers quoted beside them come from the
-  same run.
+- **The charts in this plan** are made from the synthetic tickers only, by
+  `python scripts/ml_plan_charts.py` (needs the `stats` extra and kaleido). The numbers quoted
+  beside them are the ones it prints.
 
 ## Context
 
