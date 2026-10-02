@@ -358,7 +358,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | # | Phase | Deliverable |
 |---|---|---|
 | **0** ✅ | Plan | this document and its example charts; the owner's choices — **done, `e432564`** (choices confirmed 2026-10-02) |
-| **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `PHASE1`** |
+| **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `2559ec2`** |
 | **2** | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. |
 | **3** | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM |
 | **4** | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests |
