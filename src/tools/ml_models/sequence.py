@@ -9,11 +9,25 @@ of the training window, keeping the best epoch. Each fold is seeded from its fir
 runs on CPU with deterministic algorithms, so a rerun gives the same forecasts; each day is
 forecast on its own, so its forecast does not depend on which other days are forecast with it.
 
+The range forecasts are recalibrated by default (the owner's choice, `docs/ml_plan.md`, Phase 4):
+each tau's forecast is shifted by the tau-quantile of the network's own errors on the validation
+tail, the rows early stopping holds out inside the training window. Uncorrected, the network's
+intervals were too narrow, and much more so when retrained less often.
+
 PyTorch is the `ml` extra, imported only when a model is fitted.
 """
 import numpy as np
 
 from .features import FEATURES
+
+# What the GRU reads each day. The owner keeps all three until a model is trained on real data
+# (docs/ml_plan.md, Phase 4); 'returns_range' is the provisional default. With the 16 features
+# (960 inputs per example against about 1,600 training rows), the GRU found no planted signal.
+GRU_INPUTS = {
+    'returns_range': ['ret_0', 'tr_close'],      # each day's return and its true range
+    'returns': ['ret_0'],                        # each day's return
+    'features': list(FEATURES),                  # the 16 features LightGBM reads
+}
 from .split import purged_tail
 
 
@@ -36,25 +50,39 @@ def windows(X, rows, window):
     return X[rows[:, None] + np.arange(-window + 1, 1)[None, :]]
 
 
+def quantile_shift(q, y, taus):
+    """Per tau, the shift that makes the forecasts `q[:, i]` cover their share of `y`: the
+    tau-quantile of `y - q[:, i]`. Added to the forecasts, a share of about tau of `y` lies below."""
+    q, y = np.asarray(q, dtype=float), np.asarray(y, dtype=float)
+    return np.array([np.quantile(y - q[:, i], tau) for i, tau in enumerate(taus)])
+
+
 class GRUModel:
     """The GRU direction and range models, fitted fold by fold by `walk_forward_forecasts`.
 
+    `features` names one of `GRU_INPUTS` ('returns_range', 'returns', 'features') or lists the
+    dataset columns to read; each is read over the last `window` rows.
+
     Same interface as `gbm.LightGBMModel`: `direction(d, train, test)` returns up-probabilities;
     `quantiles(d, train, test, taus)` returns a (test rows, taus) array of return quantiles, sorted
-    along each row. Both also return the epochs trained. `threads` sets PyTorch's CPU threads for
-    the fit (None leaves PyTorch's default); give 1 when running tickers in parallel processes.
+    along each row. Both also return the epochs trained, and the range model its recalibration
+    shift per tau (`recalibrate=False` turns it off). `threads` sets PyTorch's CPU threads for the
+    fit (None leaves PyTorch's default); give 1 when running tickers in parallel processes.
     """
 
     name = 'GRU'
 
-    def __init__(self, features=FEATURES, window=60, hidden=32, batch=128, max_epochs=40,
+    def __init__(self, features='returns_range', window=60, hidden=32, batch=128, max_epochs=40,
                  patience=5, learning_rate=1e-3, weight_decay=1e-4, tail=0.2, horizon=1, seed=0,
-                 threads=None):
-        self.features = list(features)
+                 threads=None, recalibrate=True):
+        self.inputs = features if isinstance(features, str) else 'custom'
+        self.features = list(GRU_INPUTS[features] if isinstance(features, str) else features)
+        self.name = f'GRU ({self.inputs})'
         self.window, self.hidden, self.batch = window, hidden, batch
         self.max_epochs, self.patience = max_epochs, patience
         self.learning_rate, self.weight_decay = learning_rate, weight_decay
         self.tail, self.horizon, self.seed, self.threads = tail, horizon, seed, threads
+        self.recalibrate = recalibrate
 
     def _net(self, torch, n_in, n_out):
         class GRUNet(torch.nn.Module):
@@ -143,5 +171,15 @@ class GRUModel:
             return torch.maximum(t * u, (t - 1) * u).mean()
 
         sigma = d['vol_ewma'].to_numpy()
-        out, epochs = self._fit_predict(d, d['y_ret'].to_numpy() / sigma, train, test, len(taus), pinball)
-        return np.sort(out.astype(float), axis=1) * sigma[np.asarray(test)][:, None], {'epochs': epochs}
+        y = d['y_ret'].to_numpy() / sigma
+        test = np.asarray(test)
+        if not self.recalibrate:
+            out, epochs = self._fit_predict(d, y, train, test, len(taus), pinball)
+            return np.sort(out.astype(float), axis=1) * sigma[test][:, None], {'epochs': epochs}
+        rows = np.asarray(train)
+        _, val = purged_tail(rows[rows >= self.window - 1], self.horizon, self.tail)
+        out, epochs = self._fit_predict(d, y, train, np.r_[val, test], len(taus), pinball)
+        out = out.astype(float)
+        shift = quantile_shift(out[:len(val)], y[val], taus)
+        q = np.sort(out[len(val):] + shift, axis=1) * sigma[test][:, None]
+        return q, {'epochs': epochs, 'shift': shift}

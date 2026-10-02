@@ -17,7 +17,8 @@
   default Linux wheel bundles CUDA (several GB). For the CPU wheel, install torch first:
   `pip install torch --index-url https://download.pytorch.org/whl/cpu`. All tests run offline,
   and the model tests skip when the `ml` extra is missing. The model tests are marked `slow`:
-  `pytest` runs them, `pytest -m "not slow"` leaves them out for a quick run.
+  `pytest` runs them, `pytest -m "not slow"` leaves them out for a quick run. The GRU's other
+  two input sets on every check are marked `exhaustive` and run only with `pytest -m exhaustive`.
 - **Real data:** Yahoo is blocked in the cloud sessions this is built in. Real-data runs happen
   on the owner's computer, after `save_all()` (or **Download all** in the dashboard) has filled
   `data/local`.
@@ -312,6 +313,14 @@ flowchart TB
 - Separate direction and range networks, trained per target, to match LightGBM. The direction
   network uses binary cross-entropy. The range network uses pinball loss averaged over the five
   τ, on the same standardized return as LightGBM's.
+- **Recalibrated range forecasts** (owner's decision, Phase 4). Each τ's forecast is shifted by
+  the τ-quantile of the network's own errors on the validation tail. Uncorrected, the intervals
+  were too narrow; see the Phase 4 notes.
+- **Three input sets, kept until a model is trained on real data** (owner's decision, Phase 4):
+  - `'returns_range'`, each day's return and true range: the provisional default;
+  - `'returns'`, the return alone;
+  - `'features'`, the 16 features the diagram shows. On this data size that set finds no
+    planted signal.
 - Training: Adam, a small weight decay, early stopping on the purged validation tail, a fixed
   seed, on CPU. In Phase 1 this took about 2 s per fold and network (four cores).
 
@@ -364,7 +373,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `2559ec2`** |
 | **2** ✅ | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. — **done, `879d0cf`** |
 | **3** ✅ | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM; the notebook moved onto the package (owner's agreement, 2026-10-02) — **done, `8265b41`, `75a4397`** |
-| **4** | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests |
+| **4** ✅ | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests; recalibrated ranges and three input sets (owner's decisions, Phase 4) — **done, `PHASE4`** |
 | **5** | API | `/api/ml/*` endpoints: run on request and cached, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
 | **6** | Dashboard | an **ML forecasts** tab with direction and range sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
 | **7** | Wrap-up | README: Setup (the extra), layout, Package API, Tests, notebook table, changelog. The owner runs the notebook on saved data. Checks in full; a PR when asked. |
@@ -373,6 +382,8 @@ The test suite stays fast: LightGBM and GRU tests use small models and few folds
 two or three synthetic tickers where five are not needed. A slow mark is added only if a phase
 measures the suite past about a minute. Phase 3 did: the LightGBM sanity checks need the five
 long tickers, so `tests/test_ml_gbm.py` is marked `slow`. It still runs with a plain `pytest`.
+The GRU's tests (`tests/test_ml_sequence.py`) are marked `slow` too, and retrain every 252 rows
+instead of 63, over the same test days (owner's decision, Phase 4).
 
 ## Phase 3 notes
 
@@ -607,6 +618,14 @@ check passes, and the pooled range gain is 4.2% (2.7% to 6.0%). It still under-c
 6. Package name: **`ml_models`**.
 7. Sanity tests: direction at the **99%** level with a 0.002 log-loss margin; range pooled at 95%,
    plus less miss clustering than the constant band.
+
+**Phase 4 (2026-10-02):**
+
+8. The GRU's range forecasts are **recalibrated** on its validation tail. Not applied to
+   LightGBM, whose intervals cover close to nominal.
+9. The GRU's sanity tests run on the **five long tickers, retraining every 252 rows**.
+10. The GRU keeps **three input sets**, `'returns_range'` (provisional default), `'returns'` and
+    `'features'`, and the choice is made when a model is trained on real data.
 
 ## Open judgment calls
 

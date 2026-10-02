@@ -5,10 +5,11 @@ tickers only.
 
 Runs the GRU's range model as it is and recalibrated on the five long synthetic tickers,
 retraining every 63 rows (the plan's setting) and every 252, then writes
-docs/images/ml/gru_recalibration.png and prints the numbers the plan quotes. Recalibrated means
-each tau's forecast is shifted by the tau-quantile of the network's own errors on the validation
-tail of its training window, the rows early stopping already holds out, so nothing outside the
-training window is used. About 15 minutes on four cores. Needs the `ml` and `stats` extras, and
+docs/images/ml/gru_recalibration.png and prints the numbers the plan quotes. Recalibrated
+(`GRUModel(recalibrate=True)`, the default since the owner chose it) means each tau's forecast is
+shifted by the tau-quantile of the network's own errors on the validation tail of its training
+window, the rows early stopping already holds out, so nothing outside the training window is
+used. About 10 minutes on four cores. Needs the `ml` and `stats` extras, and
 kaleido for the PNG (see scripts/ml_plan_charts.py).
 """
 import argparse
@@ -20,42 +21,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import numpy as np                                                  # noqa: E402
 import plotly.graph_objects as go                                   # noqa: E402
 from plotly.subplots import make_subplots                           # noqa: E402
 
 from src.tools import ml_models as ml                               # noqa: E402
-from src.tools.ml_models.sequence import GRUModel, _torch           # noqa: E402
-from src.tools.ml_models.split import purged_tail                   # noqa: E402
 
 LONG = ['SYN-INDEX', 'SYN-TECH', 'SYN-GOLD', 'SYN-FX', 'SYN-OIL']
 OUT = ROOT / 'docs' / 'images' / 'ml' / 'gru_recalibration.png'
 
 
-class RecalibratedGRU(GRUModel):
-    """The GRU's quantiles, each shifted by the tau-quantile of its errors on the validation tail."""
-    name = 'GRU, recalibrated'
-
-    def quantiles(self, d, train, test, taus):
-        torch = _torch()
-        t = torch.tensor(taus, dtype=torch.float32)
-
-        def pinball(p, y):
-            u = y.unsqueeze(1) - p
-            return torch.maximum(t * u, (t - 1) * u).mean()
-
-        sigma = d['vol_ewma'].to_numpy()
-        y = d['y_ret'].to_numpy() / sigma
-        rows = np.asarray(train)
-        _, val = purged_tail(rows[rows >= self.window - 1], self.horizon, self.tail)
-        out, epochs = self._fit_predict(d, y, train, np.r_[val, np.asarray(test)], len(taus), pinball)
-        q_val, q_test = out[:len(val)].astype(float), out[len(val):].astype(float)
-        shift = np.array([np.quantile(y[val] - q_val[:, i], tau) for i, tau in enumerate(taus)])
-        return np.sort(q_test + shift, axis=1) * sigma[np.asarray(test)][:, None], {'epochs': epochs}
-
-
 def run(ticker, variant, step):
-    model = (RecalibratedGRU if variant == 'recalibrated' else GRUModel)(threads=1)
+    # The evidence was gathered on the 16 features, the plan's inputs at the time.
+    model = ml.GRUModel(features='features', threads=1, recalibrate=(variant == 'recalibrated'))
     d = ml.dataset(ml.ticker_bars(ticker))
     fc = ml.walk_forward_forecasts(d, model, ticker=ticker, step=step, direction=False)
     table = ml.range_table(fc)

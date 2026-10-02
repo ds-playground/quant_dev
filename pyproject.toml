@@ -39,4 +39,8 @@ where = ["."]
 include = ["src*"]
 
 [tool.pytest.ini_options]
-markers = ["slow: the ML models' sanity checks; run by default, left out by -m 'not slow'"]
+markers = [
+    "slow: the ML models' sanity checks; run by default, left out by -m 'not slow'",
+    "exhaustive: the GRU's other input sets on every check; only with -m exhaustive (about 6 min)",
+]
+addopts = "-m 'not exhaustive'"

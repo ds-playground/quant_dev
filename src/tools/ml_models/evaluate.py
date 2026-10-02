@@ -14,6 +14,7 @@ The checks are the plan's (`docs/ml_plan.md`, *The sanity checks, as tests*):
 
 `planted_signal_bars` builds the positive control: a series the direction model must find.
 """
+import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
@@ -99,7 +100,8 @@ def evaluate_many(tickers, model, n_jobs=None, **kwargs):
     n_jobs = min(n_jobs or os.cpu_count() or 1, len(tickers))
     if n_jobs <= 1:
         return [evaluate(t, model, **kwargs) for t in tickers]
-    with ProcessPoolExecutor(n_jobs) as pool:
+    # Spawned, not forked: forking after PyTorch or OpenMP has started its threads can hang.
+    with ProcessPoolExecutor(n_jobs, mp_context=multiprocessing.get_context('spawn')) as pool:
         futures = [pool.submit(evaluate, t, model, **kwargs) for t in tickers]
         return [f.result() for f in futures]
 
