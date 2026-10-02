@@ -2,8 +2,8 @@
 
 The plan, with its design choices and phases, is `docs/ml_plan.md`. Bars, past-only features,
 the labels, walk-forward folds with a purge, the baselines and the metrics need no
-machine-learning library; the LightGBM model (`gbm`) needs the `ml` extra, imported only when a
-model is fitted. `evaluate` runs a model through the folds beside the baselines and holds the
+machine-learning library; the LightGBM model (`gbm`) and the GRU (`sequence`) need the `ml`
+extra, imported only when a model is fitted. `evaluate` runs a model through the folds beside the baselines and holds the
 plan's sanity checks; `viz` draws the results.
 
     from src.tools.ml_models import LightGBMModel, evaluate, direction_scores, range_table
@@ -22,6 +22,7 @@ from .metrics import (bootstrap_means, brier, brier_decomposition, christofferse
                       interval_misses, kupiec, log_loss, mean_interval, pinball, range_scores,
                       reliability_table)
 from .gbm import GBM_PARAMS, LightGBMModel
+from .sequence import GRUModel, windows
 from .evaluate import (Forecasts, direction_scores, evaluate, evaluate_many, feature_importance,
                        planted_signal_bars, range_check, range_table, walk_forward_forecasts)
 from .viz import (plot_coverage, plot_feature_importance, plot_folds, plot_forecast_bands,
@@ -35,7 +36,7 @@ __all__ = ['ticker_bars', 'bar_returns',
            'log_loss', 'brier', 'brier_decomposition', 'reliability_table',
            'pinball', 'interval_misses', 'kupiec', 'christoffersen', 'range_scores',
            'bootstrap_means', 'mean_interval',
-           'GBM_PARAMS', 'LightGBMModel',
+           'GBM_PARAMS', 'LightGBMModel', 'GRUModel', 'windows',
            'Forecasts', 'walk_forward_forecasts', 'evaluate', 'evaluate_many',
            'direction_scores', 'range_table', 'range_check', 'feature_importance',
            'planted_signal_bars',

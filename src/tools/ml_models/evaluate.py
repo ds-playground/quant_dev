@@ -49,10 +49,12 @@ class Forecasts:
         return {tau: self.bands[(band, tau)] for tau in self.taus}
 
 
-def walk_forward_forecasts(d, model, folds=None, taus=TAUS, ticker='', direction=True, ranges=True):
-    """`model`'s forecasts for every test row of `folds` (by default `walk_forward(len(d))`),
-    beside the baselines'. `direction=False` or `ranges=False` skips that half."""
-    folds = walk_forward(len(d)) if folds is None else folds
+def walk_forward_forecasts(d, model, folds=None, taus=TAUS, ticker='', direction=True, ranges=True,
+                           first_train=756, step=63):
+    """`model`'s forecasts for every test row of `folds` (by default `walk_forward(len(d),
+    first_train, step)`), beside the baselines'. A larger `step` retrains less often over the same
+    test days. `direction=False` or `ranges=False` skips that half."""
+    folds = walk_forward(len(d), first_train, step) if folds is None else folds
     p_model, q_model, rows = [], [], []
     for k, (train, test) in enumerate(folds):
         row = {'fold': k, 'train_rows': len(train), 'train_from': d.index[train[0]],
