@@ -16,7 +16,8 @@
 - **Setup (from Phase 2):** Python 3.12 or newer, then `pip install -e ".[ml,stats,dev]"`. PyTorch's
   default Linux wheel bundles CUDA (several GB). For the CPU wheel, install torch first:
   `pip install torch --index-url https://download.pytorch.org/whl/cpu`. All tests run offline,
-  and the model tests skip when the `ml` extra is missing.
+  and the model tests skip when the `ml` extra is missing. The model tests are marked `slow`:
+  `pytest` runs them, `pytest -m "not slow"` leaves them out for a quick run.
 - **Real data:** Yahoo is blocked in the cloud sessions this is built in. Real-data runs happen
   on the owner's computer, after `save_all()` (or **Download all** in the dashboard) has filled
   `data/local`.
@@ -244,11 +245,13 @@ ticker, so a model cannot learn it before it happens.
     that five tickers × two models rarely raise a false alarm.
   - The model's mean log loss must also not undercut the base rate's by more than 0.002.
 - **A positive control,** so the check is not vacuous. A model that always predicted the base rate
-  would pass it trivially. So a synthetic series with a planted lag-1 sign signal must beat the
-  base rate, with an interval wholly above zero.
-- **A seeded leak trips it.** Adding `r_{t+1}` as a feature must fail the direction check, as must
-  a splitter that keeps the purged rows on a 5-day label. The README's seeded-bug practice, kept
-  as permanent tests.
+  would pass it trivially. So a synthetic series with a planted lag-1 sign signal (each sign
+  repeats the last 60% of the time) must beat the base rate, with an interval wholly above zero.
+- **Seeded leaks trip it.** Adding `r_{t+1}` as a feature must fail the direction check, as must a
+  feature from a centred 5-day window, a realistic look-ahead bug that carries `r_{t+1}` and
+  `r_{t+2}`. The README's seeded-bug practice, kept as permanent tests. (The plan first named a
+  splitter that keeps the purged rows on a 5-day label. Phase 3 measured that it cannot trip an
+  outcome check, so the purge is tested structurally instead; see the Phase 3 notes.)
 - **Range, better than a constant band.**
   - On each of the five long tickers, mean pinball loss must be below the constant band's.
   - Pooled over the five, the bootstrap interval of the gain must lie wholly above zero.
@@ -348,10 +351,10 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | `split.py` | `walk_forward` folds with the purge; `purged_tail` for early stopping | no |
 | `baselines.py` | `direction_baseline` (the base rate); `range_baselines`: constant width, `price_range`, 20-day and EWMA bands | no |
 | `metrics.py` | log loss, Brier and its decomposition, reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
-| `gbm.py` | LightGBM direction and quantile models | yes |
+| `gbm.py` | `LightGBMModel`: the direction model and one quantile model per τ, on standardized returns | yes |
 | `sequence.py` | the GRU (or the chosen network), with the same interface | yes |
-| `evaluate.py` | runs any model or baseline through the folds; out-of-sample predictions; metric tables; bootstrap comparisons | no (yes for the models) |
-| `viz.py` | Plotly charts: reliability, coverage and misses, bands on price, fold timeline, feature importance | no |
+| `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `direction_scores`, `range_table`, `range_check` (the sanity checks); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
+| `viz.py` | Plotly charts: reliability, rolling coverage, forecast bands on candles, folds, feature importance, pinball against the constant band | no |
 
 ## Phases
 
@@ -368,7 +371,8 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 
 The test suite stays fast: LightGBM and GRU tests use small models and few folds, and run on
 two or three synthetic tickers where five are not needed. A slow mark is added only if a phase
-measures the suite past about a minute.
+measures the suite past about a minute. Phase 3 did: the LightGBM sanity checks need the five
+long tickers, so `tests/test_ml_gbm.py` is marked `slow`. It still runs with a plain `pytest`.
 
 ## Phase 2 notes
 

@@ -37,3 +37,6 @@ ml = ["lightgbm", "torch"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+markers = ["slow: the ML models' sanity checks; run by default, left out by -m 'not slow'"]

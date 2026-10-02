@@ -414,3 +414,113 @@ def test_mean_interval():
     assert out['lower'] < x.mean() < out['upper']
     assert out['upper'] - out['lower'] == pytest.approx(2 * 1.96 / math.sqrt(3000), rel=0.25)
     pd.testing.assert_series_equal(out, ml.mean_interval(x, level=0.95))       # seeded
+
+
+# ── The walk-forward runner, with a stub model (no LightGBM needed) ──────────
+
+class StubModel:
+    """Forecasts that encode their own row, so the runner's alignment can be checked."""
+    name = 'stub'
+
+    def direction(self, d, train, test):
+        return 0.4 + 0.2 * (np.asarray(test) % 2), {'trees': 1, 'importance': {'ret_0': 3.0, 'vol_20': 1.0}}
+
+    def quantiles(self, d, train, test, taus):
+        sigma = d['vol_ewma'].to_numpy()[test][:, None]
+        z = np.array([statistics.NormalDist().inv_cdf(t) for t in taus])[None, :]
+        return sigma * z, {'trees': [1] * len(taus)}
+
+
+@pytest.fixture(scope='module')
+def stub_forecasts(index_data):
+    return ml.walk_forward_forecasts(index_data, StubModel(), ticker='SYN-INDEX')
+
+
+def test_runner_aligns_forecasts_with_their_rows(index_data, index_folds, stub_forecasts):
+    fc = stub_forecasts
+    test_rows = np.concatenate([test for _, test in index_folds])
+    assert list(fc.direction.index) == list(index_data.index[test_rows])
+    np.testing.assert_allclose(fc.direction['p_model'], 0.4 + 0.2 * (test_rows % 2))
+    np.testing.assert_allclose(fc.direction['y_up'], index_data['y_up'].to_numpy()[test_rows])
+    np.testing.assert_allclose(fc.y_ret, index_data['y_ret'].to_numpy()[test_rows])
+    for tau in ml.TAUS:
+        expected = index_data['vol_ewma'].to_numpy()[test_rows] * statistics.NormalDist().inv_cdf(tau)
+        np.testing.assert_allclose(fc.bands[('model', tau)], expected)
+    pd.testing.assert_series_equal(fc.direction['p_base'], ml.direction_baseline(index_data, index_folds),
+                                   check_names=False)
+    assert len(fc.folds) == len(index_folds)
+    assert (fc.folds['test_from'] > fc.folds['train_to']).all()
+
+
+def test_direction_scores_by_hand(stub_forecasts):
+    s = ml.direction_scores(stub_forecasts)
+    f = stub_forecasts.direction
+    gain = ml.log_loss(f['p_base'], f['y_up']) - ml.log_loss(f['p_model'], f['y_up'])
+    assert s['gain'] == pytest.approx(gain.mean())
+    assert s['log_loss_model'] == pytest.approx(ml.log_loss(f['p_model'], f['y_up']).mean())
+    assert s['lower'] < s['gain'] < s['upper']
+    # a forecast that swings 40% / 60% at random is worse than the base rate, so "no better"
+    assert s['no_better_than_chance'] and not s['beats_base_rate']
+
+
+def test_range_table_and_check(stub_forecasts):
+    table = ml.range_table(stub_forecasts)
+    assert list(table.index) == [*ml.BANDS, 'model']
+    scores, _ = ml.range_scores(stub_forecasts.quantiles('ewma_std_q'), stub_forecasts.y_ret)
+    assert table.loc['ewma_std_q', 'pinball'] == pytest.approx(scores['pinball'])
+    per_ticker, pooled, passes = ml.range_check([stub_forecasts])
+    assert per_ticker.loc['SYN-INDEX', 'gain_vs_constant'] == pytest.approx(
+        1 - table.loc['model', 'pinball'] / table.loc['constant', 'pinball'])
+    assert pooled['lower'] < pooled['estimate'] < pooled['upper']
+    assert passes == bool(per_ticker.iloc[0]['lower_pinball'] and per_ticker.iloc[0]['less_clustering']
+                          and pooled['lower'] > 0)
+
+
+def test_feature_importance_shares(stub_forecasts):
+    shares = ml.feature_importance(stub_forecasts)
+    assert shares.to_dict() == pytest.approx({'ret_0': 0.75, 'vol_20': 0.25})
+
+
+def test_evaluate_many_matches_one_at_a_time():
+    one = [ml.evaluate(t, StubModel()) for t in ('SYN-GOLD', 'SYN-FX')]
+    many = ml.evaluate_many(['SYN-GOLD', 'SYN-FX'], StubModel(), n_jobs=2)
+    for a, b in zip(one, many):
+        assert a.ticker == b.ticker
+        pd.testing.assert_frame_equal(a.direction, b.direction)
+        pd.testing.assert_frame_equal(a.bands, b.bands)
+
+
+def test_planted_signal_bars():
+    bars = ml.planted_signal_bars(repeat=0.6)
+    sign = np.sign(bars['Close'].pct_change().dropna())
+    repeats = (sign.to_numpy()[1:] == sign.to_numpy()[:-1]).mean()
+    assert repeats == pytest.approx(0.6, abs=0.02)                    # the signal is really there
+    original = synthetic_bars('SYN-INDEX')
+    np.testing.assert_allclose(bars['Close'].pct_change().abs().iloc[1:],
+                               original['Close'].pct_change().abs().iloc[1:], rtol=1e-6)  # sizes kept
+    assert (bars['High'] >= bars[['Open', 'Close']].max(axis=1) - 1e-9).all()
+
+
+# ── Charts ───────────────────────────────────────────────────────────────────
+
+def test_charts_draw_the_forecasts(index_bars, stub_forecasts):
+    fc = stub_forecasts
+    fig = ml.plot_coverage(fc, bands=('constant', 'model'), window=250)
+    miss = ml.interval_misses(fc.bands[('model', 0.1587)], fc.bands[('model', 0.8413)], fc.y_ret)
+    expected = 1 - pd.Series(miss, index=fc.y_ret.index).rolling(250).mean()
+    np.testing.assert_allclose(np.asarray(fig.data[1].y, dtype=float), expected, equal_nan=True)
+
+    fig = ml.plot_reliability(fc)
+    table = ml.reliability_table(fc.direction['p_model'], fc.direction['y_up'], 20)
+    np.testing.assert_allclose(fig.data[2].y, table['observed'])
+
+    fig = ml.plot_forecast_bands(fc, index_bars, '2024-01-01', '2024-03-31')
+    # the 68% upper edge on a day is the close before it times (1 + that day's forecast)
+    day = pd.Timestamp('2024-02-15')
+    before = index_bars.index[index_bars.index.get_loc(day) - 1]
+    upper68 = dict(zip(pd.to_datetime(fig.data[2].x), fig.data[2].y))[day]
+    assert upper68 == pytest.approx(index_bars.loc[before, 'Close'] * (1 + fc.bands.loc[before, ('model', 0.8413)]))
+
+    assert len(ml.plot_folds(fc).data) == 2 * len(fc.folds)
+    assert list(ml.plot_feature_importance(ml.feature_importance(fc)).data[0].y) == ['vol_20', 'ret_0']
+    assert len(ml.plot_range_comparison([fc]).data) == len(ml.BANDS)
