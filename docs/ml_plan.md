@@ -279,9 +279,11 @@ them, and the sequence model sees a window of them.
 ### LightGBM
 
 - **Direction:** one `binary` model.
-- **Range:** one `quantile` model per τ. Crossed forecasts are sorted, which never worsens any
-  quantile's pinball loss.
-- Small and regularized (about 200 trees, 15 leaves, at least 50 rows a leaf). Early stopping
+- **Range:** one `quantile` model per τ, fitted to the standardized return `r_{t+1} / σ_t` (σ_t the
+  EWMA volatility at t) and scaled back by σ_t; Phase 1 found raw returns under-cover. Crossed
+  forecasts are sorted, which never worsens any quantile's pinball loss.
+- Small and regularized (up to 300 trees at a learning rate of 0.03, 15 leaves, at least 50 rows a
+  leaf). Early stopping
   uses the last 20% of each training window, purged as above. Feature importance is reported per
   fold.
 
@@ -305,9 +307,10 @@ flowchart TB
   temporal CNN, whose window is fixed by its dilations. The model is behind one interface, so an
   LSTM or a temporal CNN can be added later without touching the runner.
 - Separate direction and range networks, trained per target, to match LightGBM. The direction
-  network uses binary cross-entropy. The range network uses pinball loss summed over the five τ.
+  network uses binary cross-entropy. The range network uses pinball loss averaged over the five
+  τ, on the same standardized return as LightGBM's.
 - Training: Adam, a small weight decay, early stopping on the purged validation tail, a fixed
-  seed, on CPU. This size trains in seconds per fold.
+  seed, on CPU. In Phase 1 this took about 2 s per fold and network (four cores).
 
 ### Per ticker, or pooled
 
@@ -355,7 +358,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | # | Phase | Deliverable |
 |---|---|---|
 | **0** ✅ | Plan | this document and its example charts; the owner's choices — **done, `e432564`** (choices confirmed 2026-10-02) |
-| **1** | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. |
+| **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `PHASE1`** |
 | **2** | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. |
 | **3** | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM |
 | **4** | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests |
@@ -366,6 +369,78 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 The test suite stays fast: LightGBM and GRU tests use small models and few folds, and run on
 two or three synthetic tickers where five are not needed. A slow mark is added only if a phase
 measures the suite past about a minute.
+
+## Phase 1 notes
+
+- **Built:** `notebooks/ml_next_day.ipynb`, committed without outputs, in seven sections:
+  1. bars, targets and the 16 features, with the no-look-ahead check;
+  2. the walk-forward splitter and its purge;
+  3. the baselines and metrics;
+  4. LightGBM;
+  5. the GRU;
+  6. results and the sanity checks;
+  7. three controls that show the checks can fail.
+
+  Everything is defined in the notebook; Phase 2 moves it into the package. `DATA = 'local'`
+  runs it on saved Yahoo data. The notebook's header warns not to commit it with outputs then.
+- **Run** headless (nbclient) on the six synthetic tickers. It took 14 minutes on four cores:
+  49 s for LightGBM, 12.5 minutes for the GRU (32 folds × 2 networks × 6 tickers).
+- **Environment:** `download.pytorch.org` is blocked by this cloud environment's network policy,
+  so the CPU-only wheel could not be installed here. Torch 2.14.1 came from PyPI instead, with
+  its CUDA libraries (a 6 GB environment), and ran on CPU. On the owner's computer the CPU index
+  in *Picking this up* still applies. LightGBM 4.7.0.
+
+**Results, out of sample 2019 to 2026** (1,924 to 1,986 test days per long ticker):
+
+| | LightGBM | GRU |
+|---|---|---|
+| Direction: log-loss gain over the base rate, per long ticker | −0.0004 to −0.0017 | −0.0005 to −0.0054 |
+| Direction: highest upper end of a 99% interval | +0.0015 | +0.0035 |
+| Direction check (no better than chance) | passes on all five | passes on all five |
+| Range: pinball gain over the constant band, per long ticker | 2.6% to 8.2% | 1.0% to 8.5% |
+| Range: pooled gain, 95% interval | 5.0% (3.6% to 6.8%) | 4.3% (3.0% to 5.9%) |
+| Range: misses cluster less than the constant band's | all five | all five |
+| Range: 68% coverage | 66.5% to 68.4% | 65.1% to 68.1% |
+| Range: 90% coverage | 88.1% to 89.7% | 85.0% to 88.8% |
+
+**Findings:**
+
+- **The direction models collapse towards the base rate, as they should.** LightGBM's early
+  stopping keeps a median of 1 to 7 trees per fold. Every gain is negative: fitting noise costs a
+  little log loss. The GRU's forecasts spread more (standard deviation 0.03 to 0.05 against
+  0.01 to 0.03) and cost more. On SYN-FX its 99% interval lies wholly below zero, so it is
+  significantly worse than the base rate there.
+- **The range models must fit standardized returns (a change, now in *Models* above).** Fitted
+  to raw returns, LightGBM under-covered the 68% interval (64.7% to 66.6%) and gained only 3.4%
+  pooled (2.6% to 4.3%). Fitted to `r_{t+1} / σ_t` and scaled back, coverage is close to nominal
+  and the pooled gain is 5.0%. The trees otherwise spend their splits rediscovering the
+  volatility scale.
+- **Neither model beats the EWMA band with standardized quantiles; they roughly tie with it.**
+  LightGBM is within 0.6% of it on every long ticker, better on two, worse on three. This is
+  expected: on GARCH data the EWMA volatility is close to the best one-step forecast. The plan
+  requires beating the constant band, not this one; Phase 3 reports the comparison without
+  asserting it.
+- **The GRU under-covers the 90% interval** (85.0% to 88.8%). Kupiec rejects its 68% coverage at
+  5% on three tickers (SYN-INDEX, SYN-TECH and SYN-GOLD). An open item for Phase 4, where a fix
+  (for example, widening by the quantile errors on the validation tail) would be proposed as a
+  plan change.
+- **The controls work:**
+  - A planted signal (each sign repeats the last 58% of the time) is found: a gain of 0.0074,
+    99% interval 0.0009 to 0.0143. The most any forecast could gain is about 0.013.
+  - A leaked `r_{t+1}` is caught: log loss 0.001, an interval far above zero.
+  - Removing every bar after a test date leaves LightGBM's direction and median forecasts for
+    that date identical, at three dates.
+- **Both models are deterministic.** The end-to-end check shows it for LightGBM, and one GRU fold
+  trained twice gave identical forecasts.
+- **Bugs found while building, all fixed:**
+  - The planted-signal series started from a sign of 0 (the first return), so every later sign
+    copied it. The tell was a base-rate log loss of 0.47 where about 0.69 was due. A test in
+    Phase 3 should check the planted series' own repeat rate.
+  - The log of SYN-OIL's negative prices raised warnings before being masked.
+  - `os` was imported only in the Colab cell.
+- **Not done here:** the run on real data, since Yahoo is blocked in this environment. The
+  owner runs it with `DATA = 'local'` after saving data. The README's notebook table waits for
+  Phase 7.
 
 ## Owner's decisions
 
