@@ -20,3 +20,7 @@ scipy
 pandas_ta
 TA-Lib
 ta
+
+# Machine learning (ml_models)
+lightgbm
+torch

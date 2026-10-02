@@ -342,11 +342,11 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 
 | Module | Contents | Needs `ml` |
 |---|---|---|
-| `data.py` | bars for a ticker: `synthetic_bars`, or `read_local` for saved data | no |
-| `targets.py` | next-day direction (with an optional scaled flat band), next-close return quantile targets | no |
-| `features.py` | the feature frame | no |
-| `split.py` | walk-forward folds with the purge | no |
-| `baselines.py` | base rate, constant width, `price_range`, 20-day and EWMA bands | no |
+| `data.py` | `ticker_bars`: synthetic bars, or saved ones from `data/local` (never a download); `bar_returns` | no |
+| `targets.py` | `TAUS`; `next_direction` (with an optional scaled flat band), `next_return`; `dataset`, the modelling frame | no |
+| `features.py` | `FEATURES`, `features`; `ewma_vol`, `wilder_rsi` | no |
+| `split.py` | `walk_forward` folds with the purge; `purged_tail` for early stopping | no |
+| `baselines.py` | `direction_baseline` (the base rate); `range_baselines`: constant width, `price_range`, 20-day and EWMA bands | no |
 | `metrics.py` | log loss, Brier and its decomposition, reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
 | `gbm.py` | LightGBM direction and quantile models | yes |
 | `sequence.py` | the GRU (or the chosen network), with the same interface | yes |
@@ -359,7 +359,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 |---|---|---|
 | **0** ✅ | Plan | this document and its example charts; the owner's choices — **done, `e432564`** (choices confirmed 2026-10-02) |
 | **1** ✅ | Notebook | `notebooks/ml_next_day.ipynb`, committed without outputs: targets, features, walk-forward, baselines, LightGBM and a GRU on the synthetic tickers (saved data when the owner runs it). It confirms the sanity checks hold before anything is formalized. — **done, `2559ec2`** |
-| **2** | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. |
+| **2** ✅ | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. — **done, `PHASE2`** |
 | **3** | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM |
 | **4** | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests |
 | **5** | API | `/api/ml/*` endpoints: run on request and cached, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
@@ -369,6 +369,78 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 The test suite stays fast: LightGBM and GRU tests use small models and few folds, and run on
 two or three synthetic tickers where five are not needed. A slow mark is added only if a phase
 measures the suite past about a minute.
+
+## Phase 2 notes
+
+- **Built:** `src/tools/ml_models/` without any machine-learning library: `data`, `features`,
+  `targets`, `split`, `baselines`, `metrics`, and `__init__.py` with an `__all__` of 25 names.
+  - The `ml` extra is in `pyproject.toml` (`lightgbm`, `torch`, with the CPU-wheel hint), and
+    both libraries are in `requirements.txt`.
+  - A test checks that importing the package loads neither library.
+- **Choices made while building** (none changes a confirmed decision):
+  - **`ticker_bars` never downloads.** A synthetic ticker's name picks the generator, anything
+    else `data/local`. An unsaved symbol raises, naming `save_local`.
+  - **`dataset` holds the features, `y_ret` and `y_up`, plus `vol_250`,** the input
+    `price_range` needs.
+    - `vol_250` is a baseline input, so its warm-up leaves NaN rather than removing rows.
+      Removing them had moved every fold by 190 rows.
+    - It accepts up to 10 undefined returns in its window, so SYN-OIL's negative settle does not
+      blank 250 days of the `price_range` band.
+  - **The RSI is Wilder's, on price changes.** The Phase 1 notebook averaged percentage
+    returns, which is not Wilder's RSI. The package's matches `ta_tools.rsi` (TA-Lib) to 1e-10 on
+    SYN-INDEX and SYN-OIL, without needing TA-Lib itself.
+  - **Every feature is free of the price scale.** Multiplying the prices by 3.7 leaves the
+    frame unchanged, which a test checks.
+  - **`range_baselines` returns one frame with `(band, tau)` columns.** `range_scores` takes any
+    `{tau: forecast}` mapping and returns the scores and the per-day pinball loss, for the
+    bootstrap.
+  - **Murphy's decomposition is exact only when the forecasts in a bin are equal,** as they are
+    for the base rate. Otherwise it is off by the within-bin variance, as its docstring says.
+- **Checked against the notebook:** on SYN-INDEX the package's baselines give the same pinball
+  losses as Phase 1, to the hundredth of a basis point:
+  - constant width 16.54;
+  - `price_range` 16.90;
+  - 20-day σ 16.28;
+  - EWMA band 16.19.
+- **The baselines' sanity check** (a test), on the five long synthetic tickers:
+
+  | ticker | EWMA band's pinball gain over the constant band | its 68% coverage | miss after miss ÷ miss after hit, constant → EWMA |
+  |---|---|---|---|
+  | SYN-INDEX | 2.1% | 68.2% | 1.70 → 1.25 |
+  | SYN-TECH | 7.1% | 69.9% | 1.86 → 1.36 |
+  | SYN-GOLD | 3.6% | 68.1% | 1.23 → 1.05 |
+  | SYN-FX | 3.9% | 68.5% | 1.32 → 1.06 |
+  | SYN-OIL | 8.1% | 68.3% | 1.93 → 1.26 |
+
+  Pooled: 5.0%, with a 95% interval of 3.5% to 6.7%.
+- **Tests:** `tests/test_ml_models.py`, 54 tests in about 7 s, passing from the repo root and
+  from `tests/`; 391 in the whole suite.
+  - The references are independent:
+    - hand-worked series;
+    - the Parkinson and Garman–Klass formulas written out;
+    - `price_return`'s loader for the returns, and `options.price_range` for its band;
+    - `ta_tools.rsi` for the RSI;
+    - scipy's G-tests, which are the same likelihood ratios as Kupiec's and Christoffersen's.
+  - No-look-ahead runs per feature on SYN-OIL, including a cut just after the negative settle.
+- **Fifteen seeded bugs, each caught by a test:**
+  - a centred window (the no-look-ahead test);
+  - tomorrow's return as `ret_0`;
+  - the RSI on returns;
+  - the EWMA decay inverted;
+  - returns kept across the negative close;
+  - no purge at a fold boundary;
+  - no purge before the validation tail;
+  - the constant band fitted with the test window;
+  - the EWMA band's quantiles flipped;
+  - `price_range` not lognormal;
+  - `vol_250` removing rows;
+  - Kupiec with the wrong rate;
+  - the clustering ratio inverted;
+  - interval bounds counted as misses;
+  - pinball loss with τ flipped.
+- **Proposed for Phase 3** (a change to this plan, for the owner): the notebook should import
+  the package rather than define its own copies. Its RSI then becomes Wilder's, and Phase 1's
+  numbers move slightly.
 
 ## Phase 1 notes
 

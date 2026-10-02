@@ -29,6 +29,10 @@ ta = ["pandas_ta", "ta", "TA-Lib"]
 stats = ["scipy"]
 # src.api (the dashboard's API server) needs FastAPI and uvicorn.
 api = ["fastapi", "uvicorn[standard]"]
+# src.tools.ml_models' models need LightGBM and PyTorch; the rest of the package needs neither.
+# The default Linux torch wheel bundles CUDA (several GB): for CPU only, install torch first with
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+ml = ["lightgbm", "torch"]
 
 [tool.setuptools.packages.find]
 where = ["."]
