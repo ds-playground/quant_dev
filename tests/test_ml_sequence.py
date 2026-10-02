@@ -37,22 +37,44 @@ def test_gru_forecasts_are_probabilities_and_ordered_quantiles(index_data):
     assert q.shape == (len(test), len(ml.TAUS)) and (np.diff(q, axis=1) >= 0).all()
 
 
+def test_default_inputs_are_the_provisional_choice():
+    assert ml.GRUModel().features == ml.GRU_INPUTS['returns_range'] == ['ret_0', 'tr_close']
+    assert ml.GRUModel(features='features').features == ml.FEATURES
+
+
 def test_gru_is_deterministic_and_leaves_torch_as_it_found_it(index_data):
     train, test = ml.walk_forward(len(index_data))[2]
-    threads, deterministic = torch.get_num_threads(), torch.are_deterministic_algorithms_enabled()
-    a, _ = ml.GRUModel(**QUICK).direction(index_data, train, test)
-    b, _ = ml.GRUModel(**QUICK).direction(index_data, train, test)
-    np.testing.assert_array_equal(a, b)
-    assert torch.get_num_threads() == threads
-    assert torch.are_deterministic_algorithms_enabled() == deterministic
+    original = torch.get_num_threads()
+    torch.set_num_threads(2)                     # not the 1 the model uses, so a leak would show
+    try:
+        a, _ = ml.GRUModel(**QUICK).direction(index_data, train, test)
+        b, _ = ml.GRUModel(**QUICK).direction(index_data, train, test)
+        np.testing.assert_array_equal(a, b)
+        assert torch.get_num_threads() == 2
+        assert not torch.are_deterministic_algorithms_enabled()
+    finally:
+        torch.set_num_threads(original)
 
 
-def test_gru_forecast_is_unchanged_when_later_bars_are_removed():
+def test_gru_keeps_the_best_epoch(index_data):
+    # Training is deterministic, so a model stopped at the best epoch must give the same forecasts
+    # as one that ran on past it and went back.
+    train, test = ml.walk_forward(len(index_data))[2]
+    p, info = ml.GRUModel(threads=1, patience=2, max_epochs=20).direction(index_data, train, test)
+    assert info['best_epoch'] < info['epochs']   # early stopping did run on past the best
+    exact, _ = ml.GRUModel(threads=1, patience=100, max_epochs=info['best_epoch']).direction(
+        index_data, train, test)
+    np.testing.assert_array_equal(p, exact)
+
+
+@pytest.mark.parametrize('inputs', ['returns_range', 'features'])
+def test_gru_forecast_is_unchanged_when_later_bars_are_removed(inputs):
     """End to end, one fold: keep the bars up to the forecast date and one more (whose close is
-    only that date's label); the forecasts must be identical to the bit."""
+    only that date's label); the forecasts must be identical to the bit. With 16 inputs, batched
+    inference rounded differently with the batch's size, so both input widths are checked."""
     bars = synthetic_bars('SYN-INDEX')
     full_data = ml.dataset(bars)
-    model = ml.GRUModel(**QUICK)
+    model = ml.GRUModel(features=inputs, **QUICK)
     for position in (900, 2000):
         date = full_data.index[position]
         cut_data = ml.dataset(bars.iloc[:bars.index.get_loc(date) + 2])
@@ -75,12 +97,30 @@ def test_quantile_shift_makes_each_forecast_cover_its_share():
         assert np.mean(y <= q[:, i] + shift[i]) == pytest.approx(tau, abs=1 / 2000 + 1e-9)
 
 
-def test_recalibration_is_reported_and_can_be_turned_off(index_data):
+class _Capturing(ml.GRUModel):
+    """Keeps the network's raw (standardized, unsorted) outputs for the rows it forecast."""
+    def _fit_predict(self, *args, **kwargs):
+        out, info = super()._fit_predict(*args, **kwargs)
+        self.raw = out.astype(float)
+        return out, info
+
+
+def test_recalibration_shifts_by_the_validation_errors(index_data):
     train, test = ml.walk_forward(len(index_data))[1]
-    q, info = ml.GRUModel(**QUICK).quantiles(index_data, train, test, ml.TAUS)
-    assert info['shift'].shape == (len(ml.TAUS),) and (np.diff(q, axis=1) >= 0).all()
+    model = _Capturing(**QUICK)
+    q, info = model.quantiles(index_data, train, test, ml.TAUS)
+    # The rows forecast were the validation tail, then the test rows.
+    _, val = ml.purged_tail(train[train >= model.window - 1])
+    y_std = (index_data['y_ret'] / index_data['vol_ewma']).to_numpy()
+    shift = ml.quantile_shift(model.raw[:len(val)], y_std[val], ml.TAUS)
+    np.testing.assert_allclose(info['shift'], shift)
+    sigma = index_data['vol_ewma'].to_numpy()[test][:, None]
+    np.testing.assert_allclose(q, np.sort(model.raw[len(val):] + shift, axis=1) * sigma, rtol=1e-12)
+    assert np.abs(shift).max() > 1e-3                          # a shift that is really there
     raw, info_raw = ml.GRUModel(**QUICK, recalibrate=False).quantiles(index_data, train, test, ml.TAUS)
-    assert 'shift' not in info_raw and not np.allclose(q, raw)
+    assert 'shift' not in info_raw
+    # The same network either way (same seed, same data): only the shift differs.
+    np.testing.assert_allclose(raw, np.sort(model.raw[len(val):], axis=1) * sigma, rtol=1e-12)
 
 
 # ── The sanity checks, on the five long tickers ──────────────────────────────

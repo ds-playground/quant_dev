@@ -65,9 +65,10 @@ class GRUModel:
 
     Same interface as `gbm.LightGBMModel`: `direction(d, train, test)` returns up-probabilities;
     `quantiles(d, train, test, taus)` returns a (test rows, taus) array of return quantiles, sorted
-    along each row. Both also return the epochs trained, and the range model its recalibration
-    shift per tau (`recalibrate=False` turns it off). `threads` sets PyTorch's CPU threads for the
-    fit (None leaves PyTorch's default); give 1 when running tickers in parallel processes.
+    along each row. Both also return the epochs trained and the best one, whose weights are kept;
+    the range model also its recalibration shift per tau (`recalibrate=False` turns it off).
+    `threads` sets PyTorch's CPU threads for the fit (None leaves PyTorch's default); give 1 when
+    running tickers in parallel processes.
     """
 
     name = 'GRU'
@@ -97,7 +98,7 @@ class GRUModel:
 
         return GRUNet(self.hidden)
 
-    def _fit_predict(self, d, y, train, test, n_out, loss_fn):
+    def _fit_predict(self, d, y, train, rows, n_out, loss_fn, fold_start):
         torch = _torch()
         deterministic = torch.are_deterministic_algorithms_enabled()
         threads = torch.get_num_threads()
@@ -105,13 +106,15 @@ class GRUModel:
         if self.threads:
             torch.set_num_threads(self.threads)
         try:
-            return self._train(torch, d, y, train, test, n_out, loss_fn)
+            return self._train(torch, d, y, train, rows, n_out, loss_fn, fold_start)
         finally:
             torch.use_deterministic_algorithms(deterministic)
             torch.set_num_threads(threads)
 
-    def _train(self, torch, d, y, train, test, n_out, loss_fn):
-        seed = self.seed + int(test[0])               # the same seed whenever this fold is fitted
+    def _train(self, torch, d, y, train, rows, n_out, loss_fn, fold_start):
+        # Seeded from the fold's first test row, so this fold trains the same whenever it is fitted,
+        # whichever rows are then forecast.
+        seed = self.seed + int(fold_start)
         torch.manual_seed(seed)
         rng = np.random.default_rng(seed)
         X = d[self.features].to_numpy()
@@ -125,7 +128,7 @@ class GRUModel:
         opt = torch.optim.Adam(net.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
         xv = torch.from_numpy(windows(Xs, val, self.window))
         yv = torch.from_numpy(y[val])
-        best, best_state, wait, epochs = np.inf, None, 0, 0
+        best, best_state, best_epoch, wait, epochs = np.inf, None, 0, 0, 0
         for epochs in range(1, self.max_epochs + 1):
             net.train()
             for batch in np.array_split(rng.permutation(fit), max(1, len(fit) // self.batch)):
@@ -138,7 +141,7 @@ class GRUModel:
             with torch.no_grad():
                 v = loss_fn(net(xv), yv).item()
             if v < best - 1e-6:
-                best, wait = v, 0
+                best, best_epoch, wait = v, epochs, 0
                 best_state = {k: x.clone() for k, x in net.state_dict().items()}
             else:
                 wait += 1
@@ -150,8 +153,8 @@ class GRUModel:
             # One row at a time: batched, the kernels round differently with the batch's size, so a
             # day's forecast would depend on which other days were forecast with it.
             out = np.vstack([net(torch.from_numpy(windows(Xs, [row], self.window))).numpy()
-                             for row in np.asarray(test)])
-        return out, epochs
+                             for row in np.asarray(rows)])
+        return out, {'epochs': epochs, 'best_epoch': best_epoch}
 
     def direction(self, d, train, test):
         torch = _torch()
@@ -159,8 +162,8 @@ class GRUModel:
         def bce(p, t):
             return torch.nn.functional.binary_cross_entropy_with_logits(p[:, 0], t)
 
-        out, epochs = self._fit_predict(d, d['y_up'].to_numpy(), train, test, 1, bce)
-        return 1 / (1 + np.exp(-out[:, 0].astype(float))), {'epochs': epochs}
+        out, info = self._fit_predict(d, d['y_up'].to_numpy(), train, test, 1, bce, test[0])
+        return 1 / (1 + np.exp(-out[:, 0].astype(float))), info
 
     def quantiles(self, d, train, test, taus):
         torch = _torch()
@@ -174,12 +177,12 @@ class GRUModel:
         y = d['y_ret'].to_numpy() / sigma
         test = np.asarray(test)
         if not self.recalibrate:
-            out, epochs = self._fit_predict(d, y, train, test, len(taus), pinball)
-            return np.sort(out.astype(float), axis=1) * sigma[test][:, None], {'epochs': epochs}
+            out, info = self._fit_predict(d, y, train, test, len(taus), pinball, test[0])
+            return np.sort(out.astype(float), axis=1) * sigma[test][:, None], info
         rows = np.asarray(train)
         _, val = purged_tail(rows[rows >= self.window - 1], self.horizon, self.tail)
-        out, epochs = self._fit_predict(d, y, train, np.r_[val, test], len(taus), pinball)
+        out, info = self._fit_predict(d, y, train, np.r_[val, test], len(taus), pinball, test[0])
         out = out.astype(float)
         shift = quantile_shift(out[:len(val)], y[val], taus)
         q = np.sort(out[len(val):] + shift, axis=1) * sigma[test][:, None]
-        return q, {'epochs': epochs, 'shift': shift}
+        return q, {**info, 'shift': shift}
