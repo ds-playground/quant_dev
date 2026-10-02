@@ -373,7 +373,7 @@ measures the suite past about a minute.
 ## Phase 2 notes
 
 - **Built:** `src/tools/ml_models/` without any machine-learning library: `data`, `features`,
-  `targets`, `split`, `baselines`, `metrics`, and `__init__.py` with an `__all__` of 25 names.
+  `targets`, `split`, `baselines`, `metrics`, and `__init__.py` with an `__all__` of 26 names.
   - The `ml` extra is in `pyproject.toml` (`lightgbm`, `torch`, with the CPU-wheel hint), and
     both libraries are in `requirements.txt`.
   - A test checks that importing the package loads neither library.
