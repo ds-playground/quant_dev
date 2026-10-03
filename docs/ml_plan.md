@@ -375,8 +375,9 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | `gbm.py` | `LightGBMReturnModel` (one quantile model per τ, on standardized returns) and `LightGBMWDLModel` (multiclass) | yes |
 | `sequence.py` | `GRUReturnModel` and `GRUWDLModel`, with the same interfaces | yes |
 | `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `wdl_scores`, `wdl_check`, `point_scores`, `range_table`, `range_check` (the sanity checks); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
-| `registry.py` | `finalize`, `finalize_many`, `save_model`, `load_model`, `list_models`, `forecast_next`; `model_spec`, `data_fingerprint`, `model_id`, `code_hash` | no (yes to fit or load a model) |
-| `viz.py` | Plotly charts: W/D/L reliability, rolling coverage, forecast bands (with the median) on candles, folds, feature importance, pinball against the constant band | no |
+| `mlp.py` | `MLPReturnModel` (an `MLPRegressor`'s centre plus its held-out errors) and `MLPWDLModel` (an `MLPClassifier`), with the same interfaces | yes (scikit-learn) |
+| `registry.py` | `finalize`, `finalize_many`, `save_model`, `load_model`, `load_latest`, `list_models`, `forecast_next`; `model_spec`, `data_fingerprint`, `model_id`, `code_hash`, `code_modules` | no (yes to fit or load a model) |
+| `viz.py` | Plotly charts: W/D/L reliability, rolling coverage, forecast bands (with the median) on candles, folds, feature importance, pinball against the constant band, one model against others (`plot_model_comparison`) | no |
 
 ## Phases
 
@@ -389,6 +390,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | **4** ✅ | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests; recalibrated ranges and three input sets (owner's decisions, Phase 4) — **done, `1cbc9dc`, `031e256`, `446dc4a`, `40afeb3`** |
 | **4b** ✅ | Two models, win/draw/loss | the up/down model replaced by a W/D/L model; the `wdl` and `streak` features; return and W/D/L as separate models for LightGBM and the GRU; the notebook and tests moved over (owner's request, 2026-10-03) — **done, `bbb1387`** (see the *Two models* notes) |
 | **4c** ✅ | Saved models | `registry.py`: each final model trained on every labelled row, saved with its walk-forward forecasts under a unique id, with its parameters tracked; forecast the next day and compare a new model with a saved one without retraining; a notebook section that saves them (owner's request, 2026-10-03) — **done, `044967e`** (see *Saved models*) |
+| **4d** | MLP | `mlp.py`: scikit-learn MLPs for both targets at the owner's starting configuration, through the same walk-forward, checks, controls and saving; the notebook loads the saved LightGBM and GRUs instead of retraining them and compares the MLP with them (owner's request, 2026-10-03) — see *The MLP* |
 | **5** | API | `/api/ml/*` endpoints: forecasts from saved models (`load_model`, `forecast_next`), training on request, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
 | **6** | Dashboard | an **ML forecasts** tab with win/draw/loss and return sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
 | **7** | Wrap-up | README: Setup (the extra), layout, Package API, Tests, notebook table, changelog. The owner runs the notebook on saved data. Checks in full; a PR when asked. |
@@ -885,6 +887,112 @@ check passes, and the pooled range gain is 4.2% (2.7% to 6.0%). It still under-c
   owner runs it with `DATA = 'local'` after saving data. The README's notebook table waits for
   Phase 7.
 
+## The MLP (Phase 4d)
+
+The owner's request of 2026-10-03: a third method, scikit-learn's MLP. Start with two hidden
+layers, each with as many neurons as there are features, ReLU and Adam, and scikit-learn's
+defaults otherwise. Train, test and save it in the same framework. Load the latest saved LightGBM
+and GRU models without retraining them, and compare the MLP with them.
+
+- **Built:**
+  - `mlp.MLPReturnModel` and `mlp.MLPWDLModel`, with the same `fit` / `predict` / `quantiles` /
+    `wdl` interface as the other models. Two hidden layers of 18 (the feature count), ReLU, Adam;
+    everything else at scikit-learn's defaults, through `params` for later tuning. A test pins
+    that only the layers and the seed differ from scikit-learn's defaults.
+  - **W/D/L:** an `MLPClassifier` with the same settings, since a regressor gives no
+    probabilities. It trains on all the training rows.
+  - **Return:** an `MLPRegressor` on the standardized return `r_{t+1} / σ_t`, as LightGBM's,
+    whose forecast is the centre. It trains on the training rows less the purged last 20%. Its
+    errors on that held-out tail set each τ's offset (`quantile_shift`, as the GRU's
+    recalibration), so the median is the point forecast and the outer quantiles the bands.
+  - **Two departures from the defaults,** which the hard rules need:
+    - `random_state` is seeded from `seed` and the fold's first test row, as the GRU is, since
+      the default (None) draws a new seed each run;
+    - inputs are standardized on the training rows, since scikit-learn's MLP does not scale
+      them and a scaler fitted on more rows would look ahead.
+  - **Forecasts are computed from the trained weights,** one row at a time. They match
+    scikit-learn's `predict` and `predict_proba` to 1e-15, and a test pins that. A saved model
+    holds only numpy weights, not a pickled scikit-learn object. Each fold reports its epochs and
+    whether scikit-learn's optimizer converged.
+  - `registry`:
+    - **Per-model code hash.** Each model is hashed with the shared modules (`data`, `features`,
+      `targets`, `split`) and its own (`gbm`; `sequence`; `mlp` with `sequence`, for
+      `quantile_shift`), so adding or editing one family no longer changes the others' ids or
+      warnings. This changed every model's code hash once: models saved before it warn that the
+      code has changed when they forecast, but load and compare as before.
+    - **`load_latest(model, target, ticker, ...)`:** the newest saved version on this computer
+      for the same model, target, ticker, source, threshold and taus. Its settings and code may
+      be older, which is what makes it a version.
+  - `viz.plot_model_comparison` and `evaluate.compare_forecasts` put one model against others.
+    The chart shows the gain as a share of the other model's loss, with its 95% interval, in one
+    panel per target. The palette was checked with the colour validator: CVD separation passes,
+    and two hues are below 3:1 against the surface, so the table is always shown beside it.
+  - The `ml` extra and `requirements.txt` gain `scikit-learn`.
+- **The notebook:**
+  - `REUSE_SAVED` (default True) loads the latest saved LightGBM and GRUs (`models_for`, using
+    `load_latest`). Only tickers with none saved are trained, and saved in section 9.
+  - A `VERSIONS` table records which version each model is, and whether its code is today's.
+  - The MLP is always trained (section 6), judged by the same checks (section 7), and given the
+    four controls (section 8). Controls run for LightGBM and the GRUs only when they were trained
+    in this run; loaded versions passed theirs when they were trained.
+  - The MLP is saved in section 9. Section 10 compares it with every saved model, per ticker and
+    target, without retraining them.
+  - A short sweep (`MLP_SWEEP`) shows where tuning goes.
+  - The end-to-end check no longer assumes SYN-INDEX is among the tickers. Before, it raised on
+    saved data, where SYN-INDEX is not.
+- **At the starting configuration the MLP overfits the noise.** It was measured on the five long
+  synthetic tickers (step 63):
+
+  | Check | MLP | for reference: LightGBM |
+  |---|---|---|
+  | W/D/L gain over the volatility baseline | −0.134, −0.135, −0.123, −0.133, −0.063 | −0.001 to −0.010 |
+  | W/D/L no better than volatility (required) | passes, by being worse | passes |
+  | W/D/L beats the frequencies, pooled | no: −0.107 [−0.131, −0.086] | +0.004 [0.001, 0.007] |
+  | Point forecast no better than the EWMA median (required) | passes, by being worse (−5 to −23 bp) | passes |
+  | Range beats the constant band (required) | **fails**: pinball 7–15% *worse* on every ticker; coverage near nominal (66–69% for 68%) | +5.1% |
+  | Planted signal (65%) found | **fails**: −0.090 | +0.029 |
+  | Leaks caught | both | both |
+
+  This is the configuration, not a pipeline bug. On SYN-INDEX every score moves towards the
+  baselines as the regularization grows:
+
+  | | range vs the constant band | point MAE vs EWMA | W/D/L vs volatility |
+  |---|---|---|---|
+  | starting point (`alpha` 1e-4, 200 epochs) | −12.4% | −8.8 bp | −0.134 |
+  | `early_stopping=True` | −1.6% | −2.9 bp | −0.044 |
+  | `alpha=1` | −2.0% | −2.7 bp | −0.017 |
+  | `alpha=10` | +2.0% | +0.1 bp | −0.000 |
+
+  The plan treats a failed range check as a bug, so this is recorded rather than passed over.
+  `tests/test_ml_mlp.py` keeps the range check and the planted signal as **strict expected
+  failures** at the starting configuration, so a configuration that fixes them makes those tests
+  report it. The checks that guard against look-ahead (no better than the baselines, the leaks,
+  the end-to-end cut, the final fit equal to the walk-forward) all pass, as they must.
+- **Against the saved models** (notebook section 10, `compare_forecasts`, nothing retrained):
+  the starting MLP is worse than LightGBM and all three GRUs on every long ticker and both
+  targets. That is 40 of 40 comparisons, each with its 95% interval wholly below zero:
+  - win/draw/loss log loss: 5 to 13% above theirs;
+  - mean pinball loss for the return: 14 to 23% above theirs.
+
+  `plot_model_comparison` draws it.
+- **The notebook's runs:**
+  - The first run, with nothing saved, trains and saves all 60 models (LightGBM, three GRUs and
+    the MLP, two targets, six tickers) in 12.5 minutes on four cores.
+  - The second run loads LightGBM and the GRUs in under a second and retrains none. It trains
+    only the MLP, its sweep and its controls, in 4.3 minutes.
+  - The MLP's ids are the same in both runs, since training is deterministic, so nothing is
+    saved twice.
+- **Checked:**
+  - `tests/test_ml_mlp.py`: 24 pass, plus the 2 strict expected failures. The MLP is also added
+    to the registry tests (round trip, final fit equal to the walk-forward), and there are new
+    tests for `load_latest`, the per-model code hash and the comparison chart.
+  - 12 seeded bugs in `mlp.py`, all caught. Among them: standardizing on every row; no seed; one
+    hidden layer; no activation; the return net trained on its held-out tail; the shift flipped;
+    the W/D/L columns reversed; σ from the wrong day; dropped intercepts.
+  - LightGBM's and the GRU's forecasts are unchanged to the bit.
+- **Not decided here:** a tuned MLP configuration. The sweep is a lead, and choosing one is the
+  owner's call (decision 17 records only the starting point).
+
 ## Owner's decisions
 
 **Confirmed by the owner on 2026-10-02, all seven as recommended:**
@@ -924,6 +1032,14 @@ check passes, and the pooled range gain is 4.2% (2.7% to 6.0%). It still under-c
     `models/model_parameters` (tracked), one object per model with a unique id; the design is in
     *Saved models*. The saved object also carries the walk-forward forecasts, so new models are
     compared with old ones without retraining.
+
+**The MLP (2026-10-03):**
+
+17. A third method, scikit-learn's MLP, starts at two hidden layers as wide as the feature list,
+    ReLU, Adam, and scikit-learn's defaults otherwise. It uses a classifier for W/D/L, a seed per
+    fold, and inputs standardized on the training rows. The notebook loads the latest saved
+    LightGBM and GRUs instead of retraining them, and compares the MLP with them. Tuning the MLP
+    is left open.
 
 ## Open judgment calls
 

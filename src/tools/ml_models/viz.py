@@ -6,6 +6,7 @@ coverage, reliability bins), so the dashboard and a notebook draw the same numbe
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from src.tools.price_return.viz import _style, INK_2, MUTED
 
@@ -145,4 +146,56 @@ def plot_range_comparison(forecasts, bands=(*BANDS[1:], 'model')):
                  y_title='against constant width')
     fig.update_layout(barmode='group', bargap=0.25)
     fig.update_yaxes(tickformat='+.0%')
+    return fig
+
+
+# One hue per model compared against, in a fixed order.
+COMPARE_COLORS = ['#2a78d6', '#eda100', '#1baf7a', '#eb6834']
+
+
+def plot_model_comparison(table, title=None):
+    """One model against others, per ticker: the gain of `model_b` over each `model_a` as a share
+    of `model_a`'s loss, with its interval (`evaluate.compare_forecasts` rows, one per ticker and
+    target; the ticker is the row's `ticker` column, or its index). Right of zero, `model_b` is
+    better. Two panels on their own scales: win/draw/loss (log loss) and the return (mean
+    pinball)."""
+    t = table.copy()
+    if 'ticker' not in t.columns:
+        t['ticker'] = [i[-1] if isinstance(i, tuple) else i for i in t.index]
+    for c in ('gain_b_over_a', 'lower', 'upper'):
+        t[c] = t[c].astype(float) / t['loss_a'].astype(float)
+    targets = [x for x in ('wdl', 'return') if x in set(t['target'])]
+    fig = make_subplots(rows=1, cols=len(targets), shared_yaxes=True, horizontal_spacing=0.08,
+                        subplot_titles=[{'wdl': 'Win/draw/loss (log loss)',
+                                         'return': 'Return (mean pinball)'}[x] for x in targets])
+    tickers = list(dict.fromkeys(t['ticker']))
+    others = list(dict.fromkeys(t['model_a']))
+    offsets = np.linspace(-0.27, 0.27, len(others)) if len(others) > 1 else [0.0]
+    for col, target in enumerate(targets, start=1):
+        for k, (other, offset) in enumerate(zip(others, offsets)):
+            rows = t[(t['target'] == target) & (t['model_a'] == other)]
+            y = [tickers.index(x) + offset for x in rows['ticker']]
+            fig.add_trace(go.Scatter(
+                x=rows['gain_b_over_a'], y=y, mode='markers', name=f'vs {other}',
+                legendgroup=other, showlegend=col == 1,
+                marker=dict(size=9, color=COMPARE_COLORS[k % len(COMPARE_COLORS)],
+                            line=dict(color='white', width=2)),
+                error_x=dict(type='data', symmetric=False,
+                             array=rows['upper'] - rows['gain_b_over_a'],
+                             arrayminus=rows['gain_b_over_a'] - rows['lower'],
+                             color=COMPARE_COLORS[k % len(COMPARE_COLORS)], thickness=2, width=0),
+                customdata=np.column_stack([rows['ticker'], rows['lower'], rows['upper']]),
+                hovertemplate=(f'{rows["model_b"].iloc[0] if len(rows) else ""} vs {other}, '
+                               '%{customdata[0]}: %{x:+.2%} (95%: %{customdata[1]:+.2%} to '
+                               '%{customdata[2]:+.2%})<extra></extra>')), row=1, col=col)
+        fig.add_vline(x=0, line=dict(color=MUTED, dash='dot', width=1), row=1, col=col)
+    b = t['model_b'].iloc[0]
+    fig = _style(fig, title or f'{b} against the other models: loss saved, as a share of theirs '
+                               '(right of zero, the ' + b + ' is better)', 160 + 70 * len(tickers))
+    fig.update_xaxes(tickformat='+.0%', zeroline=False, title_text="gain, share of the other's loss")
+    fig.update_yaxes(tickvals=list(range(len(tickers))), ticktext=tickers, autorange='reversed',
+                     showgrid=False)
+    # below the panels: above them, the legend would run into the panel titles
+    fig.update_layout(legend=dict(orientation='h', yanchor='top', y=-0.16, xanchor='left', x=0),
+                      margin=dict(b=110), height=fig.layout.height + 40)
     return fig

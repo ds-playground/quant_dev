@@ -1,6 +1,7 @@
 """Saved final models (`ml_models.registry`): the id, the round trip through the two folders, the
 final fit, and forecasting the next day. Offline, on the synthetic tickers, into temporary folders.
-Skipped without LightGBM (the GRU cases also need PyTorch); marked slow, as the other model tests.
+Skipped without LightGBM (the GRU cases also need PyTorch, the MLP ones scikit-learn); marked slow,
+as the other model tests.
 """
 import dataclasses
 import json
@@ -20,6 +21,7 @@ from src.tools.price_return import synthetic_bars                       # noqa: 
 STEP = 500                                      # four folds: enough to save, quick to make
 LGB = dict(max_trees=40)
 GRU = dict(max_epochs=3, threads=1)
+MLP = dict(params={'max_iter': 20})
 
 
 def _models():
@@ -27,6 +29,11 @@ def _models():
     try:
         import torch  # noqa: F401
         out += [ml.GRUWDLModel(**GRU), ml.GRUReturnModel(**GRU)]
+    except ImportError:
+        pass
+    try:
+        import sklearn  # noqa: F401
+        out += [ml.MLPWDLModel(**MLP), ml.MLPReturnModel(**MLP)]
     except ImportError:
         pass
     return out
@@ -57,7 +64,8 @@ def saved():
 
 def test_id_reads_at_a_glance(saved):
     names = {'LightGBMWDLModel': 'lightgbm_wdl', 'LightGBMReturnModel': 'lightgbm_return',
-             'GRUWDLModel': 'gru-returns-range_wdl', 'GRUReturnModel': 'gru-returns-range_return'}
+             'GRUWDLModel': 'gru-returns-range_wdl', 'GRUReturnModel': 'gru-returns-range_return',
+             'MLPWDLModel': 'mlp_wdl', 'MLPReturnModel': 'mlp_return'}
     for cls, s in saved.items():
         assert re.fullmatch(rf'{names[cls]}_SYN-INDEX_20260930_[0-9a-f]{{8}}', s.model_id), s.model_id
         assert s.parameters['data']['last'] == '2026-09-30'
@@ -95,11 +103,18 @@ def test_id_changes_with_the_methodology_or_the_bars(saved, bars):
 def test_code_hash_covers_the_modules_that_make_a_model():
     import inspect
     from pathlib import Path
-    made_by = {Path(inspect.getfile(cls)).name for cls in ml.registry.MODEL_CLASSES.values()}
-    made_by |= {Path(inspect.getfile(f)).name for f in (ml.features, ml.dataset, ml.walk_forward,
-                                                         ml.ticker_bars)}
-    assert made_by <= set(ml.registry.CODE_MODULES), made_by - set(ml.registry.CODE_MODULES)
-    assert re.fullmatch(r'[0-9a-f]{12}', ml.code_hash())
+    shared = {Path(inspect.getfile(f)).name for f in (ml.features, ml.dataset, ml.walk_forward,
+                                                      ml.ticker_bars)}
+    for name, cls in ml.registry.MODEL_CLASSES.items():
+        modules = set(ml.code_modules(cls))
+        assert shared | {Path(inspect.getfile(cls)).name} <= modules, name
+        assert re.fullmatch(r'[0-9a-f]{12}', ml.code_hash(cls))
+    # each family hashed apart: the MLP's module is not in LightGBM's hash, so adding or editing
+    # one family leaves the others' saved models current
+    assert 'mlp.py' not in ml.code_modules('LightGBMWDLModel')
+    assert ml.code_hash('LightGBMWDLModel') != ml.code_hash('MLPWDLModel')
+    assert 'quantile_shift' in Path(inspect.getfile(ml.MLPReturnModel)).read_text()
+    assert 'sequence.py' in ml.code_modules('MLPReturnModel')    # where quantile_shift lives
 
 
 # ── Saving and loading ───────────────────────────────────────────────────────
@@ -171,6 +186,26 @@ def test_list_models_reads_the_parameters(saved, tmp_path):
         assert table.loc[s.model_id, 'loss'] == pytest.approx(ml.daily_losses(s.forecasts).mean())
     with pytest.raises(FileNotFoundError, match='git-ignored'):
         ml.load_model(gone, m)
+
+
+def test_load_latest_takes_the_newest_matching_version(saved, tmp_path):
+    m, p = tmp_path / 'models', tmp_path / 'model_parameters'
+    old = saved['LightGBMWDLModel']
+    newer = ml.finalize('SYN-INDEX', ml.LightGBMWDLModel(max_trees=41), step=STEP)
+    for s, created in ((old, '2026-10-01T00:00:00+00:00'), (newer, '2026-10-02T00:00:00+00:00')):
+        s = dataclasses.replace(s, parameters={**s.parameters, 'created': created})
+        ml.save_model(s, m, p)
+    got = ml.load_latest('LightGBM', 'wdl', 'SYN-INDEX', source='synthetic', parameters_dir=p,
+                         models_dir=m)
+    assert got.model_id == newer.model_id                  # newest saved, whatever its settings
+    assert ml.load_latest('LightGBM', 'wdl', 'SYN-INDEX', wdl_threshold=0.003, parameters_dir=p,
+                          models_dir=m) is None             # another question: not a version
+    assert ml.load_latest('LightGBM', 'wdl', 'SYN-INDEX', source='local', parameters_dir=p,
+                          models_dir=m) is None
+    assert ml.load_latest('LightGBM', 'return', 'SYN-INDEX', parameters_dir=p, models_dir=m) is None
+    (m / f'{newer.model_id}.pkl').unlink()                  # not on this computer: the next one
+    assert ml.load_latest('LightGBM', 'wdl', 'SYN-INDEX', parameters_dir=p,
+                          models_dir=m).model_id == old.model_id
 
 
 # ── The final fit and the next day ───────────────────────────────────────────

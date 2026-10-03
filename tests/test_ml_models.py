@@ -623,6 +623,25 @@ def test_runner_records_the_settings_and_the_walk_forward(index_data, stub_wdl):
     assert by_hand.walk_forward is None
 
 
+def test_model_comparison_chart(stub_wdl, stub_forecasts):
+    rows = []
+    for fc, cols in ((stub_wdl, ('frequencies', 'volatility')), (stub_forecasts, ('constant', 'ewma_std_q'))):
+        a = dataclasses.replace(_as_model(fc, cols[0]), model='A')
+        b = dataclasses.replace(_as_model(fc, cols[1]), model='new')
+        for other in (a, dataclasses.replace(a, model='B')):
+            rows.append({**ml.compare_forecasts(other, b).to_dict(), 'ticker': 'SYN-INDEX'})
+    table = pd.DataFrame(rows)
+    fig = ml.plot_model_comparison(table)
+    assert len(fig.data) == 4                       # two models compared against, two panels
+    first = fig.data[0]
+    assert first.name == 'vs A' and fig.data[1].name == 'vs B'
+    expected = table.loc[0, 'gain_b_over_a'] / table.loc[0, 'loss_a']
+    assert first.x[0] == pytest.approx(expected)
+    assert first.error_x.array[0] == pytest.approx((table.loc[0, 'upper'] - table.loc[0, 'gain_b_over_a'])
+                                                   / table.loc[0, 'loss_a'])
+    assert [a.text for a in fig.layout.annotations][:2] == ['Win/draw/loss (log loss)', 'Return (mean pinball)']
+
+
 def test_saved_models_stay_local_and_their_parameters_are_tracked():
     root = Path(__file__).resolve().parents[1]
 

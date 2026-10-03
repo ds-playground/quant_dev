@@ -32,7 +32,7 @@ api = ["fastapi", "uvicorn[standard]"]
 # src.tools.ml_models' models need LightGBM and PyTorch; the rest of the package needs neither.
 # The default Linux torch wheel bundles CUDA (several GB): for CPU only, install torch first with
 # pip install torch --index-url https://download.pytorch.org/whl/cpu
-ml = ["lightgbm", "torch"]
+ml = ["lightgbm", "torch", "scikit-learn"]
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -55,6 +55,7 @@ from .evaluate import (Forecasts, daily_losses, point_scores, range_table, walk_
                        wdl_scores)
 from .features import FEATURES, WDL_THRESHOLD, features as feature_frame
 from .gbm import LightGBMReturnModel, LightGBMWDLModel
+from .mlp import MLPReturnModel, MLPWDLModel
 from .sequence import GRUReturnModel, GRUWDLModel
 from .split import walk_forward
 from .targets import TAUS, dataset
@@ -63,10 +64,14 @@ MODELS_DIR = _repo_root() / 'models' / 'models'
 PARAMETERS_DIR = _repo_root() / 'models' / 'model_parameters'
 FORMAT = 1
 MODEL_CLASSES = {c.__name__: c for c in (LightGBMReturnModel, LightGBMWDLModel, GRUReturnModel,
-                                         GRUWDLModel)}
+                                         GRUWDLModel, MLPReturnModel, MLPWDLModel)}
 # The modules that decide what a model is fed and how it is trained: a change to any of them is a
-# new methodology, and a new id.
-CODE_MODULES = ('data.py', 'features.py', 'targets.py', 'split.py', 'gbm.py', 'sequence.py')
+# new methodology, and a new id. Each model is hashed with the shared modules and its own, so
+# adding or editing one family leaves the others' ids alone.
+SHARED_MODULES = ('data.py', 'features.py', 'targets.py', 'split.py')
+MODEL_MODULES = {'LightGBMReturnModel': ('gbm.py',), 'LightGBMWDLModel': ('gbm.py',),
+                 'GRUReturnModel': ('sequence.py',), 'GRUWDLModel': ('sequence.py',),
+                 'MLPReturnModel': ('mlp.py', 'sequence.py'), 'MLPWDLModel': ('mlp.py', 'sequence.py')}
 
 
 @dataclasses.dataclass
@@ -98,12 +103,18 @@ class SavedModel:
 
 # ── Ids ──────────────────────────────────────────────────────────────────────
 
-def code_hash():
-    """A hash of the modules in `CODE_MODULES`, with line endings normalized so a Windows
-    checkout hashes the same."""
+def code_modules(model_class):
+    """The modules hashed for `model_class` (a class or its name): the shared ones, then its own."""
+    name = model_class if isinstance(model_class, str) else model_class.__name__
+    return SHARED_MODULES + MODEL_MODULES[name]
+
+
+def code_hash(model_class):
+    """A hash of `code_modules(model_class)`, with line endings normalized so a Windows checkout
+    hashes the same."""
     h = hashlib.sha256()
     here = Path(__file__).parent
-    for name in CODE_MODULES:
+    for name in code_modules(model_class):
         h.update(name.encode())
         h.update((here / name).read_bytes().replace(b'\r\n', b'\n'))
     return h.hexdigest()[:12]
@@ -131,7 +142,8 @@ def model_spec(model, wdl_threshold=WDL_THRESHOLD, taus=TAUS, first_train=756, s
             'settings': model.settings(), 'features': list(model.features),
             'wdl_threshold': wdl_threshold,
             'taus': list(taus) if model.target == 'return' else None,
-            'walk_forward': {'first_train': first_train, 'step': step}, 'code': code_hash()}
+            'walk_forward': {'first_train': first_train, 'step': step},
+            'code': code_hash(type(model))}
 
 
 def data_fingerprint(ticker, source, bars):
@@ -183,7 +195,7 @@ def _check_forecasts(fc, d, model, ticker, wdl_threshold, taus, first_train, ste
 
 def _versions():
     out = {'python': platform.python_version(), 'numpy': np.__version__, 'pandas': pd.__version__}
-    for name in ('lightgbm', 'torch'):
+    for name in ('lightgbm', 'torch', 'sklearn'):
         try:
             out[name] = __import__(name).__version__
         except ImportError:
@@ -343,13 +355,33 @@ def list_models(parameters_dir=None, models_dir=None):
         p = json.loads(path.read_text())
         rows.append({'model_id': p['model_id'], 'model': p['model']['name'],
                      'target': p['model']['target'], 'ticker': p['data']['ticker'],
-                     'source': p['data']['source'], 'last_bar': p['data']['last'],
-                     'spec_id': p['spec_id'], 'test_days': p['walk_forward']['test_days'],
-                     'loss': p['scores']['loss'], 'created': p['created'],
+                     'source': p['data']['source'], 'wdl_threshold': p['model']['wdl_threshold'],
+                     'last_bar': p['data']['last'], 'spec_id': p['spec_id'],
+                     'test_days': p['walk_forward']['test_days'], 'loss': p['scores']['loss'],
+                     'created': p['created'],
                      'saved_here': (Path(models_dir or MODELS_DIR) / f"{p['model_id']}.pkl").is_file()})
-    columns = ['model', 'target', 'ticker', 'source', 'last_bar', 'spec_id', 'test_days', 'loss',
-               'created', 'saved_here']
+    columns = ['model', 'target', 'ticker', 'source', 'wdl_threshold', 'last_bar', 'spec_id',
+               'test_days', 'loss', 'created', 'saved_here']
     return pd.DataFrame(rows, columns=['model_id', *columns]).set_index('model_id')
+
+
+def load_latest(model, target, ticker, source=None, wdl_threshold=WDL_THRESHOLD, taus=TAUS,
+                parameters_dir=None, models_dir=None):
+    """The most recently saved version of `model` (its name: 'LightGBM', 'GRU (returns_range)',
+    'MLP', ...) for `ticker`'s `target`, among those on this computer, or None. It must answer
+    the same question on the same kind of data: the same `source` (when given), win/draw/loss
+    threshold and, for the return, taus. Its settings and code may be older: that is what makes
+    it a version."""
+    table = list_models(parameters_dir, models_dir)
+    match = ((table['model'] == model) & (table['target'] == target) & (table['ticker'] == ticker)
+             & (table['wdl_threshold'] == wdl_threshold) & table['saved_here'])
+    if source is not None:
+        match &= table['source'] == source
+    for model_id in table[match].sort_values('created', ascending=False).index:
+        saved = load_model(model_id, models_dir)
+        if target != 'return' or tuple(saved.forecasts.taus) == tuple(taus):
+            return saved
+    return None
 
 
 # ── Forecast ─────────────────────────────────────────────────────────────────
@@ -364,7 +396,7 @@ def forecast_next(saved, bars=None, directory=None):
     retraining. Warns if the model-building code has changed since the model was saved.
     """
     p = saved.parameters
-    if p['model']['code'] != code_hash():
+    if p['model']['code'] != code_hash(p['model']['class']):
         warnings.warn(f'{saved.model_id}: the code that builds features and models has changed '
                       'since it was saved, so its inputs may differ from what it learned on',
                       stacklevel=2)
