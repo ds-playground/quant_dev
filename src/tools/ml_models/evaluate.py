@@ -34,8 +34,9 @@ import pandas as pd
 from .baselines import BANDS, WDL_BASELINES, WDL_CLASSES, range_baselines, wdl_baselines
 from .data import ticker_bars
 from .features import WDL_THRESHOLD
-from .metrics import (bootstrap_means, mean_interval, multiclass_brier, multiclass_log_loss,
-                      pinball, range_scores)
+from .metrics import (bootstrap_means, classification_scores, confusion_matrix, mean_interval,
+                      multiclass_brier, multiclass_log_loss, pinball, range_scores,
+                      regression_scores)
 from .split import walk_forward
 from .targets import TAUS, dataset
 
@@ -191,6 +192,150 @@ def wdl_check(forecasts, baseline='frequencies', source='model', level=0.95, mea
                         'lower': float(np.quantile(pooled_draws, a)),
                         'upper': float(np.quantile(pooled_draws, 1 - a))})
     return pd.Series(gains), pooled, bool(pooled['lower'] > 0)
+
+
+WDL_NAMES = ('loss', 'draw', 'win')        # the names of WDL_CLASSES, in order
+
+
+def _wdl_days(forecasts):
+    """Every test day of one or several tickers' win/draw/loss `Forecasts`: {source: (days, 3)
+    probabilities} for both baselines and the model, and what happened."""
+    forecasts = [forecasts] if isinstance(forecasts, Forecasts) else list(forecasts)
+    for fc in forecasts:
+        _needs(fc, 'wdl')
+    y = np.concatenate([fc.y_wdl.to_numpy() for fc in forecasts])
+    p = {s: np.vstack([fc.wdl[s].to_numpy() for fc in forecasts]) for s in (*WDL_BASELINES, 'model')}
+    return p, y
+
+
+def wdl_confusion(forecasts, source='model', soft=False):
+    """The win/draw/loss confusion matrix of `source` ('model', 'volatility' or 'frequencies')
+    over one or several tickers' `Forecasts`: rows what happened, columns the forecast, each in
+    the order loss, draw, win.
+
+    Hard (the default): each day counted under its most probable outcome. Soft: each day's three
+    probabilities added under the three outcomes, so a row sums to the days of its outcome, and
+    divided by them it is the average probability given to each outcome on such days. The soft
+    matrix reads the probabilities themselves; the hard one keeps only their largest, which is
+    nearly always the commonest outcome.
+    """
+    p, y = _wdl_days(forecasts)
+    p = p[source]
+    if soft:
+        m = np.vstack([p[y == c].sum(axis=0) for c in WDL_CLASSES])
+    else:
+        m = confusion_matrix(y, np.asarray(WDL_CLASSES)[p.argmax(axis=1)], WDL_CLASSES)
+    return pd.DataFrame(m, index=pd.Index(WDL_NAMES, name='actual'),
+                        columns=pd.Index(WDL_NAMES, name='forecast'))
+
+
+def wdl_metrics(forecasts, level=0.95, mean_block=20, n_boot=1000, seed=0):
+    """The usual classification scores of the win/draw/loss forecasts, over one or several
+    tickers' `Forecasts` (pooled), for both baselines and the model.
+
+    Returns `(table, gains)`. `table`, one row per source:
+    - read as calls (the most probable outcome each day): accuracy, balanced accuracy, macro and
+      weighted F1, MCC (`metrics.classification_scores`), and the share of days called a loss,
+      a draw or a win;
+    - read as probabilities, what the models are trained on: log loss and Brier score.
+
+    `gains`: the model's gain over each baseline in balanced accuracy and in log loss (the
+    baseline's minus the model's), with `level` bootstrap intervals. With several tickers the
+    bootstrap blocks run across the joins between them.
+
+    A call per day throws most of the probabilities away. On series where draws are rarer than
+    wins, the most probable outcome is nearly always "win", so accuracy says little; balanced
+    accuracy, macro F1 and MCC do not reward always calling the commonest outcome.
+    """
+    p, y = _wdl_days(forecasts)
+    classes = np.asarray(WDL_CLASSES)
+    counts = {c: int((y == c).sum()) for c in WDL_CLASSES}
+    present = [c for c in WDL_CLASSES if counts[c]]
+    # each day's share of the balanced accuracy, so that the mean over days is that accuracy
+    weight = np.array([len(y) / (len(present) * counts[c]) for c in y])
+    rows, balanced, losses = {}, {}, {}
+    for source, probs in p.items():
+        call = classes[probs.argmax(axis=1)]
+        summary, per_class = classification_scores(y, call, WDL_CLASSES)
+        balanced[source] = (call == y) * weight
+        losses[source] = multiclass_log_loss(probs, y, WDL_CLASSES)
+        rows[source] = {'days': len(y), **summary,
+                        **{f'called_{name}': per_class['called'].iloc[i]
+                           for i, name in enumerate(WDL_NAMES)},
+                        'log_loss': float(losses[source].mean()),
+                        'brier': float(multiclass_brier(probs, y, WDL_CLASSES).mean())}
+    table = pd.DataFrame(rows).T
+    table['days'] = table['days'].astype(int)
+    gains = {}
+    for b in WDL_BASELINES:
+        gains[('balanced_accuracy', b)] = mean_interval(balanced['model'] - balanced[b], level,
+                                                        mean_block, n_boot, seed)
+        gains[('log_loss', b)] = mean_interval(losses[b] - losses['model'], level, mean_block,
+                                               n_boot, seed)
+    gains = pd.DataFrame(gains).T
+    gains.index.names = ['metric', 'over']
+    return table, gains
+
+
+def wdl_class_report(forecasts, source='model'):
+    """Per outcome (loss, draw, win) of `source`'s calls, over one or several tickers'
+    `Forecasts`: precision, recall, F1, support and the share of days called that way."""
+    p, y = _wdl_days(forecasts)
+    call = np.asarray(WDL_CLASSES)[p[source].argmax(axis=1)]
+    _, per_class = classification_scores(y, call, WDL_CLASSES)
+    per_class.index = pd.Index(WDL_NAMES, name='outcome')
+    return per_class
+
+
+def _return_days(forecasts):
+    forecasts = [forecasts] if isinstance(forecasts, Forecasts) else list(forecasts)
+    for fc in forecasts:
+        _needs(fc, 'return')
+    taus = tuple(forecasts[0].taus)
+    if any(tuple(fc.taus) != taus for fc in forecasts):
+        raise ValueError('the forecasts have different taus')
+    y = np.concatenate([fc.y_ret.to_numpy() for fc in forecasts])
+    bands = [b for b in (*BANDS, 'model') if all((b, taus[0]) in fc.bands.columns for fc in forecasts)]
+    q = {b: {tau: np.concatenate([fc.bands[(b, tau)].to_numpy() for fc in forecasts]) for tau in taus}
+         for b in bands}
+    return q, y, taus
+
+
+def return_metrics(forecasts):
+    """The usual regression scores of the return forecasts, over one or several tickers'
+    `Forecasts` (pooled), one row for the model, one for each baseline band, and one for "no
+    change" (a forecast of zero).
+
+    The point forecast is each band's median: R2, R2 against no change, MAE, RMSE, bias,
+    correlation, IC (rank correlation), hit rate and the share forecast up
+    (`metrics.regression_scores`). Errors are in basis points of return (`_bp`). The range adds
+    68% and 90% coverage, the 68% band's mean width and the mean pinball loss.
+
+    All on returns, not prices: tomorrow's close is so close to today's that a price-level R2 is
+    near 1 for any forecast, the no-change one included. For daily returns an R2 near zero is
+    normal; below zero means worse than the benchmark.
+    """
+    q, y, taus = _return_days(forecasts)
+    rows = {}
+    for band, quantiles in q.items():
+        s = regression_scores(y, quantiles[0.5])
+        r, _ = range_scores(quantiles, y, taus)
+        rows['model' if band == 'model' else band] = {
+            'days': len(y), 'r2': s['r2'], 'r2_vs_no_change': s['r2_vs_zero'],
+            'mae_bp': s['mae'] * 1e4, 'rmse_bp': s['rmse'] * 1e4, 'bias_bp': s['bias'] * 1e4,
+            'corr': s['corr'], 'ic': s['ic'], 'hit_rate': s['hit_rate'],
+            'forecast_up': s['forecast_up'], 'cover_68': r.get('cover_68'),
+            'cover_90': r.get('cover_90'), 'width_68_bp': r.get('width_68', np.nan) * 1e4,
+            'pinball_bp': r['pinball'] * 1e4}
+    s = regression_scores(y, np.zeros_like(y))
+    rows['no change'] = {'days': len(y), 'r2': s['r2'], 'r2_vs_no_change': 0.0,
+                         'mae_bp': s['mae'] * 1e4, 'rmse_bp': s['rmse'] * 1e4,
+                         'bias_bp': s['bias'] * 1e4, 'corr': np.nan, 'ic': np.nan,
+                         'hit_rate': np.nan, 'forecast_up': 0.0}
+    order = ['model', 'no change', *[b for b in BANDS if b in rows]]
+    table = pd.DataFrame(rows).T.loc[order]
+    table['days'] = table['days'].astype(int)
+    return table
 
 
 def point_scores(fc, level=0.99, margin=0.01, mean_block=20, n_boot=1000, seed=0):

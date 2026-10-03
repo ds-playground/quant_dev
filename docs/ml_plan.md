@@ -371,13 +371,13 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | `features.py` | `FEATURES`, `features`; `WDL_THRESHOLD`, `STREAK_CAP`, `win_draw_loss`, `streak`; `ewma_vol`, `wilder_rsi` | no |
 | `split.py` | `walk_forward` folds with the purge; `purged_tail` for early stopping | no |
 | `baselines.py` | `wdl_baselines` (class frequencies, and a volatility baseline); `range_baselines`: constant width, `price_range`, 20-day and EWMA bands | no |
-| `metrics.py` | log loss, Brier and its decomposition, their multiclass forms, reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
+| `metrics.py` | log loss, Brier and its decomposition, their multiclass forms, a confusion matrix, `regression_scores` (R², MAE, RMSE, IC, hit rate) and `classification_scores` (accuracy, balanced accuracy, F1, MCC), reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
 | `gbm.py` | `LightGBMReturnModel` (one quantile model per τ, on standardized returns) and `LightGBMWDLModel` (multiclass) | yes |
 | `sequence.py` | `GRUReturnModel` and `GRUWDLModel`, with the same interfaces | yes |
-| `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `wdl_scores`, `wdl_check`, `point_scores`, `range_table`, `range_check` (the sanity checks); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
+| `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `wdl_scores`, `wdl_check`, `point_scores`, `range_table`, `range_check` (the sanity checks); `return_metrics`, `wdl_metrics`, `wdl_class_report`, `wdl_confusion` (the usual model metrics); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
 | `mlp.py` | `MLPReturnModel` (an `MLPRegressor`'s centre plus its held-out errors) and `MLPWDLModel` (an `MLPClassifier`), with the same interfaces | yes (scikit-learn) |
 | `registry.py` | `finalize`, `finalize_many`, `save_model`, `load_model`, `load_latest`, `list_models`, `forecast_next`; `model_spec`, `data_fingerprint`, `model_id`, `code_hash`, `code_modules` | no (yes to fit or load a model) |
-| `viz.py` | Plotly charts: W/D/L reliability, rolling coverage, forecast bands (with the median) on candles, folds, feature importance, pinball against the constant band, one model against others (`plot_model_comparison`) | no |
+| `viz.py` | Plotly charts: W/D/L reliability, rolling coverage, forecast bands (with the median) on candles, folds, feature importance, pinball against the constant band, one model against others (`plot_model_comparison`), W/D/L confusion matrices (`plot_wdl_confusion`) | no |
 
 ## Phases
 
@@ -1000,6 +1000,67 @@ and GRU models without retraining them, and compare the MLP with them.
   - LightGBM's and the GRU's forecasts are unchanged to the bit.
 - **Not decided here:** a tuned MLP configuration. The sweep is a lead, and choosing one is the
   owner's call (decision 17 records only the starting point).
+
+## Model metrics: regression and classification
+
+The owner's request of 2026-10-03: a confusion-matrix analysis for win/draw/loss, then the
+usual model metrics up front. If a model is poor on them, there is no point reading further.
+For the return model that means at least R², MAE and RMSE; for the W/D/L model at least accuracy,
+F1 and a confusion matrix. Further metrics were proposed and added.
+
+- **Return model, regression** (`return_metrics`, `metrics.regression_scores`). Each band's
+  median is the point forecast, scored on returns:
+  - R² (scikit-learn's, against the mean of the days scored) and **R² vs no change** (against
+    a forecast of zero);
+  - MAE, RMSE and bias, in basis points;
+  - Pearson correlation and the **IC** (rank correlation);
+  - **hit rate** (sign right, zero days left out) beside the share of days forecast up;
+  - for the range: 68% and 90% coverage, the 68% band's width and the mean pinball loss.
+
+  There is one row for the model, one for "no change" and one per baseline band. R² on price
+  levels is not offered: it is above 0.99 for any forecast, the no-change one included.
+- **W/D/L model, classification** (`wdl_metrics`, `wdl_class_report`, `wdl_confusion`,
+  `metrics.classification_scores`), with the most probable outcome as each day's call:
+  - accuracy, balanced accuracy, macro and weighted F1, and the multiclass **MCC**;
+  - the share of days called each way;
+  - **log loss** and **Brier** on the probabilities;
+  - per outcome: precision, recall, F1 and support;
+  - the model's gain over each baseline in balanced accuracy and log loss, with 95% intervals.
+
+  The metrics follow scikit-learn's definitions (`zero_division=0`), and the tests check them
+  against `sklearn.metrics`. `confusion_matrix` gives counts. `wdl_confusion` is **hard** (the
+  call) or **soft** (the average probability given to each outcome, by what happened), because
+  the call is nearly always "win", the commonest outcome. `viz.plot_wdl_confusion` shows the
+  model beside the volatility baseline on one scale.
+- **The notebook:** section 7 opens with "Model metrics at a glance": both tables for every
+  model, pooled over the long tickers, with the baselines underneath. Then R² vs no change per
+  ticker, the per-outcome report, a hard confusion matrix per model and a soft one for LightGBM.
+  The text says how to read each metric and what is normal for daily returns.
+- **On the synthetic tickers** (five long, pooled; no model can have an edge by construction):
+
+  | | R² vs no change | MAE (bp) | IC | hit rate (forecast up) | accuracy | macro F1 | MCC | log loss |
+  |---|---|---|---|---|---|---|---|---|
+  | LightGBM | −0.004 | 71.5 | +0.002 | 52.1% (76.8%) | 41.3% | 0.376 | 0.104 | 1.058 |
+  | GRU (returns_range) | −0.012 | 71.9 | +0.002 | 51.7% (77.5%) | 41.5% | 0.379 | 0.109 | 1.054 |
+  | MLP | −0.632 | 85.1 | −0.001 | 51.2% (56.0%) | 40.3% | 0.401 | 0.095 | 1.169 |
+  | no change / volatility baseline | 0 | 71.5 | | | 41.8% | 0.355 | 0.125 | 1.052 |
+
+  How to read it:
+  - Every R² is at or below zero and every IC near zero: no model beats "no change", as it
+    must not on these series.
+  - The MLP's R² of −0.63 shows its overfitting at once.
+  - Macro F1 rewards calling losses and draws more often, so the overfitted MLP scores highest
+    on it while its log loss is the worst. The call metrics show what a model leans towards;
+    log loss ranks them.
+  - Pooled over tickers even the baselines score above chance (MCC 0.12), because knowing
+    which ticker is calm is worth something (SYN-FX's commonest outcome is a draw).
+- **Checked:**
+  - Tests against scikit-learn (R², MAE, RMSE, accuracy, balanced accuracy, macro and weighted
+    F1, MCC, per-class precision, recall, F1 and support), and by hand (R² vs no change, the hit
+    rate's zero days, a constant call's balanced accuracy of 1/3 and MCC of 0, the tables and
+    the chart).
+  - 17 seeded bugs across the confusion matrix and the metrics, all caught.
+  - The notebook runs end to end.
 
 ## Owner's decisions
 

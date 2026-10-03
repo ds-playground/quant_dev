@@ -28,19 +28,22 @@ from .targets import TAUS, dataset, next_return, next_wdl
 from .split import purged_tail, walk_forward
 from .baselines import BANDS, WDL_BASELINES, WDL_CLASSES, range_baselines, wdl_baselines
 from .metrics import (bootstrap_means, brier, brier_decomposition, christoffersen,
-                      interval_misses, kupiec, log_loss, mean_interval, multiclass_brier,
-                      multiclass_log_loss, pinball, range_scores, reliability_table)
+                      classification_scores, confusion_matrix, interval_misses, kupiec, log_loss,
+                      mean_interval, multiclass_brier, multiclass_log_loss, pinball,
+                      range_scores, regression_scores, reliability_table)
 from .gbm import GBM_PARAMS, LightGBMReturnModel, LightGBMWDLModel
 from .sequence import GRU_INPUTS, GRUReturnModel, GRUWDLModel, quantile_shift, windows
 from .mlp import MLPReturnModel, MLPWDLModel
-from .evaluate import (Forecasts, compare_forecasts, daily_losses, evaluate, evaluate_many,
-                       feature_importance, planted_signal_bars, point_scores, range_check,
-                       range_table, walk_forward_forecasts, wdl_check, wdl_scores)
+from .evaluate import (WDL_NAMES, Forecasts, compare_forecasts, daily_losses, evaluate,
+                       evaluate_many, feature_importance, planted_signal_bars, point_scores,
+                       range_check, range_table, return_metrics, walk_forward_forecasts,
+                       wdl_check, wdl_class_report, wdl_confusion, wdl_metrics, wdl_scores)
 from .registry import (MODELS_DIR, PARAMETERS_DIR, SavedModel, code_hash, code_modules,
                        data_fingerprint, finalize, finalize_many, forecast_next, list_models,
                        load_latest, load_model, model_id, model_spec, save_model)
 from .viz import (plot_coverage, plot_feature_importance, plot_folds, plot_forecast_bands,
-                  plot_model_comparison, plot_range_comparison, plot_wdl_reliability)
+                  plot_model_comparison, plot_range_comparison, plot_wdl_confusion,
+                  plot_wdl_reliability)
 
 __all__ = ['ticker_bars', 'bar_returns',
            'FEATURES', 'features', 'ewma_vol', 'wilder_rsi',
@@ -50,7 +53,8 @@ __all__ = ['ticker_bars', 'bar_returns',
            'BANDS', 'range_baselines',
            'WDL_CLASSES', 'WDL_BASELINES', 'wdl_baselines',
            'log_loss', 'brier', 'brier_decomposition', 'reliability_table',
-           'multiclass_log_loss', 'multiclass_brier',
+           'multiclass_log_loss', 'multiclass_brier', 'confusion_matrix',
+           'regression_scores', 'classification_scores',
            'pinball', 'interval_misses', 'kupiec', 'christoffersen', 'range_scores',
            'bootstrap_means', 'mean_interval',
            'GBM_PARAMS', 'LightGBMReturnModel', 'LightGBMWDLModel',
@@ -58,10 +62,12 @@ __all__ = ['ticker_bars', 'bar_returns',
            'MLPReturnModel', 'MLPWDLModel',
            'Forecasts', 'walk_forward_forecasts', 'evaluate', 'evaluate_many',
            'wdl_scores', 'wdl_check', 'point_scores', 'range_table', 'range_check',
+           'WDL_NAMES', 'wdl_confusion', 'wdl_metrics', 'wdl_class_report', 'return_metrics',
            'feature_importance', 'daily_losses', 'compare_forecasts',
            'planted_signal_bars',
            'MODELS_DIR', 'PARAMETERS_DIR', 'SavedModel', 'model_spec', 'data_fingerprint',
            'model_id', 'code_hash', 'code_modules', 'finalize', 'finalize_many', 'save_model',
            'load_model', 'load_latest', 'list_models', 'forecast_next',
            'plot_wdl_reliability', 'plot_coverage', 'plot_forecast_bands', 'plot_folds',
-           'plot_feature_importance', 'plot_range_comparison', 'plot_model_comparison']
+           'plot_feature_importance', 'plot_range_comparison', 'plot_model_comparison',
+           'plot_wdl_confusion']

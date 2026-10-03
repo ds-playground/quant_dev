@@ -642,6 +642,19 @@ def test_model_comparison_chart(stub_wdl, stub_forecasts):
     assert [a.text for a in fig.layout.annotations][:2] == ['Win/draw/loss (log loss)', 'Return (mean pinball)']
 
 
+def test_wdl_confusion_chart(stub_wdl):
+    fig = ml.plot_wdl_confusion(stub_wdl)
+    assert [t.type for t in fig.data] == ['heatmap', 'heatmap']        # volatility, then the model
+    hard = ml.wdl_confusion(stub_wdl)
+    np.testing.assert_allclose(fig.data[1].z, hard.div(hard.sum(axis=1), axis=0).to_numpy())
+    np.testing.assert_allclose(np.asarray(fig.data[1].z).sum(axis=1), 1)
+    assert [a.text for a in fig.layout.annotations][:2] == ['volatility baseline', 'stub']
+    cells = [a.text for a in fig.layout.annotations][2:]
+    assert len(cells) == 18 and '<br>' in cells[0]                  # share and count, per cell
+    soft = ml.plot_wdl_confusion(stub_wdl, sources=('model',), soft=True)
+    assert len(soft.data) == 1 and '<br>' not in soft.layout.annotations[1].text
+
+
 def test_saved_models_stay_local_and_their_parameters_are_tracked():
     root = Path(__file__).resolve().parents[1]
 
@@ -651,6 +664,161 @@ def test_saved_models_stay_local_and_their_parameters_are_tracked():
     assert ignored('models/models/lightgbm_wdl_SPY_20260930_0123abcd.pkl')
     for name in ('lightgbm_wdl_SPY_20260930_0123abcd', 'gru-returns-range_return_TMP_dev_copy_1'):
         assert not ignored(f'models/model_parameters/{name}.json'), name
+
+
+def test_confusion_matrix_by_hand():
+    m = ml.confusion_matrix([-1, -1, 0, 1, 1, 1], [1, -1, 0, 1, 1, 0], (-1, 0, 1))
+    np.testing.assert_array_equal(m, [[1, 0, 1],      # two losses: one called a loss, one a win
+                                      [0, 1, 0],
+                                      [0, 1, 2]])
+    with pytest.raises(ValueError, match='forecasts outside'):
+        ml.confusion_matrix([1], [2], (-1, 0, 1))
+    with pytest.raises(ValueError, match='outcomes outside'):
+        ml.confusion_matrix([5], [1], (-1, 0, 1))
+
+
+def test_wdl_confusion_by_hand(stub_wdl):
+    # The stub leans to a win on odd rows and to a loss on even rows.
+    y = stub_wdl.y_wdl.to_numpy()
+    p = stub_wdl.wdl['model'].to_numpy()
+    call = np.where(p[:, 2] > p[:, 0], 1, -1)
+    hard = ml.wdl_confusion(stub_wdl)
+    expected = pd.crosstab(y, call).reindex(index=ml.WDL_CLASSES, columns=ml.WDL_CLASSES, fill_value=0)
+    np.testing.assert_array_equal(hard.to_numpy(), expected.to_numpy())
+    assert list(hard.index) == list(hard.columns) == ['loss', 'draw', 'win']
+    assert (hard['draw'] == 0).all() and hard.to_numpy().sum() == len(y)
+    soft = ml.wdl_confusion(stub_wdl, soft=True)
+    for i, c in enumerate(ml.WDL_CLASSES):
+        np.testing.assert_allclose(soft.iloc[i], p[y == c].sum(axis=0))
+    np.testing.assert_allclose(soft.sum(axis=1), [np.sum(y == c) for c in ml.WDL_CLASSES])
+    vol_call = np.asarray(ml.WDL_CLASSES)[stub_wdl.wdl['volatility'].to_numpy().argmax(axis=1)]
+    vol = ml.wdl_confusion(stub_wdl, source='volatility')
+    np.testing.assert_array_equal(vol.to_numpy(), pd.crosstab(y, vol_call).reindex(
+        index=ml.WDL_CLASSES, columns=ml.WDL_CLASSES, fill_value=0).to_numpy())
+    assert not vol.equals(hard)
+    # several tickers' days are pooled
+    np.testing.assert_array_equal(ml.wdl_confusion([stub_wdl, stub_wdl]), 2 * hard.to_numpy())
+    with pytest.raises(ValueError, match='not wdl'):
+        ml.wdl_confusion(dataclasses.replace(stub_wdl, target='return'))
+
+
+def test_regression_scores_match_scikit_learn():
+    metrics = pytest.importorskip('sklearn.metrics')
+    rng = np.random.default_rng(3)
+    y = rng.standard_t(4, 500) * 0.01
+    f = 0.3 * y + rng.normal(0, 0.008, 500)
+    s = ml.regression_scores(y, f)
+    assert s['r2'] == pytest.approx(metrics.r2_score(y, f))
+    assert s['mae'] == pytest.approx(metrics.mean_absolute_error(y, f))
+    assert s['rmse'] == pytest.approx(np.sqrt(metrics.mean_squared_error(y, f)))
+    assert s['corr'] == pytest.approx(np.corrcoef(f, y)[0, 1])
+    assert s['ic'] == pytest.approx(pd.Series(f).corr(pd.Series(y), method='spearman'))
+
+
+def test_regression_scores_by_hand():
+    y = np.array([0.02, -0.01, 0.0, 0.03])
+    f = np.array([0.01, 0.01, 0.02, -0.01])
+    s = ml.regression_scores(y, f)
+    assert s['r2_vs_zero'] == pytest.approx(1 - np.sum((f - y) ** 2) / np.sum(y ** 2))
+    assert s['bias'] == pytest.approx(np.mean(f - y))          # above zero: forecasts too high
+    assert s['hit_rate'] == pytest.approx(1 / 3)              # the day y = 0 is left out
+    assert s['forecast_up'] == pytest.approx(0.75)
+    flat = ml.regression_scores(y, np.zeros(4))
+    assert flat['r2_vs_zero'] == 0 and np.isnan(flat['corr']) and np.isnan(flat['hit_rate'])
+    assert flat['r2'] < 0                                      # zero is not the test days' mean
+
+
+def test_classification_scores_match_scikit_learn():
+    metrics = pytest.importorskip('sklearn.metrics')
+    rng = np.random.default_rng(5)
+    classes = (-1, 0, 1)
+    actual = rng.choice(classes, 600, p=[0.3, 0.2, 0.5])
+    predicted = np.where(rng.random(600) < 0.4, actual, rng.choice([-1, 1], 600))
+    predicted[predicted == 0] = 1                                                    # never a draw
+    summary, per_class = ml.classification_scores(actual, predicted, classes)
+    assert summary['accuracy'] == pytest.approx(metrics.accuracy_score(actual, predicted))
+    assert summary['balanced_accuracy'] == pytest.approx(metrics.balanced_accuracy_score(actual, predicted))
+    for average in ('macro', 'weighted'):
+        assert summary[f'{average}_f1'] == pytest.approx(metrics.f1_score(
+            actual, predicted, labels=list(classes), average=average, zero_division=0))
+    assert summary['mcc'] == pytest.approx(metrics.matthews_corrcoef(actual, predicted))
+    p, r, f, n = metrics.precision_recall_fscore_support(actual, predicted, labels=list(classes),
+                                                          zero_division=0)
+    np.testing.assert_allclose(per_class['precision'], p)
+    np.testing.assert_allclose(per_class['recall'], r)
+    np.testing.assert_allclose(per_class['f1'], f)
+    np.testing.assert_array_equal(per_class['support'], n)
+    assert per_class.loc[0, 'called'] == 0 and per_class.loc[0, 'precision'] == 0
+
+
+def test_a_constant_call_scores_as_chance():
+    actual = np.array([-1, -1, 0, 1, 1, 1, 1, 0])
+    summary, _ = ml.classification_scores(actual, np.ones(8, dtype=int), (-1, 0, 1))
+    assert summary['accuracy'] == pytest.approx(0.5)            # the share of wins
+    assert summary['balanced_accuracy'] == pytest.approx(1 / 3)
+    assert summary['mcc'] == 0
+
+
+def test_wdl_metrics_by_hand(stub_wdl):
+    table, gains = ml.wdl_metrics(stub_wdl)
+    y = stub_wdl.y_wdl.to_numpy()
+    classes = np.asarray(ml.WDL_CLASSES)
+    recall, losses = {}, {}
+    for source in (*ml.WDL_BASELINES, 'model'):
+        probs = stub_wdl.wdl[source].to_numpy()
+        call = classes[probs.argmax(axis=1)]
+        summary, per_class = ml.classification_scores(y, call, ml.WDL_CLASSES)
+        row = table.loc[source]
+        assert row['days'] == len(y)
+        for k in ('accuracy', 'balanced_accuracy', 'macro_f1', 'weighted_f1', 'mcc'):
+            assert row[k] == pytest.approx(summary[k]), (source, k)
+        assert row['called_win'] == pytest.approx(np.mean(call == 1))
+        losses[source] = ml.multiclass_log_loss(probs, y, ml.WDL_CLASSES)
+        assert row['log_loss'] == pytest.approx(losses[source].mean())
+        assert row['brier'] == pytest.approx(ml.multiclass_brier(probs, y, ml.WDL_CLASSES).mean())
+        recall[source] = summary['balanced_accuracy']
+    assert table.loc['model', 'called_draw'] == 0               # the stub never favours a draw
+    for b in ml.WDL_BASELINES:
+        g = gains.loc[('balanced_accuracy', b)]
+        assert g['estimate'] == pytest.approx(recall['model'] - recall[b])
+        assert g['lower'] <= g['estimate'] <= g['upper']
+        assert gains.loc[('log_loss', b), 'estimate'] == pytest.approx((losses[b] - losses['model']).mean())
+    pooled, _ = ml.wdl_metrics([stub_wdl, stub_wdl])
+    assert pooled.loc['model', 'days'] == 2 * len(y)
+    assert pooled.loc['model', 'macro_f1'] == pytest.approx(table.loc['model', 'macro_f1'])
+
+
+def test_wdl_class_report(stub_wdl):
+    report = ml.wdl_class_report(stub_wdl)
+    assert list(report.index) == ['loss', 'draw', 'win']
+    assert report['support'].sum() == len(stub_wdl.y_wdl)
+    assert report.loc['draw', 'recall'] == 0 and report.loc['draw', 'called'] == 0
+    assert report['called'].sum() == pytest.approx(1)
+
+
+def test_return_metrics_by_hand(stub_forecasts):
+    table = ml.return_metrics(stub_forecasts)
+    y = stub_forecasts.y_ret.to_numpy()
+    assert list(table.index) == ['model', 'no change', *ml.BANDS]
+    s = ml.regression_scores(y, stub_forecasts.point())
+    row = table.loc['model']
+    assert row['r2'] == pytest.approx(s['r2'])
+    assert np.isnan(row['ic']) and np.isnan(s['ic'])          # the stub's median is zero every day
+    assert row['mae_bp'] == pytest.approx(s['mae'] * 1e4)
+    assert row['rmse_bp'] == pytest.approx(s['rmse'] * 1e4)
+    ranges = ml.range_table(stub_forecasts)
+    assert row['cover_68'] == pytest.approx(ranges.loc['model', 'cover_68'])
+    assert row['pinball_bp'] == pytest.approx(ranges.loc['model', 'pinball'] * 1e4)
+    flat = table.loc['no change']
+    assert flat['r2_vs_no_change'] == 0 and flat['mae_bp'] == pytest.approx(np.mean(np.abs(y)) * 1e4)
+    assert np.isnan(flat['cover_68'])
+    ewma = ml.regression_scores(y, stub_forecasts.point('ewma_std_q'))
+    assert table.loc['ewma_std_q', 'r2_vs_no_change'] == pytest.approx(ewma['r2_vs_zero'])
+    pooled = ml.return_metrics([stub_forecasts, stub_forecasts])
+    assert pooled.loc['model', 'days'] == 2 * len(y)
+    assert pooled.loc['model', 'r2'] == pytest.approx(row['r2'])
+    with pytest.raises(ValueError, match='not return'):
+        ml.return_metrics(dataclasses.replace(stub_forecasts, target='wdl'))
 
 
 def test_point_scores_by_hand(stub_forecasts):

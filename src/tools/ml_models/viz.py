@@ -199,3 +199,46 @@ def plot_model_comparison(table, title=None):
     fig.update_layout(legend=dict(orientation='h', yanchor='top', y=-0.16, xanchor='left', x=0),
                       margin=dict(b=110), height=fig.layout.height + 40)
     return fig
+
+
+# One hue, light to dark, for shares from 0 to 1.
+SEQUENTIAL = [[0.0, '#f3f7fd'], [0.5, '#8fb5e8'], [1.0, '#1d5fb0']]
+
+
+def plot_wdl_confusion(forecasts, sources=('volatility', 'model'), soft=False, title=None):
+    """Win/draw/loss confusion matrices (`evaluate.wdl_confusion`), one panel per source, on one
+    colour scale. Rows are what happened, columns the forecast; each cell is its share of the
+    row: the recall on the diagonal (hard), or the average probability given (soft). Hard cells
+    also show their count of days."""
+    from .evaluate import WDL_NAMES, wdl_confusion
+    single = not isinstance(forecasts, (list, tuple))
+    first = forecasts if single else forecasts[0]
+    names = {'model': first.model, 'volatility': 'volatility baseline',
+             'frequencies': 'class frequencies'}
+    fig = make_subplots(rows=1, cols=len(sources), horizontal_spacing=0.12,
+                        subplot_titles=[names[s] for s in sources])
+    for col, source in enumerate(sources, start=1):
+        m = wdl_confusion(forecasts, source, soft)
+        share = m.div(m.sum(axis=1), axis=0)
+        text = [[f'{share.iat[i, j]:.0%}' + ('' if soft else f'<br>{int(m.iat[i, j]):,}')
+                 for j in range(3)] for i in range(3)]
+        fig.add_trace(go.Heatmap(
+            z=share.to_numpy(), x=list(WDL_NAMES), y=list(WDL_NAMES), zmin=0, zmax=1,
+            colorscale=SEQUENTIAL, showscale=col == len(sources), xgap=2, ygap=2,
+            colorbar=dict(tickformat='.0%', title=dict(text='share of row', side='right'), len=0.9),
+            customdata=m.to_numpy(),
+            hovertemplate=('happened %{y}, forecast %{x}: %{z:.1%} of the row'
+                           + ('' if soft else ' (%{customdata:,} days)') + '<extra></extra>')),
+            row=1, col=col)
+        for i, actual in enumerate(WDL_NAMES):
+            for j, called in enumerate(WDL_NAMES):
+                fig.add_annotation(x=called, y=actual, text=text[i][j], showarrow=False,
+                                   font=dict(color='white' if share.iat[i, j] > 0.55 else INK_2),
+                                   row=1, col=col)
+    days = int(wdl_confusion(forecasts, sources[0], soft).to_numpy().sum())
+    kind = ('average probability given to each outcome' if soft
+            else 'days by their most probable outcome')
+    fig = _style(fig, title or f'{first.model}: win/draw/loss confusion, {kind} ({days:,} days)', 400)
+    fig.update_xaxes(title_text='forecast', showgrid=False)
+    fig.update_yaxes(title_text='what happened', autorange='reversed', showgrid=False)
+    return fig

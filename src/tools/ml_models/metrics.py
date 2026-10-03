@@ -98,6 +98,82 @@ def multiclass_brier(p, y, classes):
     return ((p - onehot) ** 2).sum(axis=1)
 
 
+def confusion_matrix(actual, predicted, classes):
+    """Counts of days: rows what happened, columns what was forecast, both in the order of
+    `classes`. Raises on a value outside `classes`."""
+    actual, predicted, classes = np.asarray(actual), np.asarray(predicted), np.asarray(classes)
+    rows, cols = np.searchsorted(classes, actual), np.searchsorted(classes, predicted)
+    for name, values, index in (('outcomes', actual, rows), ('forecasts', predicted, cols)):
+        if not np.array_equal(classes[np.clip(index, 0, len(classes) - 1)], values):
+            raise ValueError(f'{name} outside the classes {tuple(classes.tolist())}')
+    out = np.zeros((len(classes), len(classes)), dtype=int)
+    np.add.at(out, (rows, cols), 1)
+    return out
+
+
+def _corr(a, b):
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    if len(a) < 2 or a.std() == 0 or b.std() == 0:
+        return np.nan
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def regression_scores(y, forecast):
+    """Point-forecast scores of `forecast` against what happened, `y`.
+
+    - `r2`: 1 - SSE / the spread of `y` around its own mean (scikit-learn's R2);
+    - `r2_vs_zero`: 1 - SSE / the sum of `y` squared, so the benchmark is a forecast of zero
+      (for returns, "the price will not change"); above zero beats it;
+    - `mae`, `rmse`, and `bias`, the mean of `forecast - y` (above zero: forecasts too high);
+    - `corr` (Pearson) and `ic`, the rank (Spearman) correlation of forecast and outcome;
+    - `hit_rate`: the share of days whose sign the forecast got right, leaving out days where
+      either is zero; `forecast_up`: the share of days forecast above zero, to read it against.
+    """
+    y, forecast = _arrays(y, forecast)
+    error = forecast - y
+    sse = float(np.sum(error ** 2))
+    sst = float(np.sum((y - y.mean()) ** 2))
+    signed = (y != 0) & (forecast != 0)
+    return {'r2': 1 - sse / sst if sst > 0 else np.nan,
+            'r2_vs_zero': 1 - sse / float(np.sum(y ** 2)) if np.any(y != 0) else np.nan,
+            'mae': float(np.mean(np.abs(error))), 'rmse': float(np.sqrt(np.mean(error ** 2))),
+            'bias': float(np.mean(error)), 'corr': _corr(forecast, y),
+            'ic': _corr(pd.Series(forecast).rank(), pd.Series(y).rank()),
+            'hit_rate': float(np.mean(np.sign(forecast[signed]) == np.sign(y[signed])))
+            if signed.any() else np.nan,
+            'forecast_up': float(np.mean(forecast > 0))}
+
+
+def classification_scores(actual, predicted, classes):
+    """Scores of one call per day against what happened, as scikit-learn computes them.
+
+    Returns `(summary, per_class)`. `summary`: accuracy; balanced accuracy (the mean recall, 1 /
+    the number of classes for any constant call); macro F1 (the mean over `classes`) and weighted
+    F1 (weighted by each class's days); and the multiclass Matthews correlation (MCC: 1 perfect,
+    0 no better than chance, whatever the class mix). `per_class`, one row per class: precision,
+    recall, F1, support (the days it happened) and the share of days called that way. A class
+    never called has precision 0, and one that never happened recall 0, as scikit-learn's
+    `zero_division=0`.
+    """
+    m = confusion_matrix(actual, predicted, classes).astype(float)
+    n = m.sum()
+    tp, support, called = np.diag(m), m.sum(axis=1), m.sum(axis=0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        precision = np.where(called > 0, tp / called, 0.0)
+        recall = np.where(support > 0, tp / support, 0.0)
+        f1 = np.where(precision + recall > 0, 2 * precision * recall / (precision + recall), 0.0)
+    denominator = np.sqrt((n ** 2 - np.sum(called ** 2)) * (n ** 2 - np.sum(support ** 2)))
+    mcc = (tp.sum() * n - np.sum(called * support)) / denominator if denominator > 0 else 0.0
+    present = support > 0
+    summary = {'accuracy': tp.sum() / n, 'balanced_accuracy': float(recall[present].mean()),
+               'macro_f1': float(f1.mean()), 'weighted_f1': float(np.sum(f1 * support) / n),
+               'mcc': float(mcc)}
+    per_class = pd.DataFrame({'precision': precision, 'recall': recall, 'f1': f1,
+                              'support': support.astype(int), 'called': called / n},
+                             index=pd.Index(list(classes), name='class'))
+    return summary, per_class
+
+
 def pinball(q, y, tau):
     """Per-day pinball (quantile) loss of the `tau`-quantile forecast `q`."""
     q, y = _arrays(q, y)
