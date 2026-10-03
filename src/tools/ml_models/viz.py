@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 
 from src.tools.price_return.viz import _style, INK_2, MUTED
 
-from .baselines import BANDS
+from .baselines import BANDS, WDL_CLASSES
 from .metrics import interval_misses, range_scores, reliability_table
 
 # One hue per forecast, fixed across charts: the model, then the baselines.
@@ -19,6 +19,7 @@ LABELS = {'model': 'model', 'base': 'base rate', 'constant': 'constant width',
           'price_range': 'price_range (250-day σ)', 'vol_20': '20-day σ',
           'ewma_std_q': 'EWMA σ × standardized quantiles'}
 UP, DOWN = '#2a78d6', '#e34948'
+WDL_COLORS = {-1: DOWN, 0: '#8a8984', 1: UP}
 
 
 def _interval(taus, pct):
@@ -27,26 +28,28 @@ def _interval(taus, pct):
     return lo, hi
 
 
-def plot_reliability(fc, bins=20):
-    """Observed up-frequency against the forecast, per bin, for the model and the base rate;
-    marker area grows with the days in the bin. On the diagonal is calibrated."""
+def plot_wdl_reliability(fc, bins=10, source='model'):
+    """For each outcome (loss, draw, win), how often it happened against the probability
+    `source` gave it, per bin; marker area grows with the days in the bin. On the diagonal is
+    calibrated."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='perfect calibration',
                              line=dict(color=MUTED, dash='dot', width=1), hoverinfo='skip'))
-    for col, key in (('p_base', 'base'), ('p_model', 'model')):
-        t = reliability_table(fc.direction[col], fc.direction['y_up'], bins)
+    y = fc.y_wdl.to_numpy()
+    for c, name in zip(WDL_CLASSES, ('loss', 'draw', 'win')):
+        t = reliability_table(fc.wdl[(source, c)], (y == c).astype(float), bins)
         fig.add_trace(go.Scatter(
-            x=t['forecast'], y=t['observed'], mode='markers', name=f'{fc.model if key == "model" else LABELS[key]}',
-            marker=dict(size=np.clip(np.sqrt(t['days']), 6, 40), color=COLORS[key],
-                        line=dict(color='white', width=2)),
-            customdata=t['days'], hovertemplate='forecast %{x:.1%}<br>observed %{y:.1%}<br>%{customdata} days'))
-    lo = min(fc.direction[['p_base', 'p_model']].min().min(), fc.direction['y_up'].mean()) - 0.1
-    hi = max(fc.direction[['p_base', 'p_model']].max().max(), fc.direction['y_up'].mean()) + 0.1
-    span = [max(0, lo), min(1, hi)]
-    fig = _style(fig, f'{fc.ticker}: reliability of the direction forecasts', 520,
-                 y_title='observed up frequency', x_title='forecast probability of an up day')
-    fig.update_xaxes(range=span, tickformat='.0%')
-    fig.update_yaxes(range=span, tickformat='.0%')
+            x=t['forecast'], y=t['observed'], mode='markers+lines', name=name,
+            line=dict(color=WDL_COLORS[c], width=1),
+            marker=dict(size=np.clip(np.sqrt(t['days']), 6, 36), color=WDL_COLORS[c],
+                        line=dict(color='white', width=1.5)),
+            customdata=t['days'],
+            hovertemplate=name + ': forecast %{x:.1%}<br>happened %{y:.1%}<br>%{customdata} days'))
+    who = fc.model if source == 'model' else f'the {source} baseline'
+    fig = _style(fig, f'{fc.ticker}: reliability of {who}\'s win/draw/loss forecasts', 520,
+                 y_title='how often it happened', x_title='forecast probability')
+    fig.update_xaxes(range=[0, 0.8], tickformat='.0%')
+    fig.update_yaxes(range=[0, 0.8], tickformat='.0%')
     return fig
 
 
@@ -70,14 +73,15 @@ def plot_coverage(fc, bands=('constant', 'ewma_std_q', 'model'), interval=68, wi
 
 
 def plot_forecast_bands(fc, bars, start=None, end=None, band='model'):
-    """Daily candles with `band`'s 68% and 90% intervals for each close, as forecast at the close
-    before. The forecast made at t is drawn at t + 1, the day it is about."""
+    """Daily candles with `band`'s point forecast (its median) and 68% and 90% intervals for each
+    close, as forecast at the close before. The forecast made at t is drawn at t + 1, the day it
+    is about."""
     lo68, hi68 = _interval(fc.taus, 68)
     lo90, hi90 = _interval(fc.taus, 90)
     nxt = bars.index.to_series().shift(-1)
     prev_close = bars['Close'].reindex(fc.bands.index)
     q = fc.bands.xs(band, axis=1, level='band')
-    frame = pd.DataFrame({tau: prev_close * (1 + q[tau]) for tau in (lo90, lo68, hi68, hi90)})
+    frame = pd.DataFrame({tau: prev_close * (1 + q[tau]) for tau in (lo90, lo68, 0.5, hi68, hi90)})
     frame.index = nxt.reindex(fc.bands.index).to_numpy()
     frame = frame[frame.index.notna()]
     window = bars.loc[start:end]
@@ -88,12 +92,14 @@ def plot_forecast_bands(fc, bars, start=None, end=None, band='model'):
                                  showlegend=False, hoverinfo='skip'))
         fig.add_trace(go.Scatter(x=frame.index, y=frame[a], mode='lines', line=dict(width=0, shape='hvh'),
                                  fill='tonexty', fillcolor=f'rgba(235,104,52,{opacity})', name=name))
+    fig.add_trace(go.Scatter(x=frame.index, y=frame[0.5], mode='lines', name='point forecast (median)',
+                             line=dict(color=COLORS['model'], width=1.5, shape='hvh')))
     fig.add_trace(go.Candlestick(x=window.index, open=window['Open'], high=window['High'], low=window['Low'],
                                  close=window['Close'], name=fc.ticker,
                                  increasing=dict(line=dict(color=UP, width=1), fillcolor=UP),
                                  decreasing=dict(line=dict(color=DOWN, width=1), fillcolor=DOWN)))
     name = fc.model if band == 'model' else LABELS[band]
-    fig = _style(fig, f'{fc.ticker}: {name} intervals for each close, forecast the day before', 480,
+    fig = _style(fig, f'{fc.ticker}: {name} forecast of each close, made the day before', 480,
                  y_title='price')
     fig.update_xaxes(rangeslider_visible=False)
     return fig
@@ -113,7 +119,7 @@ def plot_folds(fc):
     return fig
 
 
-def plot_feature_importance(importance, title='Direction model: share of gain per feature'):
+def plot_feature_importance(importance, title='Share of gain per feature'):
     """A horizontal bar per feature, largest on top (`evaluate.feature_importance`)."""
     s = importance.sort_values()
     fig = go.Figure(go.Bar(x=s, y=s.index, orientation='h', marker_color=COLORS['model'],

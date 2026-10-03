@@ -1,5 +1,9 @@
-"""A GRU sequence model for the next day: a direction network (one logit) and a range network
-(one output per tau), each reading the last `window` rows of the features.
+"""GRU sequence models for the next day, two of them (the owner's choice, 2026-10-03), each reading
+the last `window` rows of its inputs:
+
+- `GRUReturnModel` forecasts tomorrow's return: one output per tau, whose median is the point
+  forecast and whose outer quantiles are the 68% and 90% bands;
+- `GRUWDLModel` forecasts tomorrow's win, draw or loss: three logits.
 
 The owner chose a GRU over an LSTM or a temporal CNN (`docs/ml_plan.md`, *Models*). Per fold, the
 features are standardized with the training window's means and standard deviations; the range
@@ -9,7 +13,7 @@ of the training window, keeping the best epoch. Each fold is seeded from its fir
 runs on CPU with deterministic algorithms, so a rerun gives the same forecasts; each day is
 forecast on its own, so its forecast does not depend on which other days are forecast with it.
 
-The range forecasts are recalibrated by default (the owner's choice, `docs/ml_plan.md`, Phase 4):
+The return model's quantiles are recalibrated by default (the owner's choice, `docs/ml_plan.md`, Phase 4):
 each tau's forecast is shifted by the tau-quantile of the network's own errors on the validation
 tail, the rows early stopping holds out inside the training window. Uncorrected, the network's
 intervals were too narrow, and much more so when retrained less often.
@@ -21,12 +25,13 @@ import numpy as np
 from .features import FEATURES
 
 # What the GRU reads each day. The owner keeps all three until a model is trained on real data
-# (docs/ml_plan.md, Phase 4); 'returns_range' is the provisional default. With the 16 features
-# (960 inputs per example against about 1,600 training rows), the GRU found no planted signal.
+# (docs/ml_plan.md, Phase 4); 'returns_range' is the provisional default. With all the features
+# (960 or more inputs per example against about 1,600 training rows), the GRU found no planted
+# signal.
 GRU_INPUTS = {
     'returns_range': ['ret_0', 'tr_close'],      # each day's return and its true range
     'returns': ['ret_0'],                        # each day's return
-    'features': list(FEATURES),                  # the 16 features LightGBM reads
+    'features': list(FEATURES),                  # the features LightGBM reads
 }
 from .split import purged_tail
 
@@ -57,25 +62,19 @@ def quantile_shift(q, y, taus):
     return np.array([np.quantile(y - q[:, i], tau) for i, tau in enumerate(taus)])
 
 
-class GRUModel:
-    """The GRU direction and range models, fitted fold by fold by `walk_forward_forecasts`.
+class _GRU:
+    """What both GRU models share: the inputs, the network and its training.
 
     `features` names one of `GRU_INPUTS` ('returns_range', 'returns', 'features') or lists the
-    dataset columns to read; each is read over the last `window` rows.
-
-    Same interface as `gbm.LightGBMModel`: `direction(d, train, test)` returns up-probabilities;
-    `quantiles(d, train, test, taus)` returns a (test rows, taus) array of return quantiles, sorted
-    along each row. Both also return the epochs trained and the best one, whose weights are kept;
-    the range model also its recalibration shift per tau (`recalibrate=False` turns it off).
-    `threads` sets PyTorch's CPU threads for the fit (None leaves PyTorch's default); give 1 when
-    running tickers in parallel processes.
+    dataset columns to read; each is read over the last `window` rows. Each forecast also returns
+    the epochs trained and the best one, whose weights are kept. `threads` sets PyTorch's CPU
+    threads for the fit (None leaves PyTorch's default); give 1 when running tickers in parallel
+    processes.
     """
-
-    name = 'GRU'
 
     def __init__(self, features='returns_range', window=60, hidden=32, batch=128, max_epochs=40,
                  patience=5, learning_rate=1e-3, weight_decay=1e-4, tail=0.2, horizon=1, seed=0,
-                 threads=None, recalibrate=True):
+                 threads=None):
         self.inputs = features if isinstance(features, str) else 'custom'
         self.features = list(GRU_INPUTS[features] if isinstance(features, str) else features)
         self.name = f'GRU ({self.inputs})'
@@ -83,7 +82,6 @@ class GRUModel:
         self.max_epochs, self.patience = max_epochs, patience
         self.learning_rate, self.weight_decay = learning_rate, weight_decay
         self.tail, self.horizon, self.seed, self.threads = tail, horizon, seed, threads
-        self.recalibrate = recalibrate
 
     def _net(self, torch, n_in, n_out):
         class GRUNet(torch.nn.Module):
@@ -156,14 +154,21 @@ class GRUModel:
                              for row in np.asarray(rows)])
         return out, {'epochs': epochs, 'best_epoch': best_epoch}
 
-    def direction(self, d, train, test):
-        torch = _torch()
 
-        def bce(p, t):
-            return torch.nn.functional.binary_cross_entropy_with_logits(p[:, 0], t)
 
-        out, info = self._fit_predict(d, d['y_up'].to_numpy(), train, test, 1, bce, test[0])
-        return 1 / (1 + np.exp(-out[:, 0].astype(float))), info
+class GRUReturnModel(_GRU):
+    """Tomorrow's return, fitted fold by fold by `walk_forward_forecasts`.
+
+    `quantiles(d, train, test, taus)` returns a (test rows, taus) array of return quantiles,
+    sorted along each row; the median is the point forecast. With `recalibrate` (the default)
+    each tau is shifted by the network's own errors on the validation tail, reported as `shift`.
+    """
+
+    target = 'return'
+
+    def __init__(self, *args, recalibrate=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.recalibrate = recalibrate
 
     def quantiles(self, d, train, test, taus):
         torch = _torch()
@@ -186,3 +191,25 @@ class GRUModel:
         shift = quantile_shift(out[:len(val)], y[val], taus)
         q = np.sort(out[len(val):] + shift, axis=1) * sigma[test][:, None]
         return q, {**info, 'shift': shift}
+
+
+class GRUWDLModel(_GRU):
+    """Tomorrow's win, draw or loss, fitted fold by fold by `walk_forward_forecasts`.
+
+    `wdl(d, train, test)` returns a (test rows, 3) array of probabilities of a loss, a draw and a
+    win, in that order (`baselines.WDL_CLASSES`): three logits, cross-entropy, softmax.
+    """
+
+    target = 'wdl'
+
+    def wdl(self, d, train, test):
+        torch = _torch()
+
+        def cross_entropy(p, t):
+            return torch.nn.functional.cross_entropy(p, t.long())
+
+        y = d['y_wdl'].to_numpy() + 1                       # -1, 0, 1 -> classes 0, 1, 2
+        out, info = self._fit_predict(d, y, train, test, 3, cross_entropy, test[0])
+        out = out.astype(float)
+        p = np.exp(out - out.max(axis=1, keepdims=True))
+        return p / p.sum(axis=1, keepdims=True), info

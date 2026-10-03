@@ -13,6 +13,8 @@ import pandas as pd
 from .data import bar_returns
 
 EWMA_LAMBDA = 0.94          # RiskMetrics' daily decay
+WDL_THRESHOLD = 0.002       # a win above +0.2%, a loss below -0.2%, a draw in between (owner's default)
+STREAK_CAP = 10             # the streak counts at most 10 days either way
 
 FEATURES = [
     'ret_0', 'ret_1', 'ret_2', 'ret_3', 'ret_4',     # the return of bar t, and four lags
@@ -23,6 +25,8 @@ FEATURES = [
     'dist_sma20', 'dist_sma50',                        # the close against its averages
     'rsi_14',                                          # Wilder's RSI
     'dow',                                             # day of the week, Monday 0
+    'wdl',                                             # today's outcome: win 1, draw 0, loss -1
+    'streak',                                          # signed run of wins (+) or losses (-), to 10
 ]
 
 
@@ -50,8 +54,30 @@ def wilder_rsi(close, length=14):
     return pd.Series(out, index=close.index)
 
 
-def features(bars):
-    """The 16 `FEATURES` for every bar, as a Date-indexed frame (NaN during each warm-up)."""
+def win_draw_loss(returns, threshold=WDL_THRESHOLD):
+    """Each day's outcome: 1 (win) above `threshold`, -1 (loss) below `-threshold`, 0 (draw) in
+    between, NaN where the return is undefined. Decimal returns: 0.002 is 0.2%."""
+    out = pd.Series(np.select([returns > threshold, returns < -threshold], [1.0, -1.0], 0.0),
+                    index=returns.index)
+    return out.where(returns.notna())
+
+
+def streak(outcomes, cap=STREAK_CAP):
+    """The signed run length ending each day: +n after n wins in a row, -n after n losses, 0 on a
+    draw, capped at `cap` either way. An undefined day is NaN and starts the count again."""
+    values, out, run = outcomes.to_numpy(dtype=float), np.full(len(outcomes), np.nan), 0.0
+    for i, x in enumerate(values):
+        if np.isnan(x):
+            run = 0.0
+            continue
+        run = 0.0 if x == 0 else (run + x if run * x > 0 else x)
+        out[i] = np.clip(run, -cap, cap)
+    return pd.Series(out, index=outcomes.index)
+
+
+def features(bars, wdl_threshold=WDL_THRESHOLD):
+    """The `FEATURES` for every bar, as a Date-indexed frame (NaN during each warm-up).
+    `wdl_threshold` sets what counts as a win or a loss for `wdl` and `streak`."""
     o, h, l, c = (bars[k].astype(float) for k in ('Open', 'High', 'Low', 'Close'))
     r = bar_returns(bars)
     positive = (o > 0) & (h > 0) & (l > 0) & (c > 0)
@@ -74,4 +100,6 @@ def features(bars):
     f['dist_sma50'] = (c / c.rolling(50).mean() - 1).where(positive)
     f['rsi_14'] = wilder_rsi(c, 14)
     f['dow'] = bars.index.dayofweek.astype(float)
+    f['wdl'] = win_draw_loss(r, wdl_threshold)
+    f['streak'] = streak(f['wdl'])
     return f[FEATURES]

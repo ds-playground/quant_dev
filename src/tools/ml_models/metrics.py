@@ -80,6 +80,24 @@ def brier_decomposition(p, y, bins=10):
             'uncertainty': float(base * (1 - base))}
 
 
+def multiclass_log_loss(p, y, classes, eps=1e-12):
+    """Per-day log loss of class probabilities `p` (days x classes, in the order of `classes`) for
+    the outcomes `y`: minus the log of the probability given to what happened."""
+    p, y = np.asarray(p, dtype=float), np.asarray(y)
+    index = np.searchsorted(np.asarray(classes), y)
+    if not np.array_equal(np.asarray(classes)[np.clip(index, 0, len(classes) - 1)], y):
+        raise ValueError(f'outcomes outside the classes {tuple(classes)}')
+    return -np.log(np.clip(p[np.arange(len(y)), index], eps, 1))
+
+
+def multiclass_brier(p, y, classes):
+    """Per-day Brier score over several classes: the squared distance between the probabilities
+    and the one-hot outcome (0 is perfect, 2 the worst)."""
+    p, y = np.asarray(p, dtype=float), np.asarray(y)
+    onehot = (y[:, None] == np.asarray(classes)[None, :]).astype(float)
+    return ((p - onehot) ** 2).sum(axis=1)
+
+
 def pinball(q, y, tau):
     """Per-day pinball (quantile) loss of the `tau`-quantile forecast `q`."""
     q, y = _arrays(q, y)

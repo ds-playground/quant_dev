@@ -6,7 +6,7 @@ tickers only.
 Runs the GRU's range model as it is and recalibrated on the five long synthetic tickers,
 retraining every 63 rows (the plan's setting) and every 252, then writes
 docs/images/ml/gru_recalibration.png and prints the numbers the plan quotes. Recalibrated
-(`GRUModel(recalibrate=True)`, the default since the owner chose it) means each tau's forecast is
+(`GRUReturnModel(recalibrate=True)`, the default since the owner chose it) means each tau's forecast is
 shifted by the tau-quantile of the network's own errors on the validation tail of its training
 window, the rows early stopping already holds out, so nothing outside the training window is
 used. About 10 minutes on four cores. Needs the `ml` and `stats` extras, and
@@ -32,9 +32,9 @@ OUT = ROOT / 'docs' / 'images' / 'ml' / 'gru_recalibration.png'
 
 def run(ticker, variant, step):
     # The evidence was gathered on the 16 features, the plan's inputs at the time.
-    model = ml.GRUModel(features='features', threads=1, recalibrate=(variant == 'recalibrated'))
+    model = ml.GRUReturnModel(features='features', threads=1, recalibrate=(variant == 'recalibrated'))
     d = ml.dataset(ml.ticker_bars(ticker))
-    fc = ml.walk_forward_forecasts(d, model, ticker=ticker, step=step, direction=False)
+    fc = ml.walk_forward_forecasts(d, model, ticker=ticker, step=step)
     table = ml.range_table(fc)
     return ticker, variant, step, table.loc['model'], table.loc['constant'], table.loc['ewma_std_q']
 

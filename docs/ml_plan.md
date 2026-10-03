@@ -102,6 +102,11 @@ only thing a label may look at beyond t. Days whose return spans a non-positive 
 
 ### Direction: binary, or with a flat band
 
+> **Superseded (2026-10-03):** the owner replaced the up/down target with **win/draw/loss** at a
+> fixed ±0.2% threshold, forecast by its own model (decisions 11 to 15, and the *Two models*
+> notes). The comparison below is kept because it is why the W/D/L checks use a volatility
+> baseline: a fixed band's draw share tracks volatility.
+
 ![Share of next-day labels per quarter under three direction targets](images/ml/direction_targets.png)
 
 - **A. Binary**, `up = 1[C_{t+1} > C_t]`. The classes stay near half and half every quarter. On
@@ -240,7 +245,8 @@ GARCH(1,1) with α + β of 0.98, so volatility can be forecast, and a range mode
 must beat a constant band. Each scheduled sell-off has a negative drift, but it happens once per
 ticker, so a model cannot learn it before it happens.
 
-- **Direction, no better than chance.**
+- **Direction, no better than chance** (the up/down form, until 2026-10-03; the W/D/L form that
+  replaced it is in the *Two models* notes).
   - Test: on each of the five long synthetic tickers, the bootstrap interval of
     `log loss(base rate) − log loss(model)` must not lie wholly above zero, at the 99% level so
     that five tickers × two models rarely raise a false alarm.
@@ -275,15 +281,21 @@ Past-only, computed from the bar at t and the bars before it, in pandas and nump
 - level: the close over its 20- and 50-day averages, a 14-day RSI;
 - calendar: the day of the week.
 
-That is about 16 columns. Each is in the no-look-ahead test. The direction and range models share
-them, and the sequence model sees a window of them.
+- outcomes (added 2026-10-03): today's win/draw/loss `wdl` (+1 above +0.2%, −1 below −0.2%,
+  else 0) and `streak`, the signed run of wins (+) or losses (−) ending today, capped at ±10 and
+  reset to 0 by a draw.
+
+That is 18 columns. Each is in the no-look-ahead test. The win/draw/loss and return models share
+them, and the sequence model sees a window of them (or of a subset, its input sets).
 
 ## Models
 
 ### LightGBM
 
-- **Direction:** one `binary` model.
-- **Range:** one `quantile` model per τ, fitted to the standardized return `r_{t+1} / σ_t` (σ_t the
+- **Win/draw/loss** (`LightGBMWDLModel`, from 2026-10-03; it replaced the `binary` up/down
+  model): one `multiclass` model with three classes.
+- **Return** (`LightGBMReturnModel`): one `quantile` model per τ, whose median is the point
+  forecast, fitted to the standardized return `r_{t+1} / σ_t` (σ_t the
   EWMA volatility at t) and scaled back by σ_t; Phase 1 found raw returns under-cover. Crossed
   forecasts are sorted, which never worsens any quantile's pinball loss.
 - Small and regularized (up to 300 trees at a learning rate of 0.03, 15 leaves, at least 50 rows a
@@ -355,15 +367,15 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | Module | Contents | Needs `ml` |
 |---|---|---|
 | `data.py` | `ticker_bars`: synthetic bars, or saved ones from `data/local` (never a download); `bar_returns` | no |
-| `targets.py` | `TAUS`; `next_direction` (with an optional scaled flat band), `next_return`; `dataset`, the modelling frame | no |
-| `features.py` | `FEATURES`, `features`; `ewma_vol`, `wilder_rsi` | no |
+| `targets.py` | `TAUS`; `next_return`, `next_wdl`; `dataset`, the modelling frame | no |
+| `features.py` | `FEATURES`, `features`; `WDL_THRESHOLD`, `STREAK_CAP`, `win_draw_loss`, `streak`; `ewma_vol`, `wilder_rsi` | no |
 | `split.py` | `walk_forward` folds with the purge; `purged_tail` for early stopping | no |
-| `baselines.py` | `direction_baseline` (the base rate); `range_baselines`: constant width, `price_range`, 20-day and EWMA bands | no |
-| `metrics.py` | log loss, Brier and its decomposition, reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
-| `gbm.py` | `LightGBMModel`: the direction model and one quantile model per τ, on standardized returns | yes |
-| `sequence.py` | the GRU (or the chosen network), with the same interface | yes |
-| `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `direction_scores`, `range_table`, `range_check` (the sanity checks); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
-| `viz.py` | Plotly charts: reliability, rolling coverage, forecast bands on candles, folds, feature importance, pinball against the constant band | no |
+| `baselines.py` | `wdl_baselines` (class frequencies, and a volatility baseline); `range_baselines`: constant width, `price_range`, 20-day and EWMA bands | no |
+| `metrics.py` | log loss, Brier and its decomposition, their multiclass forms, reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
+| `gbm.py` | `LightGBMReturnModel` (one quantile model per τ, on standardized returns) and `LightGBMWDLModel` (multiclass) | yes |
+| `sequence.py` | `GRUReturnModel` and `GRUWDLModel`, with the same interfaces | yes |
+| `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `wdl_scores`, `wdl_check`, `point_scores`, `range_table`, `range_check` (the sanity checks); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
+| `viz.py` | Plotly charts: W/D/L reliability, rolling coverage, forecast bands (with the median) on candles, folds, feature importance, pinball against the constant band | no |
 
 ## Phases
 
@@ -374,8 +386,9 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | **2** ✅ | Package core (no ML libraries) | `ml_models` with `data`, `targets`, `features`, `split`, `baselines`, `metrics`; the `ml` extra in `pyproject.toml` and `requirements.txt`. Tests: no-look-ahead per feature, the purge, metrics against hand-worked examples and scipy, the baselines' sanity (the EWMA band beats the constant one when pooled), the notebook-has-no-outputs check. — **done, `879d0cf`** |
 | **3** ✅ | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM; the notebook moved onto the package (owner's agreement, 2026-10-02) — **done, `8265b41`, `75a4397`** |
 | **4** ✅ | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests; recalibrated ranges and three input sets (owner's decisions, Phase 4) — **done, `1cbc9dc`, `031e256`, `446dc4a`, `40afeb3`** |
+| **4b** | Two models, win/draw/loss | the up/down model replaced by a W/D/L model; the `wdl` and `streak` features; return and W/D/L as separate models for LightGBM and the GRU; the notebook and tests moved over (owner's request, 2026-10-03) — **done, see the *Two models* notes** |
 | **5** | API | `/api/ml/*` endpoints: run on request and cached, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
-| **6** | Dashboard | an **ML forecasts** tab with direction and range sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
+| **6** | Dashboard | an **ML forecasts** tab with win/draw/loss and return sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
 | **7** | Wrap-up | README: Setup (the extra), layout, Package API, Tests, notebook table, changelog. The owner runs the notebook on saved data. Checks in full; a PR when asked. |
 
 The test suite stays fast: LightGBM and GRU tests use small models and few folds, and run on
@@ -384,6 +397,82 @@ measures the suite past about a minute. Phase 3 did: the LightGBM sanity checks 
 long tickers, so `tests/test_ml_gbm.py` is marked `slow`. It still runs with a plain `pytest`.
 The GRU's tests (`tests/test_ml_sequence.py`) are marked `slow` too, and retrain every 252 rows
 instead of 63, over the same test days (owner's decision, Phase 4).
+
+## Two models: win/draw/loss and the return (Phase 4b notes)
+
+The owner's request of 2026-10-03: a win/draw/loss outcome with a 0.2% threshold, a streak feature
+of up to 10 days, and a forecast of the win/draw/loss besides the return, as **two separate
+models**: one forecasting tomorrow's return (a point forecast and a range), the other tomorrow's
+win/draw/loss. The up/down model is gone (decisions 11 to 15).
+
+- **Built:**
+  - `features.win_draw_loss` and `features.streak`, and the `wdl` and `streak` columns of
+    `FEATURES` (18 now). A return exactly at the threshold is a draw. Both are in the per-feature
+    no-look-ahead test, and `wdl` at t equals the label `y_wdl` at t − 1.
+  - `targets.next_wdl` and the `y_wdl` column; `dataset(bars, wdl_threshold)` records the
+    threshold in `frame.attrs`. `next_direction` and `y_up` are removed.
+  - `baselines.wdl_baselines`, two of them:
+    - **frequencies:** the training window's class shares, each count plus a half;
+    - **volatility:** the share of training days whose standardized return `r / σ_ewma` falls
+      in each class once scaled by today's σ, against the threshold. It is what volatility alone
+      says about a draw.
+  - `metrics.multiclass_log_loss` and `multiclass_brier`.
+  - `gbm.LightGBMReturnModel` and `LightGBMWDLModel` (multiclass), and `sequence.GRUReturnModel`
+    (recalibrated, as before) and `GRUWDLModel` (cross-entropy, softmax), each with a `target`
+    the runner dispatches on. `Forecasts` carries `bands` and `y_ret` for a return model, `wdl`
+    and `y_wdl` for a W/D/L model, and `point()`, the median.
+  - `evaluate.wdl_scores`, `wdl_check` and `point_scores`; `viz.plot_wdl_reliability`; the
+    forecast-bands chart draws the median.
+- **The checks,** on the five long synthetic tickers:
+  - **W/D/L no better than volatility,** per ticker: the 99% interval of
+    `log loss(volatility baseline) − log loss(model)` must not lie wholly above zero, and the gain
+    must be at most 0.015. A fixed threshold makes draws likelier in calm spells, so a model may
+    use volatility; the sign stays unforecastable. The margin is not the up/down model's 0.002:
+    the volatility baseline uses EWMA volatility, which is not the best there is. The generator's
+    own GARCH volatility, put through its Student-t, beats it by 0.014 on SYN-INDEX, 0.008 on
+    SYN-TECH, 0.006 on SYN-GOLD, 0.005 on SYN-OIL and 0.001 on SYN-FX. A model that forecasts
+    volatility better than EWMA may land up to there, and the margin sits just past it.
+  - **W/D/L beats the class frequencies,** pooled at 95%; and, for the GRU, does not beat the
+    volatility baseline pooled.
+  - **The point forecast** (the median) is no better than the EWMA band's median: the 99%
+    interval of the mean-absolute-error gain is not wholly above zero, and the gain is at most 1%
+    of that median's error.
+  - **The range** check is unchanged.
+  - **Controls:** the planted signal now repeats each sign **65%** of the time. At 60% the W/D/L
+    model did not find it reliably: draws are 29% of the planted series' days (15% on SYN-OIL to
+    48% on SYN-FX among the long tickers) and dilute a sign signal, and the volatility baseline
+    is a harder bar than the base rate. At 65% LightGBM gains 0.029 (99% interval from 0.015). The two leaks (`r_{t+1}`, a centred 5-day window) must fail
+    the W/D/L check and beat the volatility baseline outright. The end-to-end no-look-ahead test
+    covers both LightGBM models.
+- **Measured** (step 63 for LightGBM, 252 for the GRU, as in the tests):
+
+  | | LightGBM | GRU (`returns_range`) |
+  |---|---|---|
+  | W/D/L gain over volatility, per ticker (INDEX, TECH, GOLD, FX, OIL) | −0.0006, −0.0044, −0.0094, −0.0080, −0.0097 | +0.0045, −0.0005, −0.0083, −0.0122, +0.0023 |
+  | W/D/L gain over frequencies, pooled (95%) | +0.0041 [0.0014, 0.0069] | +0.0083 [0.0047, 0.0121] |
+  | Point forecast no better than the EWMA median | all five | all five |
+  | Range gain over the constant band, pooled (95%) | 5.1% [3.6, 6.8] | 4.6% [3.2, 6.4] |
+  | Planted signal (65%): gain over volatility, 99% lower bound | 0.029, 0.015 | 0.020, 0.005 |
+
+  The volatility baseline itself beats the frequencies on all five tickers (pooled +0.0105
+  [0.0059, 0.0153]); LightGBM's W/D/L model leans on the volatility features (`vol_20`,
+  `vol_ewma`, `vol_parkinson`, `abs_ret` lead its gain importance). The GRU's two positive
+  per-ticker gains are inside both intervals and the margin.
+- **The GRU's input sets:** all three find the planted signal at 65%: `returns_range` gains
+  0.020, `returns` 0.016, and `features` (now 18 columns) 0.018, each with a 99% interval above
+  zero. The Phase 4 finding that the 16 features found no signal was for the up/down model at
+  60%; its strict expected-failure test is dropped. On the five long tickers (step 252), all
+  three pass the required checks, but `returns` alone does not beat the class frequencies
+  (pooled −0.0010, 95% interval −0.0032 to +0.0014): from returns alone the GRU learns too
+  little volatility to help with draws. `returns_range` gains +0.0083 and `features` +0.0053
+  (from +0.0006). The exhaustive test reports this for `returns` rather than requiring it, and
+  it counts against `returns` when the input set is chosen on real data.
+- **The notebook** (`notebooks/ml_next_day.ipynb`) is rebuilt for the two models: data and the
+  W/D/L shares and longest streaks per ticker, the features and labels side by side, both
+  LightGBM models, the three GRU input sets, the checks, the W/D/L reliability and the bands
+  with their median, and the controls. It runs in about 8 minutes on four cores.
+- **Not rerun:** `docs/images/ml/gru_recalibration.png` was made with the 16 features; the
+  script now uses the 18, so a rerun would differ slightly.
 
 ## Phase 4 notes
 
@@ -723,6 +812,18 @@ check passes, and the pooled range gain is 4.2% (2.7% to 6.0%). It still under-c
 9. The GRU's sanity tests run on the **five long tickers, retraining every 252 rows**.
 10. The GRU keeps **three input sets**, `'returns_range'` (provisional default), `'returns'` and
     `'features'`, and the choice is made when a model is trained on real data.
+
+**Win/draw/loss and two models (2026-10-03):**
+
+11. Win/draw/loss at a **±0.2%** threshold (`WDL_THRESHOLD`, a parameter): win +1, draw 0, loss −1.
+12. Two new features: today's **`wdl`**, and **`streak`**, the signed run length (wins +, losses −)
+    capped at **±10**, reset to 0 by a draw.
+13. **Two separate models** per family: one forecasts tomorrow's return (the median as the
+    point forecast, plus the 68% and 90% range), the other tomorrow's win/draw/loss.
+14. The **up/down model is replaced** by the W/D/L model.
+15. (Judgment, for the owner to revisit.) The W/D/L sanity checks compare against a volatility
+    baseline at 99% with a 0.015 log-loss margin, and the planted signal repeats each sign 65% of
+    the time (it was 60%); the reasons are in the *Two models* notes.
 
 ## Open judgment calls
 

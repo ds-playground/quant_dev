@@ -6,6 +6,7 @@ ratio as Kupiec's and Christoffersen's), `price_return`'s loader and `options.pr
 `ta_tools.rsi` (TA-Lib). The no-look-ahead test is the one `ta_tools` uses: cut the bars after t,
 recompute, and nothing at or before t may change.
 """
+import dataclasses
 import json
 import math
 import statistics
@@ -109,26 +110,36 @@ def test_bar_returns_match_the_price_return_loader(oil_bars):
 
 # ── Targets and the modelling frame ──────────────────────────────────────────
 
-def test_next_return_and_direction_by_hand():
-    bars = hand_bars([100, 101, 101, 99, 100])
-    np.testing.assert_allclose(ml.next_return(bars), [0.01, 0.0, 99 / 101 - 1, 100 / 99 - 1, np.nan])
-    np.testing.assert_array_equal(ml.next_direction(bars), [1.0, 0.0, 0.0, 1.0, np.nan])
+def test_next_return_and_win_draw_loss_by_hand():
+    bars = hand_bars([100, 101, 101, 99, 100, 100.1])
+    # returns: +1%, 0%, -1.98%, +1.01%, +0.1%
+    np.testing.assert_allclose(ml.next_return(bars), [0.01, 0.0, 99 / 101 - 1, 100 / 99 - 1, 0.001, np.nan])
+    np.testing.assert_array_equal(ml.next_wdl(bars), [1.0, 0.0, -1.0, 1.0, 0.0, np.nan])     # at 0.2%
+    np.testing.assert_array_equal(ml.next_wdl(bars, threshold=0.015), [0.0, 0.0, -1.0, 0.0, 0.0, np.nan])
+    assert ml.WDL_THRESHOLD == 0.002                                    # the owner's default
+    # exactly at the threshold is a draw, either way
+    r = pd.Series([0.002, -0.002, 0.0021, -0.0021, np.nan])
+    np.testing.assert_array_equal(ml.win_draw_loss(r), [0.0, 0.0, 1.0, -1.0, np.nan])
 
 
-def test_flat_band_scales_with_volatility():
-    bars = hand_bars([100, 101, 101.2, 99, 100])
-    sigma = pd.Series([0.01, 0.01, 0.005, 0.03, 0.01], index=bars.index)
-    # next returns: +1%, +0.198%, -2.17%, +1.01%; bands at 0.5 sigma: 0.5%, 0.5%, 0.25%, 1.5%
-    np.testing.assert_array_equal(ml.next_direction(bars, flat=0.5, sigma=sigma), [1.0, 0.0, -1.0, 0.0, np.nan])
-    with pytest.raises(ValueError, match='sigma'):
-        ml.next_direction(bars, flat=0.5)
+def test_streak_by_hand():
+    outcomes = pd.Series([1, 1, 1, 0, -1, -1, 1, np.nan, -1, 0, 0, 1])
+    np.testing.assert_array_equal(ml.streak(outcomes), [1, 2, 3, 0, -1, -2, 1, np.nan, -1, 0, 0, 1])
+    long_run = pd.Series([1.0] * 14 + [-1.0] * 12)
+    got = ml.streak(long_run)
+    assert got.iloc[13] == 10 and got.iloc[9] == 10 and got.iloc[8] == 9    # capped at 10
+    assert got.iloc[14] == -1 and got.iloc[-1] == -10
+    assert ml.STREAK_CAP == 10
 
 
 def test_dataset(index_bars, index_data):
     d = index_data
-    assert list(d.columns) == ml.FEATURES + ['y_ret', 'y_up', 'vol_250']
-    assert not d[ml.FEATURES + ['y_ret', 'y_up']].isna().any().any()
-    assert ((d['y_ret'] > 0) == (d['y_up'] == 1)).all()
+    assert list(d.columns) == ml.FEATURES + ['y_ret', 'y_wdl', 'vol_250']
+    assert not d[ml.FEATURES + ['y_ret', 'y_wdl']].isna().any().any()
+    np.testing.assert_array_equal(d['y_wdl'], np.select([d['y_ret'] > 0.002, d['y_ret'] < -0.002], [1, -1], 0))
+    assert d.attrs['wdl_threshold'] == 0.002
+    # today's outcome and streak are tomorrow's label of the day before
+    np.testing.assert_array_equal(d['wdl'].iloc[1:], d['y_wdl'].iloc[:-1])
     assert d.index[-1] == index_bars.index[-2]              # the last bar has no tomorrow
     # vol_250 is NaN only in its own warm-up (240 returns, from bar 240) and never removes a row:
     # the frame starts at bar 60, when vol_60 has its 60 returns.
@@ -181,6 +192,11 @@ def test_features_at_one_bar_by_hand(index_bars):
     assert f['dist_sma20'] == pytest.approx(c[t] / (sum(c[t - 19:t + 1]) / 20) - 1)
     assert f['dist_sma50'] == pytest.approx(c[t] / (sum(c[t - 49:t + 1]) / 50) - 1)
     assert f['dow'] == index_bars.index[t].dayofweek
+    assert f['wdl'] == (1 if r[t] > 0.002 else -1 if r[t] < -0.002 else 0)
+    run = 0                                       # the streak, counted back from t
+    while run < 10 and np.sign(r[t - run]) == f['wdl'] != 0 and abs(r[t - run]) > 0.002:
+        run += 1
+    assert f['streak'] == f['wdl'] * run
 
 
 def test_ewma_vol_follows_its_recursion():
@@ -264,11 +280,37 @@ def index_bands(index_data, index_folds):
     return ml.range_baselines(index_data, index_folds)
 
 
-def test_direction_baseline_is_the_training_up_share(index_data, index_folds):
-    p = ml.direction_baseline(index_data, index_folds)
+@pytest.fixture(scope='module')
+def index_wdl(index_data, index_folds):
+    return ml.wdl_baselines(index_data, index_folds)
+
+
+def test_wdl_frequencies_are_the_training_shares(index_data, index_folds, index_wdl):
+    assert list(index_wdl.columns) == [(b, c) for b in ml.WDL_BASELINES for c in ml.WDL_CLASSES]
+    np.testing.assert_allclose(index_wdl.T.groupby(level='baseline').sum().T, 1.0)
     for train, test in index_folds[::7]:
-        expected = index_data['y_up'].to_numpy()[train].mean()
-        np.testing.assert_allclose(p.loc[index_data.index[test]], expected)
+        y = index_data['y_wdl'].to_numpy()[train]
+        for c in ml.WDL_CLASSES:
+            expected = (np.sum(y == c) + 0.5) / (len(y) + 1.5)        # half a count each: never 0
+            np.testing.assert_allclose(index_wdl.loc[index_data.index[test], ('frequencies', c)], expected)
+
+
+def test_wdl_volatility_baseline_by_hand(index_data, index_folds, index_wdl):
+    # The share of the training window's standardized returns that, scaled by today's volatility,
+    # would clear the threshold either way.
+    train, test = index_folds[5]
+    z = (index_data['y_ret'] / index_data['vol_ewma']).to_numpy()[train]
+    for row in test[::20]:
+        cut = 0.002 / index_data['vol_ewma'].iloc[row]
+        counts = {1: np.sum(z > cut), -1: np.sum(z < -cut)}
+        counts[0] = len(z) - counts[1] - counts[-1]
+        for c in ml.WDL_CLASSES:
+            assert index_wdl.loc[index_data.index[row], ('volatility', c)] == pytest.approx(
+                (counts[c] + 0.5) / (len(z) + 1.5))
+    # Calm days make draws likelier than volatile ones do.
+    calm = index_data.loc[index_wdl.index, 'vol_ewma'] < index_data['vol_ewma'].quantile(0.2)
+    wild = index_data.loc[index_wdl.index, 'vol_ewma'] > index_data['vol_ewma'].quantile(0.8)
+    assert index_wdl.loc[calm, ('volatility', 0)].mean() > 1.5 * index_wdl.loc[wild, ('volatility', 0)].mean()
 
 
 def test_constant_band_is_the_training_quantiles(index_data, index_folds, index_bands):
@@ -288,16 +330,16 @@ def test_price_range_band_matches_options_price_range(index_data, index_bands):
             assert index_bands.loc[date, ('price_range', hi)] == pytest.approx(band['high'] - 1)
 
 
-def test_baselines_use_only_training_rows(index_data, index_folds, index_bands):
+def test_baselines_use_only_training_rows(index_data, index_folds, index_bands, index_wdl):
     k = 10
     train, test = index_folds[k]
     changed = index_data.copy()
     changed.iloc[test[0]:, changed.columns.get_loc('y_ret')] *= 5     # every outcome from fold k on
-    changed.iloc[test[0]:, changed.columns.get_loc('y_up')] = 1.0
+    changed.iloc[test[0]:, changed.columns.get_loc('y_wdl')] = 1.0
     bands = ml.range_baselines(changed, index_folds[:k + 1])
     pd.testing.assert_frame_equal(bands, index_bands.loc[bands.index])
-    p = ml.direction_baseline(changed, index_folds[:k + 1])
-    pd.testing.assert_series_equal(p, ml.direction_baseline(index_data, index_folds[:k + 1]))
+    wdl = ml.wdl_baselines(changed, index_folds[:k + 1])
+    pd.testing.assert_frame_equal(wdl, index_wdl.loc[wdl.index])
 
 
 def _quantiles(bands, band):
@@ -323,6 +365,19 @@ def test_ewma_band_beats_the_constant_band():
 
 
 # ── Metrics ──────────────────────────────────────────────────────────────────
+
+def test_multiclass_log_loss_and_brier_by_hand():
+    p = np.array([[0.2, 0.3, 0.5], [0.6, 0.3, 0.1], [0.0, 1.0, 0.0]])
+    y = np.array([1, -1, 0])
+    np.testing.assert_allclose(ml.multiclass_log_loss(p, y, ml.WDL_CLASSES),
+                               [-math.log(0.5), -math.log(0.6), 0.0], atol=1e-12)
+    np.testing.assert_allclose(ml.multiclass_brier(p, y, ml.WDL_CLASSES),
+                               [0.04 + 0.09 + 0.25, 0.16 + 0.09 + 0.01, 0.0])
+    with pytest.raises(ValueError, match='outside'):
+        ml.multiclass_log_loss(p, np.array([1, 2, 0]), ml.WDL_CLASSES)
+    # uniform probabilities cost log(3), whatever happens
+    np.testing.assert_allclose(ml.multiclass_log_loss(np.full((3, 3), 1 / 3), y, ml.WDL_CLASSES), math.log(3))
+
 
 def test_log_loss_and_brier_by_hand():
     np.testing.assert_allclose(ml.log_loss([0.8, 0.8, 0.5], [1, 0, 1]),
@@ -416,51 +471,112 @@ def test_mean_interval():
     pd.testing.assert_series_equal(out, ml.mean_interval(x, level=0.95))       # seeded
 
 
-# ── The walk-forward runner, with a stub model (no LightGBM needed) ──────────
+# ── The walk-forward runner, with stub models (no LightGBM needed) ──────────
 
-class StubModel:
-    """Forecasts that encode their own row, so the runner's alignment can be checked."""
+class StubReturnModel:
+    """Quantiles that encode their own row, so the runner's alignment can be checked."""
     name = 'stub'
-
-    def direction(self, d, train, test):
-        return 0.4 + 0.2 * (np.asarray(test) % 2), {'trees': 1, 'importance': {'ret_0': 3.0, 'vol_20': 1.0}}
+    target = 'return'
 
     def quantiles(self, d, train, test, taus):
         sigma = d['vol_ewma'].to_numpy()[test][:, None]
         z = np.array([statistics.NormalDist().inv_cdf(t) for t in taus])[None, :]
-        return sigma * z, {'trees': [1] * len(taus)}
+        return sigma * z, {'trees': [1] * len(taus), 'importance': {'ret_0': 3.0, 'vol_20': 1.0}}
+
+
+class StubWDLModel:
+    """Probabilities that encode their own row: odd rows lean to a win, even rows to a loss."""
+    name = 'stub'
+    target = 'wdl'
+
+    def wdl(self, d, train, test):
+        odd = (np.asarray(test) % 2)[:, None]
+        p = np.where(odd, [[0.2, 0.3, 0.5]], [[0.5, 0.3, 0.2]])
+        return p, {'trees': 1, 'importance': {'streak': 1.0, 'wdl': 1.0}}
 
 
 @pytest.fixture(scope='module')
 def stub_forecasts(index_data):
-    return ml.walk_forward_forecasts(index_data, StubModel(), ticker='SYN-INDEX')
+    return ml.walk_forward_forecasts(index_data, StubReturnModel(), ticker='SYN-INDEX')
 
 
-def test_runner_aligns_forecasts_with_their_rows(index_data, index_folds, stub_forecasts):
+@pytest.fixture(scope='module')
+def stub_wdl(index_data):
+    return ml.walk_forward_forecasts(index_data, StubWDLModel(), ticker='SYN-INDEX')
+
+
+def test_runner_aligns_return_forecasts_with_their_rows(index_data, index_folds, stub_forecasts):
     fc = stub_forecasts
     test_rows = np.concatenate([test for _, test in index_folds])
-    assert list(fc.direction.index) == list(index_data.index[test_rows])
-    np.testing.assert_allclose(fc.direction['p_model'], 0.4 + 0.2 * (test_rows % 2))
-    np.testing.assert_allclose(fc.direction['y_up'], index_data['y_up'].to_numpy()[test_rows])
+    assert fc.target == 'return' and fc.wdl is None
+    assert list(fc.y_ret.index) == list(index_data.index[test_rows])
     np.testing.assert_allclose(fc.y_ret, index_data['y_ret'].to_numpy()[test_rows])
     for tau in ml.TAUS:
         expected = index_data['vol_ewma'].to_numpy()[test_rows] * statistics.NormalDist().inv_cdf(tau)
         np.testing.assert_allclose(fc.bands[('model', tau)], expected)
-    pd.testing.assert_series_equal(fc.direction['p_base'], ml.direction_baseline(index_data, index_folds),
-                                   check_names=False)
+    pd.testing.assert_series_equal(fc.point(), fc.bands[('model', 0.5)])
     assert len(fc.folds) == len(index_folds)
     assert (fc.folds['test_from'] > fc.folds['train_to']).all()
 
 
-def test_direction_scores_by_hand(stub_forecasts):
-    s = ml.direction_scores(stub_forecasts)
-    f = stub_forecasts.direction
-    gain = ml.log_loss(f['p_base'], f['y_up']) - ml.log_loss(f['p_model'], f['y_up'])
-    assert s['gain'] == pytest.approx(gain.mean())
-    assert s['log_loss_model'] == pytest.approx(ml.log_loss(f['p_model'], f['y_up']).mean())
-    assert s['lower'] < s['gain'] < s['upper']
-    # a forecast that swings 40% / 60% at random is worse than the base rate, so "no better"
-    assert s['no_better_than_chance'] and not s['beats_base_rate']
+def test_runner_aligns_wdl_forecasts_with_their_rows(index_data, index_folds, stub_wdl):
+    fc = stub_wdl
+    test_rows = np.concatenate([test for _, test in index_folds])
+    assert fc.target == 'wdl' and fc.bands is None and fc.wdl_threshold == 0.002
+    np.testing.assert_allclose(fc.y_wdl, index_data['y_wdl'].to_numpy()[test_rows])
+    np.testing.assert_allclose(fc.wdl[('model', 1)], np.where(test_rows % 2, 0.5, 0.2))
+    pd.testing.assert_frame_equal(fc.wdl[list(ml.WDL_BASELINES)],
+                                  ml.wdl_baselines(index_data, index_folds))
+
+
+def test_runner_refuses_a_model_without_a_target(index_data):
+    with pytest.raises(ValueError, match='target'):
+        ml.walk_forward_forecasts(index_data, object())
+
+
+def test_wdl_scores_by_hand(stub_wdl):
+    s = ml.wdl_scores(stub_wdl)
+    y = stub_wdl.y_wdl.to_numpy()
+    losses = {src: ml.multiclass_log_loss(stub_wdl.wdl[src].to_numpy(), y, ml.WDL_CLASSES)
+              for src in (*ml.WDL_BASELINES, 'model')}
+    assert s['log_loss_model'] == pytest.approx(losses['model'].mean())
+    assert s['gain_vs_volatility'] == pytest.approx((losses['volatility'] - losses['model']).mean())
+    assert s['share_draw'] == pytest.approx(np.mean(y == 0))
+    assert s['lower_vs_volatility'] < s['gain_vs_volatility'] < s['upper_vs_volatility']
+    # leaning at random to a win or a loss is worse than the baselines: "no better", not "beats"
+    assert s['no_better_than_volatility'] and not s['beats_volatility']
+    gains, pooled, above = ml.wdl_check([stub_wdl])
+    assert gains['SYN-INDEX'] == pytest.approx((losses['frequencies'] - losses['model']).mean())
+    assert pooled['lower'] < pooled['estimate'] < pooled['upper'] and not above
+    with pytest.raises(ValueError, match='not return'):
+        ml.point_scores(stub_wdl)
+
+
+def test_wdl_scores_between_no_better_and_beats(stub_wdl):
+    # The volatility baseline, nudged toward the outcome on half the days and away from it on the
+    # other half: a gain near zero whose interval straddles it, so "no better" and not "beats".
+    vol = stub_wdl.wdl['volatility'].to_numpy()
+    onehot = stub_wdl.y_wdl.to_numpy()[:, None] == np.asarray(ml.WDL_CLASSES)[None, :]
+    toward = np.random.default_rng(0).random(len(vol)) < 0.5
+    nudge = np.where(toward[:, None], onehot - vol, -(onehot - vol)) * 0.05
+    p = np.clip(vol + nudge, 1e-3, None)
+    wdl = stub_wdl.wdl.copy()
+    for i, c in enumerate(ml.WDL_CLASSES):
+        wdl[('model', c)] = p[:, i] / p.sum(axis=1)
+    s = ml.wdl_scores(dataclasses.replace(stub_wdl, wdl=wdl))
+    assert s['lower_vs_volatility'] < 0 < s['upper_vs_volatility']
+    assert s['no_better_than_volatility'] and not s['beats_volatility']
+
+
+def test_point_scores_by_hand(stub_forecasts):
+    s = ml.point_scores(stub_forecasts)
+    y = stub_forecasts.y_ret.to_numpy()
+    for band in (*ml.BANDS, 'model'):
+        assert s[f'mae_{band}'] == pytest.approx(np.mean(np.abs(y - stub_forecasts.point(band))))
+    gain = np.abs(y - stub_forecasts.point('ewma_std_q')) - np.abs(y - stub_forecasts.point('model'))
+    assert s['gain_vs_ewma'] == pytest.approx(gain.mean())
+    with pytest.raises(ValueError, match='not wdl'):
+        ml.wdl_scores(stub_forecasts)
 
 
 def test_range_table_and_check(stub_forecasts):
@@ -476,25 +592,35 @@ def test_range_table_and_check(stub_forecasts):
                           and pooled['lower'] > 0)
 
 
-def test_feature_importance_shares(stub_forecasts):
-    shares = ml.feature_importance(stub_forecasts)
-    assert shares.to_dict() == pytest.approx({'ret_0': 0.75, 'vol_20': 0.25})
+def test_feature_importance_shares(stub_forecasts, stub_wdl):
+    assert ml.feature_importance(stub_forecasts).to_dict() == pytest.approx({'ret_0': 0.75, 'vol_20': 0.25})
+    assert ml.feature_importance(stub_wdl).to_dict() == pytest.approx({'streak': 0.5, 'wdl': 0.5})
 
 
 def test_evaluate_many_matches_one_at_a_time():
-    one = [ml.evaluate(t, StubModel()) for t in ('SYN-GOLD', 'SYN-FX')]
-    many = ml.evaluate_many(['SYN-GOLD', 'SYN-FX'], StubModel(), n_jobs=2)
-    for a, b in zip(one, many):
-        assert a.ticker == b.ticker
-        pd.testing.assert_frame_equal(a.direction, b.direction)
-        pd.testing.assert_frame_equal(a.bands, b.bands)
+    for model in (StubReturnModel(), StubWDLModel()):
+        one = [ml.evaluate(t, model) for t in ('SYN-GOLD', 'SYN-FX')]
+        many = ml.evaluate_many(['SYN-GOLD', 'SYN-FX'], model, n_jobs=2)
+        for a, b in zip(one, many):
+            assert a.ticker == b.ticker and a.target == b.target
+            for part in ('bands', 'wdl'):
+                if getattr(a, part) is not None:
+                    pd.testing.assert_frame_equal(getattr(a, part), getattr(b, part))
+
+
+def test_evaluate_passes_the_threshold_on():
+    fc = ml.evaluate('SYN-FX', StubWDLModel(), wdl_threshold=0.005)
+    assert fc.wdl_threshold == 0.005
+    d = ml.dataset(synthetic_bars('SYN-FX'), wdl_threshold=0.005)
+    np.testing.assert_array_equal(fc.y_wdl, d.loc[fc.y_wdl.index, 'y_wdl'])
+    assert (fc.y_wdl == 0).mean() > 0.6                          # a wide band: mostly draws
 
 
 def test_planted_signal_bars():
-    bars = ml.planted_signal_bars(repeat=0.6)
+    bars = ml.planted_signal_bars()
     sign = np.sign(bars['Close'].pct_change().dropna())
     repeats = (sign.to_numpy()[1:] == sign.to_numpy()[:-1]).mean()
-    assert repeats == pytest.approx(0.6, abs=0.02)                    # the signal is really there
+    assert repeats == pytest.approx(0.65, abs=0.02)                    # the signal is really there
     original = synthetic_bars('SYN-INDEX')
     np.testing.assert_allclose(bars['Close'].pct_change().abs().iloc[1:],
                                original['Close'].pct_change().abs().iloc[1:], rtol=1e-6)  # sizes kept
@@ -503,23 +629,27 @@ def test_planted_signal_bars():
 
 # ── Charts ───────────────────────────────────────────────────────────────────
 
-def test_charts_draw_the_forecasts(index_bars, stub_forecasts):
+def test_charts_draw_the_forecasts(index_bars, stub_forecasts, stub_wdl):
     fc = stub_forecasts
     fig = ml.plot_coverage(fc, bands=('constant', 'model'), window=250)
     miss = ml.interval_misses(fc.bands[('model', 0.1587)], fc.bands[('model', 0.8413)], fc.y_ret)
     expected = 1 - pd.Series(miss, index=fc.y_ret.index).rolling(250).mean()
     np.testing.assert_allclose(np.asarray(fig.data[1].y, dtype=float), expected, equal_nan=True)
 
-    fig = ml.plot_reliability(fc)
-    table = ml.reliability_table(fc.direction['p_model'], fc.direction['y_up'], 20)
-    np.testing.assert_allclose(fig.data[2].y, table['observed'])
+    fig = ml.plot_wdl_reliability(stub_wdl)
+    win = ml.reliability_table(stub_wdl.wdl[('model', 1)], (stub_wdl.y_wdl == 1).astype(float), 10)
+    np.testing.assert_allclose(fig.data[3].y, win['observed'])          # traces: diagonal, l, d, w
 
     fig = ml.plot_forecast_bands(fc, index_bars, '2024-01-01', '2024-03-31')
-    # the 68% upper edge on a day is the close before it times (1 + that day's forecast)
+    # On a day, each line is the close before it times (1 + that day's forecast): the 68% upper
+    # edge, and the point forecast, the median.
     day = pd.Timestamp('2024-02-15')
     before = index_bars.index[index_bars.index.get_loc(day) - 1]
-    upper68 = dict(zip(pd.to_datetime(fig.data[2].x), fig.data[2].y))[day]
-    assert upper68 == pytest.approx(index_bars.loc[before, 'Close'] * (1 + fc.bands.loc[before, ('model', 0.8413)]))
+    at_day = lambda trace: dict(zip(pd.to_datetime(trace.x), trace.y))[day]
+    close = index_bars.loc[before, 'Close']
+    assert at_day(fig.data[2]) == pytest.approx(close * (1 + fc.bands.loc[before, ('model', 0.8413)]))
+    assert fig.data[4].name.startswith('point forecast')
+    assert at_day(fig.data[4]) == pytest.approx(close * (1 + fc.bands.loc[before, ('model', 0.5)]))
 
     assert len(ml.plot_folds(fc).data) == 2 * len(fc.folds)
     assert list(ml.plot_feature_importance(ml.feature_importance(fc)).data[0].y) == ['vol_20', 'ret_0']
