@@ -375,6 +375,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | `gbm.py` | `LightGBMReturnModel` (one quantile model per τ, on standardized returns) and `LightGBMWDLModel` (multiclass) | yes |
 | `sequence.py` | `GRUReturnModel` and `GRUWDLModel`, with the same interfaces | yes |
 | `evaluate.py` | `walk_forward_forecasts`, `evaluate`, `evaluate_many` (tickers in parallel); `wdl_scores`, `wdl_check`, `point_scores`, `range_table`, `range_check` (the sanity checks); `feature_importance`; `planted_signal_bars` | no (yes for the models) |
+| `registry.py` | `finalize`, `finalize_many`, `save_model`, `load_model`, `list_models`, `forecast_next`; `model_spec`, `data_fingerprint`, `model_id`, `code_hash` | no (yes to fit or load a model) |
 | `viz.py` | Plotly charts: W/D/L reliability, rolling coverage, forecast bands (with the median) on candles, folds, feature importance, pinball against the constant band | no |
 
 ## Phases
@@ -387,7 +388,8 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | **3** ✅ | LightGBM | `gbm.py`, `evaluate.py`, `viz.py`; both sanity checks, the positive control, the seeded leaks and the end-to-end no-look-ahead test, on LightGBM; the notebook moved onto the package (owner's agreement, 2026-10-02) — **done, `8265b41`, `75a4397`** |
 | **4** ✅ | Sequence model | `sequence.py` (GRU, or the owner's choice) through the same runner and the same tests; recalibrated ranges and three input sets (owner's decisions, Phase 4) — **done, `1cbc9dc`, `031e256`, `446dc4a`, `40afeb3`** |
 | **4b** ✅ | Two models, win/draw/loss | the up/down model replaced by a W/D/L model; the `wdl` and `streak` features; return and W/D/L as separate models for LightGBM and the GRU; the notebook and tests moved over (owner's request, 2026-10-03) — **done, `bbb1387`** (see the *Two models* notes) |
-| **5** | API | `/api/ml/*` endpoints: run on request and cached, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
+| **4c** | Saved models | `registry.py`: each final model trained on every labelled row, saved with its walk-forward forecasts under a unique id, with its parameters tracked; forecast the next day and compare a new model with a saved one without retraining; a notebook section that saves them (owner's request, 2026-10-03) — see *Saved models* |
+| **5** | API | `/api/ml/*` endpoints: forecasts from saved models (`load_model`, `forecast_next`), training on request, 501 without the `ml` extra; `docs/api.md` rows, which the routes test requires |
 | **6** | Dashboard | an **ML forecasts** tab with win/draw/loss and return sections, run on request; an end-to-end test on the synthetic data; a screenshot in `docs/dashboard.md` |
 | **7** | Wrap-up | README: Setup (the extra), layout, Package API, Tests, notebook table, changelog. The owner runs the notebook on saved data. Checks in full; a PR when asked. |
 
@@ -473,6 +475,97 @@ win/draw/loss. The up/down model is gone (decisions 11 to 15).
   with their median, and the controls. It runs in about 8 minutes on four cores.
 - **Not rerun:** `docs/images/ml/gru_recalibration.png` was made with the 16 features; the
   script now uses the 18, so a rerun would differ slightly.
+
+## Saved models (Phase 4c)
+
+The owner's request of 2026-10-03: save each final trained model with its parameters, packed in
+one object, under an id that tells finalized models apart. The models go to `models/models`
+(git-ignored) and the parameters to `models/model_parameters` (tracked). The aim is that a new
+methodology can later be compared with old models without retraining them.
+
+```mermaid
+flowchart LR
+    B["bars<br/>(synthetic or data/local)"] --> WF["walk-forward<br/>forecasts"]
+    B --> F["final fit<br/>every labelled row"]
+    WF --> S["SavedModel<br/>id · parameters · state · forecasts"]
+    F --> S
+    S --> PKL["models/models/&lt;id&gt;.pkl<br/>git-ignored"]
+    S --> JS["models/model_parameters/&lt;id&gt;.json<br/>tracked"]
+    PKL --> N["forecast_next<br/>tomorrow, no retraining"]
+    PKL --> C["compare_forecasts<br/>new model vs saved"]
+```
+
+- **What is saved, and why the forecasts too.** A final model is trained on every labelled row,
+  so it cannot be scored on history: that would be in-sample. A fair comparison of a new
+  methodology with an old one needs the old one's *out-of-sample* forecasts on the same days.
+  So each saved model carries its walk-forward forecasts. `compare_forecasts(old, new)` scores
+  both on their shared days, with a bootstrap interval, and nothing is retrained.
+- **One object per model** (`SavedModel`), pickled as a plain dict so renamed classes do not
+  break old files. It holds:
+  - `parameters`, the same as the JSON;
+  - the trained `state`: LightGBM's boosters as LightGBM's own text, which reloads to the same
+    forecasts to the bit; the GRU's best-epoch weights as numpy arrays, with its standardization
+    and recalibration shift;
+  - the walk-forward `forecasts`, without the dataset, which can be rebuilt.
+- **The id:** `{model}_{target}_{ticker}_{last bar}_{hash}`, e.g.
+  `lightgbm_wdl_SYN-INDEX_20260930_f9609323` or `gru-returns-range_return_SPY_20260930_…`.
+  - The first four parts read at a glance.
+  - The 8-hex hash covers the methodology together with the data, so it tells apart everything
+    else. The methodology is the model class, every setting, the features, the threshold, the
+    taus, the walk-forward `first_train` and `step`, and a hash of the modules that build a model
+    (`data`, `features`, `targets`, `split`, `gbm`, `sequence`, line endings normalized). The data
+    is the ticker, the source, the range and a hash of every date and price.
+  - Training is deterministic, so the same methodology on the same bars gives the same id, and
+    saving again is a no-op. A changed setting, an edit to the model code, or a revised bar gives
+    a new id.
+  - `spec_id` hashes the methodology alone, so it is shared by every ticker trained the same way.
+- **The parameters JSON** (tracked) holds:
+  - the methodology above, and the data's range and fingerprint;
+  - the final fit: trees per model, or epochs and the best epoch, and the shift;
+  - summary scores of the walk-forward forecasts: `wdl_scores`, or `point_scores` and the range
+    table, and `loss`, the mean daily loss used by `compare_forecasts`;
+  - the library versions and the git commit.
+
+  It holds no per-day values and no weights, so no market data enters git; a test checks that
+  the file is small, that no list is longer than the feature list, and that dates appear only as
+  range ends.
+- **The final fit is the walk-forward fit on every row,** through the same code: each model now
+  has `fit(d, train)` and `predict(state, d, rows)`. A walk-forward fold is the two together.
+  The refactor reproduced the earlier forecasts to the bit, for both LightGBM models and all GRU
+  variants. The GRU's final fit is seeded from the row after the last labelled one, as a fold is
+  seeded from its first test row.
+  - A test saves a model on the bars up to day k and checks two things are equal to the bit:
+    its forecast for the next day, and a walk-forward fold over the same labelled rows that tests
+    day k. It runs for all four model classes, at a non-default threshold.
+- **`forecast_next`** applies a saved model to the latest bar, which `dataset` leaves out because
+  it has no label yet. It reloads the ticker's bars by default, so after saving newer bars the
+  same model forecasts the newer day without retraining. It warns if the model code has changed
+  since the model was saved, and refuses if a feature it reads no longer exists.
+- **`finalize`** reuses walk-forward forecasts already made, e.g. the notebook's, after checking
+  they match: ticker, model, settings, walk-forward, threshold or taus, and the bars. Otherwise it
+  makes them. `finalize_many` runs tickers in spawned processes. `list_models` reads the tracked
+  JSONs and marks which models are on this computer.
+- **The notebook** has a new section 8 that finalizes and saves every model it ran (LightGBM and
+  the three GRU input sets, both targets, every ticker). It reuses the forecasts already made,
+  then lists the saved models, reloads one, checks that it forecasts the same, forecasts the next
+  day, and compares two saved models with `compare_forecasts`.
+- **Checked:**
+  - `tests/test_ml_registry.py` (slow), plus `compare_forecasts`, `daily_losses` and the
+    `.gitignore` rules in `tests/test_ml_models.py`.
+  - 16 seeded bugs in the registry, all caught, among them: an id that ignores the data; a
+    final fit that drops the last row; the next-day forecast taken from the wrong row or at the
+    wrong threshold; an unchecked forecast; a booster lost on reload; a GRU seeded one row off.
+  - A new GRU test pins forecasts that do not depend on which days are forecast together.
+    Batched, the kernels round differently, by about 1e-7, and a saved model's forecast would
+    then differ from the walk-forward's.
+  - The notebook's section 8 saves 48 final models (LightGBM and the three GRU input sets, both
+    targets, six tickers) in 72 s on four cores; a reloaded model forecasts identically.
+- **Caveats:**
+  - The `.pkl` files are pickles: load only ones you saved yourself.
+  - A GRU's results can depend on the CPU thread count, which is part of its settings and so of
+    its id.
+  - A model saved from synthetic data is saved like any other; its JSON shows `source:
+    synthetic`.
 
 ## Phase 4 notes
 
@@ -824,6 +917,13 @@ check passes, and the pooled range gain is 4.2% (2.7% to 6.0%). It still under-c
 15. (Judgment, for the owner to revisit.) The W/D/L sanity checks compare against a volatility
     baseline at 99% with a 0.015 log-loss margin, and the planted signal repeats each sign 65% of
     the time (it was 60%); the reasons are in the *Two models* notes.
+
+**Saved models (2026-10-03):**
+
+16. Final models are saved under `models/models` (git-ignored), with parameters under
+    `models/model_parameters` (tracked), one object per model with a unique id; the design is in
+    *Saved models*. The saved object also carries the walk-forward forecasts, so new models are
+    compared with old ones without retraining.
 
 ## Open judgment calls
 

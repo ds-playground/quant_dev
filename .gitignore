@@ -117,3 +117,8 @@ data/local/
 # Playwright output (npm run e2e)
 dashboard/test-results/
 dashboard/playwright-report/
+
+# Saved ML models (src/tools/ml_models/registry.py): trained on market data, kept local. Their
+# parameter records in models/model_parameters/ are tracked, whatever their names contain.
+models/models/
+!models/model_parameters/*.json

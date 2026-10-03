@@ -92,6 +92,20 @@ def test_gru_forecast_is_unchanged_when_later_bars_are_removed(inputs):
                                            getattr(full, frame).loc[date, 'model'], check_exact=True)
 
 
+@pytest.mark.parametrize('model', [ml.GRUWDLModel(features='features', **QUICK),
+                                   ml.GRUReturnModel(features='features', **QUICK)],
+                         ids=['wdl', 'return'])
+def test_a_days_forecast_does_not_depend_on_the_days_forecast_with_it(index_data, model):
+    """Batched, the kernels round differently with the batch's size (by about 1e-7 here), so a
+    saved model's forecast for one day would differ from the walk-forward's for the same day."""
+    train, test = ml.walk_forward(len(index_data))[0]
+    state = model.fit(index_data, train)
+    every = model.predict(state, index_data, test)
+    for some in (test[:5], test[20:37], test[-1:]):
+        np.testing.assert_array_equal(model.predict(state, index_data, some),
+                                      every[np.searchsorted(test, some)])
+
+
 def test_quantile_shift_makes_each_forecast_cover_its_share():
     rng = np.random.default_rng(4)
     y = rng.standard_t(4, 2000)
@@ -102,11 +116,11 @@ def test_quantile_shift_makes_each_forecast_cover_its_share():
 
 
 class _Capturing(ml.GRUReturnModel):
-    """Keeps the network's raw (standardized, unsorted) outputs for the rows it forecast."""
-    def _fit_predict(self, *args, **kwargs):
-        out, info = super()._fit_predict(*args, **kwargs)
-        self.raw = out.astype(float)
-        return out, info
+    """Keeps the network's raw (standardized, unsorted) outputs, each time with the rows."""
+    def _raw(self, state, d, rows):
+        out = super()._raw(state, d, rows)
+        self.raw = getattr(self, 'raw', []) + [(np.asarray(rows), out)]
+        return out
 
 
 def test_recalibration_shifts_by_the_validation_errors(index_data):
@@ -115,16 +129,19 @@ def test_recalibration_shifts_by_the_validation_errors(index_data):
     q, info = model.quantiles(index_data, train, test, ml.TAUS)
     # The rows forecast were the validation tail, then the test rows.
     _, val = ml.purged_tail(train[train >= model.window - 1])
+    (val_rows, raw_val), (test_rows, raw_test) = model.raw
+    np.testing.assert_array_equal(val_rows, val)
+    np.testing.assert_array_equal(test_rows, test)
     y_std = (index_data['y_ret'] / index_data['vol_ewma']).to_numpy()
-    shift = ml.quantile_shift(model.raw[:len(val)], y_std[val], ml.TAUS)
+    shift = ml.quantile_shift(raw_val, y_std[val], ml.TAUS)
     np.testing.assert_allclose(info['shift'], shift)
     sigma = index_data['vol_ewma'].to_numpy()[test][:, None]
-    np.testing.assert_allclose(q, np.sort(model.raw[len(val):] + shift, axis=1) * sigma, rtol=1e-12)
+    np.testing.assert_allclose(q, np.sort(raw_test + shift, axis=1) * sigma, rtol=1e-12)
     assert np.abs(shift).max() > 1e-3                          # a shift that is really there
     raw, info_raw = ml.GRUReturnModel(**QUICK, recalibrate=False).quantiles(index_data, train, test, ml.TAUS)
     assert 'shift' not in info_raw
     # The same network either way (same seed, same data): only the shift differs.
-    np.testing.assert_allclose(raw, np.sort(model.raw[len(val):], axis=1) * sigma, rtol=1e-12)
+    np.testing.assert_allclose(raw, np.sort(raw_test, axis=1) * sigma, rtol=1e-12)
 
 
 # ── The sanity checks, on the five long tickers ──────────────────────────────

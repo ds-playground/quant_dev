@@ -35,7 +35,7 @@ from .baselines import BANDS, WDL_BASELINES, WDL_CLASSES, range_baselines, wdl_b
 from .data import ticker_bars
 from .features import WDL_THRESHOLD
 from .metrics import (bootstrap_means, mean_interval, multiclass_brier, multiclass_log_loss,
-                      range_scores)
+                      pinball, range_scores)
 from .split import walk_forward
 from .targets import TAUS, dataset
 
@@ -47,7 +47,10 @@ class Forecasts:
     For a return model: `bands`, columns `(band, tau)` for the baselines and `'model'`, and
     `y_ret`, the realized returns. For a win/draw/loss model: `wdl`, columns `(source, class)`
     with the loss, draw and win probabilities of both baselines and the model, and `y_wdl`, what
-    happened. `folds`: one row per fold, with what each fit reported.
+    happened. `folds`: one row per fold, with what each fit reported. `settings`: the model's
+    settings, and `walk_forward`: the `first_train` and `step` the folds came from (None for
+    folds given by hand); `registry.finalize` checks both before saving the forecasts with a
+    model.
     """
     ticker: str
     model: str
@@ -59,6 +62,8 @@ class Forecasts:
     wdl: pd.DataFrame = None
     y_wdl: pd.Series = None
     wdl_threshold: float = WDL_THRESHOLD
+    settings: dict = None
+    walk_forward: dict = None
     data: pd.DataFrame = field(default=None, repr=False)
 
     def quantiles(self, band='model'):
@@ -76,6 +81,7 @@ def walk_forward_forecasts(d, model, folds=None, taus=TAUS, ticker='', first_tra
     often over the same test days."""
     if getattr(model, 'target', None) not in ('return', 'wdl'):
         raise ValueError(f"model.target must be 'return' or 'wdl', got {getattr(model, 'target', None)!r}")
+    plan = dict(first_train=first_train, step=step) if folds is None else None
     folds = walk_forward(len(d), first_train, step) if folds is None else folds
     forecasts, rows = [], []
     for k, (train, test) in enumerate(folds):
@@ -91,7 +97,9 @@ def walk_forward_forecasts(d, model, folds=None, taus=TAUS, ticker='', first_tra
     test_index = d.index[np.concatenate([test for _, test in folds])]
     f = np.vstack(forecasts)
     common = dict(ticker=ticker, model=getattr(model, 'name', type(model).__name__),
-                  target=model.target, folds=pd.DataFrame(rows).set_index('fold'), data=d)
+                  target=model.target, folds=pd.DataFrame(rows).set_index('fold'), data=d,
+                  settings=model.settings() if hasattr(model, 'settings') else None,
+                  walk_forward=plan)
     if model.target == 'return':
         bands = range_baselines(d, folds, taus)
         for i, tau in enumerate(taus):
@@ -203,6 +211,53 @@ def point_scores(fc, level=0.99, margin=0.01, mean_block=20, n_boot=1000, seed=0
     out['no_better_than_ewma'] = bool(ci['lower'] <= 0
                                       and ci['estimate'] <= margin * out['mae_ewma_std_q'])
     return pd.Series(out, name=fc.ticker)
+
+
+def daily_losses(fc):
+    """`fc`'s model loss per test day: the multiclass log loss for win/draw/loss forecasts, the
+    pinball loss averaged over the taus for return forecasts."""
+    if fc.target == 'wdl':
+        loss = multiclass_log_loss(fc.wdl['model'].to_numpy(), fc.y_wdl.to_numpy(), WDL_CLASSES)
+        return pd.Series(loss, index=fc.y_wdl.index)
+    y = fc.y_ret.to_numpy()
+    loss = np.mean([pinball(fc.bands[('model', tau)].to_numpy(), y, tau) for tau in fc.taus], axis=0)
+    return pd.Series(loss, index=fc.y_ret.index)
+
+
+def compare_forecasts(a, b, level=0.95, mean_block=20, n_boot=1000, seed=0):
+    """Two models' out-of-sample forecasts of the same thing, on the days both forecast: how much
+    `b` gains over `a` (a's loss minus b's, per day: log loss for win/draw/loss, mean pinball for
+    the return), with a `level` bootstrap interval. `b_better` is that interval lying wholly
+    above zero, `a_better` wholly below. For return forecasts, the point forecasts' mean absolute
+    errors too.
+
+    This is how a new model is compared with a saved one (`registry.load_model(...).forecasts`)
+    without retraining it. Both must forecast the same ticker's same target with the same taus,
+    and agree on what happened on the shared days.
+    """
+    if a.target != b.target:
+        raise ValueError(f'cannot compare {a.target} forecasts with {b.target} ones')
+    if a.target == 'return' and tuple(a.taus) != tuple(b.taus):
+        raise ValueError(f'different taus: {a.taus} and {b.taus}')
+    if a.target == 'wdl' and a.wdl_threshold != b.wdl_threshold:
+        raise ValueError(f'different win/draw/loss thresholds: {a.wdl_threshold} and {b.wdl_threshold}')
+    ya, yb = (a.y_wdl, b.y_wdl) if a.target == 'wdl' else (a.y_ret, b.y_ret)
+    days = ya.index.intersection(yb.index)
+    if len(days) == 0:
+        raise ValueError('the two forecasts share no days')
+    if not np.allclose(ya.loc[days].to_numpy(), yb.loc[days].to_numpy(), rtol=0, atol=1e-12):
+        raise ValueError('the two forecasts disagree on what happened: not the same data')
+    la, lb = daily_losses(a).loc[days], daily_losses(b).loc[days]
+    ci = mean_interval((la - lb).to_numpy(), level, mean_block, n_boot, seed)
+    out = {'model_a': a.model, 'model_b': b.model, 'target': a.target, 'days': len(days),
+           'first': days[0], 'last': days[-1], 'loss_a': float(la.mean()), 'loss_b': float(lb.mean()),
+           'gain_b_over_a': ci['estimate'], 'lower': ci['lower'], 'upper': ci['upper'],
+           'b_better': bool(ci['lower'] > 0), 'a_better': bool(ci['upper'] < 0)}
+    if a.target == 'return':
+        y = ya.loc[days]
+        out['mae_a'] = float((y - a.point().loc[days]).abs().mean())
+        out['mae_b'] = float((y - b.point().loc[days]).abs().mean())
+    return pd.Series(out, name=a.ticker)
 
 
 def range_table(fc):

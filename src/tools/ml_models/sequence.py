@@ -20,20 +20,21 @@ intervals were too narrow, and much more so when retrained less often.
 
 PyTorch is the `ml` extra, imported only when a model is fitted.
 """
+from contextlib import contextmanager
+
 import numpy as np
 
 from .features import FEATURES
 
 # What the GRU reads each day. The owner keeps all three until a model is trained on real data
-# (docs/ml_plan.md, Phase 4); 'returns_range' is the provisional default. With all the features
-# (960 or more inputs per example against about 1,600 training rows), the GRU found no planted
-# signal.
+# (docs/ml_plan.md, Phase 4); 'returns_range' is the provisional default.
 GRU_INPUTS = {
     'returns_range': ['ret_0', 'tr_close'],      # each day's return and its true range
     'returns': ['ret_0'],                        # each day's return
     'features': list(FEATURES),                  # the features LightGBM reads
 }
 from .split import purged_tail
+from .targets import TAUS
 
 
 def _torch():
@@ -96,7 +97,17 @@ class _GRU:
 
         return GRUNet(self.hidden)
 
-    def _fit_predict(self, d, y, train, rows, n_out, loss_fn, fold_start):
+    def settings(self):
+        """The keyword arguments that rebuild this model: `type(model)(**model.settings())`."""
+        return dict(features=self.inputs if self.inputs != 'custom' else list(self.features),
+                    window=self.window, hidden=self.hidden, batch=self.batch,
+                    max_epochs=self.max_epochs, patience=self.patience,
+                    learning_rate=self.learning_rate, weight_decay=self.weight_decay,
+                    tail=self.tail, horizon=self.horizon, seed=self.seed, threads=self.threads)
+
+    @contextmanager
+    def _torch_session(self):
+        """PyTorch with deterministic algorithms and this model's threads, restored afterwards."""
         torch = _torch()
         deterministic = torch.are_deterministic_algorithms_enabled()
         threads = torch.get_num_threads()
@@ -104,56 +115,79 @@ class _GRU:
         if self.threads:
             torch.set_num_threads(self.threads)
         try:
-            return self._train(torch, d, y, train, rows, n_out, loss_fn, fold_start)
+            yield torch
         finally:
             torch.use_deterministic_algorithms(deterministic)
             torch.set_num_threads(threads)
 
-    def _train(self, torch, d, y, train, rows, n_out, loss_fn, fold_start):
-        # Seeded from the fold's first test row, so this fold trains the same whenever it is fitted,
-        # whichever rows are then forecast.
-        seed = self.seed + int(fold_start)
-        torch.manual_seed(seed)
-        rng = np.random.default_rng(seed)
-        X = d[self.features].to_numpy()
-        train = np.asarray(train)
-        train = train[train >= self.window - 1]       # rows with a full window behind them
-        mu, sd = X[train].mean(axis=0), X[train].std(axis=0) + 1e-12
-        Xs = ((X - mu) / sd).astype(np.float32)
-        y = np.asarray(y, dtype=np.float32)
-        fit, val = purged_tail(train, self.horizon, self.tail)
-        net = self._net(torch, X.shape[1], n_out)
-        opt = torch.optim.Adam(net.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-        xv = torch.from_numpy(windows(Xs, val, self.window))
-        yv = torch.from_numpy(y[val])
-        best, best_state, best_epoch, wait, epochs = np.inf, None, 0, 0, 0
-        for epochs in range(1, self.max_epochs + 1):
-            net.train()
-            for batch in np.array_split(rng.permutation(fit), max(1, len(fit) // self.batch)):
-                opt.zero_grad()
-                loss = loss_fn(net(torch.from_numpy(windows(Xs, batch, self.window))),
-                               torch.from_numpy(y[batch]))
-                loss.backward()
-                opt.step()
-            net.eval()
-            with torch.no_grad():
-                v = loss_fn(net(xv), yv).item()
-            if v < best - 1e-6:
-                best, best_epoch, wait = v, epochs, 0
-                best_state = {k: x.clone() for k, x in net.state_dict().items()}
-            else:
-                wait += 1
-                if wait >= self.patience:
-                    break
-        net.load_state_dict(best_state)
-        net.eval()
-        with torch.no_grad():
-            # One row at a time: batched, the kernels round differently with the batch's size, so a
-            # day's forecast would depend on which other days were forecast with it.
-            out = np.vstack([net(torch.from_numpy(windows(Xs, [row], self.window))).numpy()
-                             for row in np.asarray(rows)])
-        return out, {'epochs': epochs, 'best_epoch': best_epoch}
+    def _fit(self, d, y, train, n_out, loss_fn, fold_start):
+        """Train on the training rows: the best epoch's weights (as numpy arrays) and the
+        standardization, which is all `_raw` needs to forecast. Seeded from `fold_start`, the
+        fold's first test row, so this fold trains the same whenever it is fitted, whichever rows
+        are then forecast."""
+        with self._torch_session() as torch:
+            seed = self.seed + int(fold_start)
+            torch.manual_seed(seed)
+            rng = np.random.default_rng(seed)
+            X = d[self.features].to_numpy()
+            train = np.asarray(train)
+            train = train[train >= self.window - 1]       # rows with a full window behind them
+            mu, sd = X[train].mean(axis=0), X[train].std(axis=0) + 1e-12
+            Xs = ((X - mu) / sd).astype(np.float32)
+            y = np.asarray(y, dtype=np.float32)
+            fit, val = purged_tail(train, self.horizon, self.tail)
+            net = self._net(torch, X.shape[1], n_out)
+            opt = torch.optim.Adam(net.parameters(), lr=self.learning_rate,
+                                   weight_decay=self.weight_decay)
+            xv = torch.from_numpy(windows(Xs, val, self.window))
+            yv = torch.from_numpy(y[val])
+            best, best_state, best_epoch, wait, epochs = np.inf, None, 0, 0, 0
+            for epochs in range(1, self.max_epochs + 1):
+                net.train()
+                for batch in np.array_split(rng.permutation(fit), max(1, len(fit) // self.batch)):
+                    opt.zero_grad()
+                    loss = loss_fn(net(torch.from_numpy(windows(Xs, batch, self.window))),
+                                   torch.from_numpy(y[batch]))
+                    loss.backward()
+                    opt.step()
+                net.eval()
+                with torch.no_grad():
+                    v = loss_fn(net(xv), yv).item()
+                if v < best - 1e-6:
+                    best, best_epoch, wait = v, epochs, 0
+                    best_state = {k: x.detach().numpy().copy() for k, x in net.state_dict().items()}
+                else:
+                    wait += 1
+                    if wait >= self.patience:
+                        break
+        return {'n_in': X.shape[1], 'n_out': n_out, 'mu': mu, 'sd': sd, 'weights': best_state,
+                'epochs': epochs, 'best_epoch': best_epoch}
 
+    def _raw(self, state, d, rows):
+        """The network's raw outputs for `rows` of `d`, from a trained `state`."""
+        with self._torch_session() as torch:
+            net = self._net(torch, state['n_in'], state['n_out'])
+            net.load_state_dict({k: torch.from_numpy(v) for k, v in state['weights'].items()})
+            net.eval()
+            Xs = ((d[self.features].to_numpy() - state['mu']) / state['sd']).astype(np.float32)
+            with torch.no_grad():
+                # One row at a time: batched, the kernels round differently with the batch's
+                # size, so a day's forecast would depend on which other days were forecast with it.
+                out = [net(torch.from_numpy(windows(Xs, [row], self.window))).numpy()
+                       for row in np.asarray(rows)]
+        return np.vstack(out).astype(float) if out else np.empty((0, state['n_out']))
+
+    def _info(self, state):
+        return {'epochs': state['epochs'], 'best_epoch': state['best_epoch']}
+
+    @staticmethod
+    def pack(state):
+        """The state as it is saved: already plain numpy arrays and numbers."""
+        return state
+
+    @staticmethod
+    def unpack(packed):
+        return packed
 
 
 class GRUReturnModel(_GRU):
@@ -162,6 +196,7 @@ class GRUReturnModel(_GRU):
     `quantiles(d, train, test, taus)` returns a (test rows, taus) array of return quantiles,
     sorted along each row; the median is the point forecast. With `recalibrate` (the default)
     each tau is shifted by the network's own errors on the validation tail, reported as `shift`.
+    `fit(d, train)` and `predict(state, d, rows)` are the two halves, as for LightGBM.
     """
 
     target = 'return'
@@ -170,7 +205,12 @@ class GRUReturnModel(_GRU):
         super().__init__(*args, **kwargs)
         self.recalibrate = recalibrate
 
-    def quantiles(self, d, train, test, taus):
+    def settings(self):
+        return {**super().settings(), 'recalibrate': self.recalibrate}
+
+    def fit(self, d, train, taus=TAUS, fold_start=None):
+        """Train on the training rows, seeded from `fold_start` (default: the first row a fold
+        on these training rows would test), and with `recalibrate`, find the shift."""
         torch = _torch()
         t = torch.tensor(taus, dtype=torch.float32)
 
@@ -178,19 +218,28 @@ class GRUReturnModel(_GRU):
             u = y.unsqueeze(1) - p
             return torch.maximum(t * u, (t - 1) * u).mean()
 
-        sigma = d['vol_ewma'].to_numpy()
-        y = d['y_ret'].to_numpy() / sigma
-        test = np.asarray(test)
-        if not self.recalibrate:
-            out, info = self._fit_predict(d, y, train, test, len(taus), pinball, test[0])
-            return np.sort(out.astype(float), axis=1) * sigma[test][:, None], info
-        rows = np.asarray(train)
-        _, val = purged_tail(rows[rows >= self.window - 1], self.horizon, self.tail)
-        out, info = self._fit_predict(d, y, train, np.r_[val, test], len(taus), pinball, test[0])
-        out = out.astype(float)
-        shift = quantile_shift(out[:len(val)], y[val], taus)
-        q = np.sort(out[len(val):] + shift, axis=1) * sigma[test][:, None]
-        return q, {**info, 'shift': shift}
+        train = np.asarray(train)
+        fold_start = train[-1] + self.horizon if fold_start is None else fold_start
+        y = d['y_ret'].to_numpy() / d['vol_ewma'].to_numpy()
+        state = {**self._fit(d, y, train, len(taus), pinball, fold_start), 'taus': tuple(taus)}
+        if self.recalibrate:
+            _, val = purged_tail(train[train >= self.window - 1], self.horizon, self.tail)
+            state['shift'] = quantile_shift(self._raw(state, d, val), y[val], taus)
+        return state
+
+    def predict(self, state, d, rows):
+        """The return quantiles for `rows` of `d`, a (rows, taus) array."""
+        out = self._raw(state, d, rows)
+        if 'shift' in state:
+            out = out + state['shift']
+        return np.sort(out, axis=1) * d['vol_ewma'].to_numpy()[np.asarray(rows)][:, None]
+
+    def quantiles(self, d, train, test, taus):
+        state = self.fit(d, train, taus, fold_start=test[0])
+        info = self._info(state)
+        if 'shift' in state:
+            info['shift'] = state['shift']
+        return self.predict(state, d, test), info
 
 
 class GRUWDLModel(_GRU):
@@ -198,18 +247,30 @@ class GRUWDLModel(_GRU):
 
     `wdl(d, train, test)` returns a (test rows, 3) array of probabilities of a loss, a draw and a
     win, in that order (`baselines.WDL_CLASSES`): three logits, cross-entropy, softmax.
+    `fit(d, train)` and `predict(state, d, rows)` are the two halves, as for LightGBM.
     """
 
     target = 'wdl'
 
-    def wdl(self, d, train, test):
+    def fit(self, d, train, fold_start=None):
+        """Train on the training rows, seeded from `fold_start` (default: the first row a fold
+        on these training rows would test)."""
         torch = _torch()
 
         def cross_entropy(p, t):
             return torch.nn.functional.cross_entropy(p, t.long())
 
+        train = np.asarray(train)
+        fold_start = train[-1] + self.horizon if fold_start is None else fold_start
         y = d['y_wdl'].to_numpy() + 1                       # -1, 0, 1 -> classes 0, 1, 2
-        out, info = self._fit_predict(d, y, train, test, 3, cross_entropy, test[0])
-        out = out.astype(float)
+        return self._fit(d, y, train, 3, cross_entropy, fold_start)
+
+    def predict(self, state, d, rows):
+        """The loss, draw and win probabilities for `rows` of `d`, a (rows, 3) array."""
+        out = self._raw(state, d, rows)
         p = np.exp(out - out.max(axis=1, keepdims=True))
-        return p / p.sum(axis=1, keepdims=True), info
+        return p / p.sum(axis=1, keepdims=True)
+
+    def wdl(self, d, train, test):
+        state = self.fit(d, train, fold_start=test[0])
+        return self.predict(state, d, test), self._info(state)

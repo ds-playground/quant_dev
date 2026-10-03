@@ -568,6 +568,72 @@ def test_wdl_scores_between_no_better_and_beats(stub_wdl):
     assert s['no_better_than_volatility'] and not s['beats_volatility']
 
 
+def _as_model(fc, column):
+    """`fc` with one baseline's columns as its model's, to compare two known forecasts."""
+    if fc.target == 'wdl':
+        wdl = fc.wdl.copy()
+        for c in ml.WDL_CLASSES:
+            wdl[('model', c)] = wdl[(column, c)]
+        return dataclasses.replace(fc, wdl=wdl, model=column)
+    bands = fc.bands.copy()
+    for tau in fc.taus:
+        bands[('model', tau)] = bands[(column, tau)]
+    return dataclasses.replace(fc, bands=bands, model=column)
+
+
+def test_daily_losses_by_hand(stub_wdl, stub_forecasts):
+    y = stub_wdl.y_wdl.to_numpy()
+    np.testing.assert_allclose(ml.daily_losses(stub_wdl),
+                               ml.multiclass_log_loss(stub_wdl.wdl['model'].to_numpy(), y, ml.WDL_CLASSES))
+    y = stub_forecasts.y_ret.to_numpy()
+    by_hand = np.mean([ml.pinball(stub_forecasts.bands[('model', t)], y, t) for t in ml.TAUS], axis=0)
+    np.testing.assert_allclose(ml.daily_losses(stub_forecasts), by_hand)
+
+
+def test_compare_forecasts_by_hand(stub_wdl, stub_forecasts):
+    a, b = _as_model(stub_wdl, 'frequencies'), _as_model(stub_wdl, 'volatility')
+    c = ml.compare_forecasts(a, b)
+    gain = ml.daily_losses(a) - ml.daily_losses(b)
+    assert c['days'] == len(gain) and c['gain_b_over_a'] == pytest.approx(gain.mean())
+    assert c['lower'] < c['gain_b_over_a'] < c['upper']
+    assert c['b_better'] == (c['lower'] > 0) and c['a_better'] == (c['upper'] < 0)
+    same = ml.compare_forecasts(a, a)
+    assert same['gain_b_over_a'] == 0 and not same['b_better'] and not same['a_better']
+    # only the shared days count
+    late = dataclasses.replace(b, y_wdl=b.y_wdl.iloc[500:], wdl=b.wdl.iloc[500:])
+    part = ml.compare_forecasts(a, late)
+    assert part['days'] == len(gain) - 500 and part['first'] == gain.index[500]
+    assert part['gain_b_over_a'] == pytest.approx(gain.iloc[500:].mean())
+    r = ml.compare_forecasts(_as_model(stub_forecasts, 'constant'), _as_model(stub_forecasts, 'ewma_std_q'))
+    y = stub_forecasts.y_ret
+    assert r['mae_b'] == pytest.approx((y - stub_forecasts.point('ewma_std_q')).abs().mean())
+    with pytest.raises(ValueError, match='cannot compare'):
+        ml.compare_forecasts(stub_wdl, stub_forecasts)
+    with pytest.raises(ValueError, match='not the same data'):
+        ml.compare_forecasts(a, dataclasses.replace(b, y_wdl=-b.y_wdl))
+    with pytest.raises(ValueError, match='threshold'):
+        ml.compare_forecasts(a, dataclasses.replace(b, wdl_threshold=0.003))
+
+
+def test_runner_records_the_settings_and_the_walk_forward(index_data, stub_wdl):
+    assert stub_wdl.settings is None                       # the stub has no settings()
+    assert stub_wdl.walk_forward == {'first_train': 756, 'step': 63}
+    by_hand = ml.walk_forward_forecasts(index_data, StubWDLModel(),
+                                        folds=ml.walk_forward(len(index_data))[:2])
+    assert by_hand.walk_forward is None
+
+
+def test_saved_models_stay_local_and_their_parameters_are_tracked():
+    root = Path(__file__).resolve().parents[1]
+
+    def ignored(path):
+        return subprocess.run(['git', 'check-ignore', '-q', path], cwd=root).returncode == 0
+
+    assert ignored('models/models/lightgbm_wdl_SPY_20260930_0123abcd.pkl')
+    for name in ('lightgbm_wdl_SPY_20260930_0123abcd', 'gru-returns-range_return_TMP_dev_copy_1'):
+        assert not ignored(f'models/model_parameters/{name}.json'), name
+
+
 def test_point_scores_by_hand(stub_forecasts):
     s = ml.point_scores(stub_forecasts)
     y = stub_forecasts.y_ret.to_numpy()
