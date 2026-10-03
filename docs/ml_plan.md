@@ -940,6 +940,14 @@ and GRU models without retraining them, and compare the MLP with them.
   - A short sweep (`MLP_SWEEP`) shows where tuning goes.
   - The end-to-end check no longer assumes SYN-INDEX is among the tickers. Before, it raised on
     saved data, where SYN-INDEX is not.
+  - With `DATA = 'local'`, the owner chooses with `DOWNLOAD` (owner's request, 2026-10-03):
+    - `True` runs `save_all` on `LOCAL_TICKERS`. A symbol not yet saved is downloaded from
+      `START_DATE`; a saved one is brought up to date, with any bars Yahoo revised listed. A
+      failed download leaves the saved file as it was.
+    - `False` uses the saved bars, and stops with instructions if a symbol is not saved.
+
+    All three paths were run: nothing saved, saved bars, and a download failing (Yahoo is
+    blocked in the cloud session).
 - **At the starting configuration the MLP overfits the noise.** It was measured on the five long
   synthetic tickers (step 63):
 
