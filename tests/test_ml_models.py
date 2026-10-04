@@ -257,6 +257,46 @@ def test_walk_forward_rejects_bad_arguments():
             ml.walk_forward(100, **kwargs)
 
 
+def test_walk_forward_dates_in_six_month_steps():
+    index = pd.bdate_range('2016-01-04', '2026-09-30')
+    folds = ml.walk_forward_dates(index, '2022-12-31', months=6)
+    table = ml.fold_table(index, folds)
+    assert len(folds) == 8                       # H1 2023 ... H2 2026 (July to September)
+    assert str(table.loc[1, 'train_to']) == '2022-12-30' and str(table.loc[1, 'test_from']) == '2023-01-02'
+    assert str(table.loc[1, 'test_to']) == '2023-06-30' and str(table.loc[2, 'test_from']) == '2023-07-03'
+    assert str(table.loc[2, 'test_to']) == '2023-12-29'          # December is not cut short
+    assert str(table.loc[8, 'test_to']) == '2026-09-30'          # the last window is shorter
+    for train, test in folds:
+        assert train[0] == 0 and train[-1] + 1 == test[0]        # expanding, no gap at horizon 1
+        assert index[train[-1]] < index[test[0]]
+    # every day after the first training set is tested exactly once
+    tested = np.concatenate([test for _, test in folds])
+    np.testing.assert_array_equal(tested, np.arange(folds[0][1][0], len(index)))
+    # each training set is the last one plus the last test window
+    for (train_a, test_a), (train_b, _) in zip(folds, folds[1:]):
+        np.testing.assert_array_equal(train_b, np.concatenate([train_a, test_a]))
+
+
+def test_walk_forward_dates_purge_and_late_starts():
+    index = pd.bdate_range('2016-01-04', '2026-09-30')
+    for (train, test), (train5, test5) in zip(ml.walk_forward_dates(index),
+                                             ml.walk_forward_dates(index, horizon=5)):
+        np.testing.assert_array_equal(test5, test)
+        np.testing.assert_array_equal(train5, train[:-4])         # 4 rows purged for h = 5
+        assert train5[-1] + 5 <= test5[0]                         # no label reaches the test
+    late = pd.bdate_range('2022-11-02', '2026-09-30')              # starts two months before
+    folds = ml.walk_forward_dates(late, '2022-12-31', min_train=252)
+    assert all(len(train) >= 252 for train, _ in folds)
+    assert str(ml.fold_table(late, folds).iloc[0]['test_from']) == '2024-01-01'
+    assert len(ml.walk_forward_dates(late, '2022-12-31', min_train=1)) == 8
+    assert ml.walk_forward_dates(index, '2026-12-31') == []       # nothing left to test
+    assert ml.fold_table(index, []).empty
+    with pytest.raises(ValueError, match='at least 1'):
+        ml.walk_forward_dates(index, months=0)
+    with pytest.raises(ValueError, match='in order'):
+        ml.walk_forward_dates(index[::-1])
+
+
 def test_purged_tail():
     train = np.arange(1000)
     fit, val = ml.purged_tail(train, horizon=5, tail=0.2)

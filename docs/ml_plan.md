@@ -369,7 +369,7 @@ everything through `__init__.py` with an `__all__`, which the smoke test resolve
 | `data.py` | `ticker_bars`: synthetic bars, or saved ones from `data/local` (never a download); `bar_returns` | no |
 | `targets.py` | `TAUS`; `next_return`, `next_wdl`; `dataset`, the modelling frame | no |
 | `features.py` | `FEATURES`, `features`; `WDL_THRESHOLD`, `STREAK_CAP`, `win_draw_loss`, `streak`; `ewma_vol`, `wilder_rsi` | no |
-| `split.py` | `walk_forward` folds with the purge; `purged_tail` for early stopping | no |
+| `split.py` | `walk_forward` folds with the purge; `walk_forward_dates`, folds by calendar date (6-month steps); `fold_table`; `purged_tail` for early stopping | no |
 | `baselines.py` | `wdl_baselines` (class frequencies, and a volatility baseline); `range_baselines`: constant width, `price_range`, 20-day and EWMA bands | no |
 | `metrics.py` | log loss, Brier and its decomposition, their multiclass forms, a confusion matrix, `regression_scores` (R², MAE, RMSE, IC, hit rate) and `classification_scores` (accuracy, balanced accuracy, F1, MCC), reliability table, coverage, Kupiec, Christoffersen, pinball | scipy for p-values |
 | `gbm.py` | `LightGBMReturnModel` (one quantile model per τ, on standardized returns) and `LightGBMWDLModel` (multiclass) | yes |
@@ -1062,6 +1062,36 @@ F1 and a confusion matrix. Further metrics were proposed and added.
   - 17 seeded bugs across the confusion matrix and the metrics, all caught.
   - The notebook runs end to end.
 
+## Back to basics: 6-month folds, one step at a time
+
+The owner's request of 2026-10-04: the workflow had grown too aggressive, so it goes back to
+basics and is rebuilt step by step. The owner judged the 63-day folds too small.
+
+- **The folds are now cut by calendar date in 6-month steps** (`split.walk_forward_dates`):
+  - the first training set is every day up to 31 December 2022, and its test set is the next
+    6 months (January to June 2023);
+  - then those 6 months join the training set and the next 6 months are tested, to the end of
+    the data.
+
+  On the synthetic tickers that is 8 folds, the last one July to September 2026. Training
+  grows from 1,765 to 2,677 rows, and every day from 2023 is tested once.
+  - The purge is unchanged: none for next-day labels, h − 1 days for an h-day label.
+  - `min_train` (252 rows) skips a fold whose training set is too short, so SYN-LEV, which
+    starts in November 2022, begins testing in January 2024 instead of training on 43 days.
+  - `fold_table` lists each fold's rows and dates.
+
+  Tests check the boundaries by hand: month ends kept, every test day exactly once, each
+  training set the last one plus the last test window, the purge, a late start, and bad
+  arguments.
+- **The notebook's section 2** shows the folds for every ticker, the purge, the close over the
+  complete data with every fold's test window marked and the last fold highlighted, and every
+  feature and label over the complete data with the same highlight. `FIRST_TRAIN_END` and
+  `FOLD_MONTHS` are parameters.
+- **Sections 3 onward are switched off:** their code is commented out, so a run stops after
+  section 2, in about a minute. Each comes back as its step is rebuilt, moved onto the new
+  `FOLDS`; they still use the 63-day `walk_forward` until then. The package and its tests are
+  unchanged: `walk_forward` stays, and the saved models, metrics and checks still work.
+
 ## Owner's decisions
 
 **Confirmed by the owner on 2026-10-02, all seven as recommended:**
@@ -1109,6 +1139,12 @@ F1 and a confusion matrix. Further metrics were proposed and added.
     fold, and inputs standardized on the training rows. The notebook loads the latest saved
     LightGBM and GRUs instead of retraining them, and compares the MLP with them. Tuning the MLP
     is left open.
+
+**Back to basics (2026-10-04):**
+
+18. Validation by calendar date: the first training set ends on 31 December 2022, each fold
+    tests the next 6 months and then joins the training set. The notebook is rebuilt step by
+    step; sections 3 onward are switched off until each is redone on these folds.
 
 ## Open judgment calls
 

@@ -25,7 +25,7 @@ from .data import bar_returns, ticker_bars
 from .features import (FEATURES, STREAK_CAP, WDL_THRESHOLD, ewma_vol, features, streak,
                        wilder_rsi, win_draw_loss)
 from .targets import TAUS, dataset, next_return, next_wdl
-from .split import purged_tail, walk_forward
+from .split import fold_table, purged_tail, walk_forward, walk_forward_dates
 from .baselines import BANDS, WDL_BASELINES, WDL_CLASSES, range_baselines, wdl_baselines
 from .metrics import (bootstrap_means, brier, brier_decomposition, christoffersen,
                       classification_scores, confusion_matrix, interval_misses, kupiec, log_loss,
@@ -49,7 +49,7 @@ __all__ = ['ticker_bars', 'bar_returns',
            'FEATURES', 'features', 'ewma_vol', 'wilder_rsi',
            'WDL_THRESHOLD', 'STREAK_CAP', 'win_draw_loss', 'streak',
            'TAUS', 'next_return', 'next_wdl', 'dataset',
-           'walk_forward', 'purged_tail',
+           'walk_forward', 'walk_forward_dates', 'fold_table', 'purged_tail',
            'BANDS', 'range_baselines',
            'WDL_CLASSES', 'WDL_BASELINES', 'wdl_baselines',
            'log_loss', 'brier', 'brier_decomposition', 'reliability_table',
