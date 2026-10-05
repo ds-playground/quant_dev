@@ -47,24 +47,35 @@ def purged_tail(train, horizon=1, tail=0.2):
     return fit, validation
 
 
-def walk_forward_dates(index, first_train_end='2022-12-31', months=6, horizon=1, min_train=252):
+def walk_forward_dates(index, first_train_end='2022-12-31', months=6, horizon=1, min_train=252,
+                       min_test_months=3):
     """[(train, test), ...] row positions for a Date `index`, in calendar periods.
 
     The first fold trains on every row up to `first_train_end` (rolled forward to its month end)
     and tests the next `months` months; each later fold adds those months to the training rows
-    and tests the next `months` (the last may be shorter). Training is expanding, and the last
-    `horizon - 1` training rows before each test window are purged, as in `walk_forward`.
+    and tests the next `months`. Training is expanding, and the last `horizon - 1` training rows
+    before each test window are purged, as in `walk_forward`.
+
+    The last test window runs to the end of the data. If that leaves it less than
+    `min_test_months` months of data, it is not a fold of its own: its days join the previous
+    fold's test window, which then runs to the end of the data. So with data to August 2026, the
+    fold that would train to 30 June 2026 is dropped, and the one before trains to 31 December
+    2025 and tests from 1 January 2026 to the end. A window counts as long enough when its data
+    reaches within a week of the `min_test_months` mark, which allows for weekends, holidays and
+    the last bar, which has no label yet. 0 turns the rule off.
 
     A fold with fewer than `min_train` training rows (a ticker whose history starts late) is left
     out, so that ticker's first test window comes later. Returns [] when no fold qualifies.
     """
     if months < 1 or horizon < 1 or min_train < 1:
         raise ValueError('months, horizon and min_train must be at least 1')
+    if not 0 <= min_test_months <= months:
+        raise ValueError(f'min_test_months must be between 0 and months ({months})')
     index = pd.DatetimeIndex(index)
     if not index.is_monotonic_increasing or index.has_duplicates:
         raise ValueError('the index must be dates in order, without repeats')
     end = pd.Timestamp(first_train_end) + pd.offsets.MonthEnd(0)
-    folds = []
+    folds, ends = [], []
     while True:
         a = int(index.searchsorted(end, side='right'))          # the first row after `end`
         if a >= len(index):
@@ -74,7 +85,13 @@ def walk_forward_dates(index, first_train_end='2022-12-31', months=6, horizon=1,
         train_end = a - (horizon - 1)
         if train_end >= min_train:
             folds.append((np.arange(0, train_end), np.arange(a, b)))
+            ends.append(end)
         end = stop
+    if len(folds) >= 2 and min_test_months:
+        enough = ends[-1] + pd.offsets.MonthEnd(min_test_months) - pd.Timedelta(days=7)
+        if index[-1] < enough:                                   # the last window is too short
+            train, test = folds[-2]
+            folds[-2:] = [(train, np.arange(test[0], len(index)))]
     return folds
 
 

@@ -1078,6 +1078,13 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
   - The purge is unchanged: none for next-day labels, h − 1 days for an h-day label.
   - `min_train` (252 rows) skips a fold whose training set is too short, so SYN-LEV, which
     starts in November 2022, begins testing in January 2024 instead of training on 43 days.
+  - **A test set has at least 3 months of data** (`min_test_months`, owner's request,
+    2026-10-05). The last window runs to the end of the data; if that leaves it shorter, its
+    days join the previous fold's test set. With data to August 2026, the fold training to
+    30 June 2026 is dropped, and the last fold trains to 31 December 2025 and tests from
+    1 January 2026 to the end. A window whose data reaches within a week of the 3-month mark
+    counts as long enough: the final bar has no label, and weekends and holidays end a month
+    early. So the synthetic data, ending 29 September 2026, keep their 8 folds.
   - `fold_table` lists each fold's rows and dates.
 
   Tests check the boundaries by hand: month ends kept, every test day exactly once, each
@@ -1143,7 +1150,8 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
 **Back to basics (2026-10-04):**
 
 18. Validation by calendar date: the first training set ends on 31 December 2022, each fold
-    tests the next 6 months and then joins the training set. The notebook is rebuilt step by
+    tests the next 6 months and then joins the training set. A test set has at least 3 months of
+    data; a shorter last one joins the test set before it. The notebook is rebuilt step by
     step; sections 3 onward are switched off until each is redone on these folds.
 
 ## Open judgment calls

@@ -297,6 +297,28 @@ def test_walk_forward_dates_purge_and_late_starts():
         ml.walk_forward_dates(index[::-1])
 
 
+def test_walk_forward_dates_merges_a_short_last_test_window():
+    # Data to mid-August 2026: the fold training to 30 June 2026 would test 6 weeks, so its days
+    # join the previous fold, which trains to 31 December 2025 and tests to the end of the data.
+    index = pd.bdate_range('2016-01-04', '2026-08-14')
+    folds = ml.walk_forward_dates(index, '2022-12-31', months=6, min_test_months=3)
+    table = ml.fold_table(index, folds)
+    assert len(folds) == 7
+    last = table.iloc[-1]
+    assert str(last['train_to']) == '2025-12-31' and str(last['test_from']) == '2026-01-01'
+    assert str(last['test_to']) == '2026-08-14'
+    tested = np.concatenate([test for _, test in folds])          # still every day once
+    np.testing.assert_array_equal(tested, np.arange(folds[0][1][0], len(index)))
+    # without the rule, the short window is a fold of its own
+    unmerged = ml.walk_forward_dates(index, '2022-12-31', months=6, min_test_months=0)
+    assert len(unmerged) == 8 and str(ml.fold_table(index, unmerged).iloc[-1]['test_from']) == '2026-07-01'
+    # a quarter's data, to within a week of its end, is enough; more than a week short is not
+    assert len(ml.walk_forward_dates(pd.bdate_range('2016-01-04', '2026-09-29'))) == 8
+    assert len(ml.walk_forward_dates(pd.bdate_range('2016-01-04', '2026-09-22'))) == 7
+    with pytest.raises(ValueError, match='min_test_months'):
+        ml.walk_forward_dates(index, months=6, min_test_months=7)
+
+
 def test_purged_tail():
     train = np.arange(1000)
     fit, val = ml.purged_tail(train, horizon=5, tail=0.2)
