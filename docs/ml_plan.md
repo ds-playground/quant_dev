@@ -1099,6 +1099,17 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
   `FOLDS`; they still use the 63-day `walk_forward` until then. The package and its tests are
   unchanged: `walk_forward` stays, and the saved models, metrics and checks still work.
 
+- **Simpler still** (owner's request, 2026-10-05):
+  - The notebook uses two synthetic tickers, SYN-INDEX and SYN-GOLD (`SYNTHETIC_TICKERS`). The
+    package's six synthetic tickers stay, since `price_return`, the dashboard and their tests use
+    them.
+  - The saved models were judged useless and removed: none are in the repo, and the owner's
+    copies (on Drive) are deleted by hand. The saved-model cells (listing, loading,
+    `models_for`) moved into the switched-off part of the notebook. The registry code, the
+    `.gitignore` rules and `models/model_parameters/README.md` stay, so a model saved later
+    still keeps its data local.
+  - Next: data exploration on real data (`DATA = 'local'`).
+
 ## Owner's decisions
 
 **Confirmed by the owner on 2026-10-02, all seven as recommended:**
