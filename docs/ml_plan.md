@@ -1110,6 +1110,37 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
     still keeps its data local.
   - Next: data exploration on real data (`DATA = 'local'`).
 
+- **Sections 3 and 4 redone, fold by fold** (owner's request, 2026-10-10):
+  - **Section 3, the baselines**, now runs on `FOLDS` before any model:
+    `evaluate.baseline_forecasts` gives the baselines' forecasts alone, in the same `Forecasts`
+    a model run returns (and `walk_forward_forecasts` now builds its baselines with it).
+  - **Section 4, LightGBM**, trains both models afresh on each fold. Nothing is loaded or
+    saved, and the table shows the trees each fold kept.
+  - For each fold, as the owner asked:
+    - the multi-class (W/D/L) model: the confusion matrix, accuracy (and balanced accuracy) and
+      F1 (macro and weighted), beside both baselines on the same days;
+    - the quantile model: the share of the fold's test days whose return fell inside the 68%
+      and the 90% range, beside the constant and EWMA bands.
+
+    An "all" row pools the folds.
+  - The package functions behind this:
+    - `evaluate.by_fold` cuts a `Forecasts` into one per fold, so any existing score can be read
+      fold by fold;
+    - `wdl_fold_scores`, `wdl_fold_confusion` and `range_fold_scores` give the tables, with
+      folds counted from 1 as in `fold_table`;
+    - `viz.plot_wdl_confusion_folds` and `viz.plot_fold_coverage` draw them.
+
+    The tests check these by hand against the stub models on the 6-month folds: crosstabs,
+    accuracy, F1, and coverage from the stub's own quantiles.
+  - On the synthetic tickers it reads as it should:
+    - W/D/L: LightGBM's accuracy and macro F1 move around the baselines' from fold to fold,
+      with no fold clearly ahead (pooled macro F1: 0.26 for LightGBM against 0.29 for the
+      volatility baseline on SYN-INDEX), because the direction cannot be forecast.
+    - Return: the quantile model covers 66% / 88% pooled on SYN-INDEX and 68% / 88% on
+      SYN-GOLD. By fold it ranges from 58% to 79% for the 68% range. With about 130 days per
+      fold, one standard deviation of chance is about 4 points, so that spread is mostly
+      noise; the constant band's spread (48% to 80%) is not.
+
 ## Owner's decisions
 
 **Confirmed by the owner on 2026-10-02, all seven as recommended:**
@@ -1164,6 +1195,9 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
     tests the next 6 months and then joins the training set. A test set has at least 3 months of
     data; a shorter last one joins the test set before it. The notebook is rebuilt step by
     step; sections 3 onward are switched off until each is redone on these folds.
+19. Sections 3 (baselines) and 4 (LightGBM) are redone on these folds, scored fold by fold: for
+    W/D/L the confusion matrix, accuracy and F1; for the return quantiles the share of test days
+    inside the 68% and 90% ranges (2026-10-10). Sections 5 onward stay switched off.
 
 ## Open judgment calls
 

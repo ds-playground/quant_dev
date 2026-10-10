@@ -242,3 +242,84 @@ def plot_wdl_confusion(forecasts, sources=('volatility', 'model'), soft=False, t
     fig.update_xaxes(title_text='forecast', showgrid=False)
     fig.update_yaxes(title_text='what happened', autorange='reversed', showgrid=False)
     return fig
+
+
+def _fold_labels(scores):
+    """'1: Jan–Jun 2023' for each fold of a fold-score table (its test window)."""
+    labels = {}
+    for k, r in scores.groupby(level='fold').first().iterrows():
+        a, b = pd.Timestamp(r['test_from']), pd.Timestamp(r['test_to'])
+        labels[k] = f"{k}: {a:%b}–{b:%b %Y}" if a.year == b.year else f"{k}: {a:%b %Y}–{b:%b %Y}"
+    return labels
+
+
+def plot_wdl_confusion_folds(fc, source='model', cols=4, title=None):
+    """`source`'s win/draw/loss confusion matrix for each fold of one ticker's `Forecasts`
+    (`evaluate.wdl_fold_confusion`), one panel per fold on one colour scale, titled with the
+    fold's test window, accuracy and macro F1. Rows are what happened, columns the forecast; each
+    cell is its share of the row (the recall on the diagonal) and its count of days."""
+    from .evaluate import WDL_NAMES, wdl_fold_confusion, wdl_fold_scores
+    matrices = wdl_fold_confusion(fc, source)
+    scores = wdl_fold_scores(fc).xs(source, level='source')
+    folds = list(scores.index)
+    labels = _fold_labels(wdl_fold_scores(fc))
+    rows = -(-len(folds) // cols)
+    fig = make_subplots(rows=rows, cols=cols, horizontal_spacing=0.05, vertical_spacing=0.16 / rows * 2,
+                        subplot_titles=[f"{labels[k]}<br>accuracy {scores.at[k, 'accuracy']:.0%}, "
+                                        f"macro F1 {scores.at[k, 'macro_f1']:.2f}" for k in folds])
+    for i, k in enumerate(folds):
+        r, c = i // cols + 1, i % cols + 1
+        m = matrices.loc[k]
+        share = m.div(m.sum(axis=1).replace(0, np.nan), axis=0).fillna(0)
+        fig.add_trace(go.Heatmap(
+            z=share.to_numpy(), x=list(WDL_NAMES), y=list(WDL_NAMES), zmin=0, zmax=1,
+            colorscale=SEQUENTIAL, showscale=i == 0, xgap=2, ygap=2, customdata=m.to_numpy(),
+            colorbar=dict(tickformat='.0%', title=dict(text='share of row', side='right'), len=0.6),
+            hovertemplate=(f'fold {k}: happened %{{y}}, forecast %{{x}}: %{{z:.1%}} of the row '
+                           '(%{customdata:,} days)<extra></extra>')), row=r, col=c)
+        for a, actual in enumerate(WDL_NAMES):
+            for b, called in enumerate(WDL_NAMES):
+                fig.add_annotation(x=called, y=actual, showarrow=False, row=r, col=c,
+                                   text=f'{share.iat[a, b]:.0%}<br>{int(m.iat[a, b])}',
+                                   font=dict(size=10, color='white' if share.iat[a, b] > 0.55 else INK_2))
+    name = {'model': fc.model, 'volatility': 'volatility baseline',
+            'frequencies': 'class frequencies'}[source]
+    fig = _style(fig, title or f'{fc.ticker}: {name}, win/draw/loss confusion per fold '
+                               '(rows: what happened; columns: the most probable outcome)',
+                 120 + 260 * rows)
+    fig.update_xaxes(showgrid=False, tickfont=dict(size=10))
+    fig.update_yaxes(autorange='reversed', showgrid=False, tickfont=dict(size=10))
+    fig.update_annotations(font_size=10)
+    return fig
+
+
+def plot_fold_coverage(fc, bands=None, title=None):
+    """For each fold of one ticker's return `Forecasts` (`evaluate.range_fold_scores`), the share
+    of its test days inside each band's 68% range (left) and 90% range (right), against the
+    nominal level. `bands` defaults to the constant band, the EWMA band and the model (when
+    there is one)."""
+    from .evaluate import range_fold_scores
+    scores = range_fold_scores(fc)
+    present = scores.index.get_level_values('band').unique()
+    bands = [b for b in (bands or ('constant', 'ewma_std_q', 'model')) if b in present]
+    labels = _fold_labels(scores)
+    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.08,
+                        subplot_titles=['inside the 68% range', 'inside the 90% range'])
+    for col, pct in enumerate((68, 90), start=1):
+        lo, hi = _interval(fc.taus, pct)
+        nominal = hi - lo
+        for band in bands:
+            s = scores.xs(band, level='band')[f'cover_{pct}']
+            fig.add_trace(go.Scatter(
+                x=[labels[k] for k in s.index], y=s, mode='lines+markers', legendgroup=band,
+                showlegend=col == 1, name=fc.model if band == 'model' else LABELS[band],
+                line=dict(color=COLORS[band], width=2), marker=dict(size=7),
+                hovertemplate=f'%{{x}}: %{{y:.1%}}<extra>{LABELS.get(band, band)}</extra>'),
+                row=1, col=col)
+        fig.add_hline(y=nominal, line=dict(color=INK_2, width=1, dash='dot'), row=1, col=col,
+                      annotation_text=f'nominal {nominal:.1%}', annotation_position='top left')
+    fig = _style(fig, title or f'{fc.ticker}: share of each fold\'s test days inside the range', 480)
+    fig.update_layout(margin=dict(t=140), legend=dict(y=1.16), title=dict(y=0.97, yanchor='top'))
+    fig.update_yaxes(tickformat='.0%')
+    fig.update_xaxes(tickangle=-35, tickfont=dict(size=10))
+    return fig

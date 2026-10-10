@@ -764,6 +764,102 @@ def test_wdl_confusion_by_hand(stub_wdl):
         ml.wdl_confusion(dataclasses.replace(stub_wdl, target='return'))
 
 
+# ── Fold by fold, on the 6-month folds ──────────────────────────────────────
+
+@pytest.fixture(scope='module')
+def date_folds(index_data):
+    return ml.walk_forward_dates(index_data.index)
+
+
+@pytest.fixture(scope='module')
+def fold_wdl(index_data, date_folds):
+    return ml.walk_forward_forecasts(index_data, StubWDLModel(), folds=date_folds, ticker='SYN-INDEX')
+
+
+@pytest.fixture(scope='module')
+def fold_return(index_data, date_folds):
+    return ml.walk_forward_forecasts(index_data, StubReturnModel(), folds=date_folds, ticker='SYN-INDEX')
+
+
+def test_baseline_forecasts_are_the_runners_baselines(index_data, date_folds, fold_wdl, fold_return):
+    bw = ml.baseline_forecasts(index_data, date_folds, 'wdl', ticker='SYN-INDEX')
+    br = ml.baseline_forecasts(index_data, date_folds, 'return', ticker='SYN-INDEX')
+    assert bw.model == br.model == 'baselines' and bw.ticker == 'SYN-INDEX'
+    pd.testing.assert_frame_equal(bw.wdl, fold_wdl.wdl[list(ml.WDL_BASELINES)])
+    pd.testing.assert_series_equal(bw.y_wdl, fold_wdl.y_wdl)
+    pd.testing.assert_frame_equal(br.bands, fold_return.bands[list(ml.BANDS)])
+    pd.testing.assert_series_equal(br.y_ret, fold_return.y_ret)
+    pd.testing.assert_frame_equal(bw.folds, fold_wdl.folds[list(bw.folds.columns)])
+    # the scores take baselines alone, with no model row
+    table, gains = ml.wdl_metrics(bw)
+    assert list(table.index) == list(ml.WDL_BASELINES) and gains.empty
+    assert list(ml.range_table(br).index) == list(ml.BANDS)
+    with pytest.raises(ValueError, match='target'):
+        ml.baseline_forecasts(index_data, date_folds, 'price')
+
+
+def test_by_fold_cuts_the_test_days_into_their_folds(index_data, date_folds, fold_wdl, fold_return):
+    for fc, y in ((fold_wdl, 'y_wdl'), (fold_return, 'y_ret')):
+        parts = ml.by_fold(fc)
+        assert len(parts) == len(date_folds)
+        for part, (_, test) in zip(parts, date_folds):
+            assert list(getattr(part, y).index) == list(index_data.index[test])
+            assert len(part.folds) == 1
+        frame = 'wdl' if fc.target == 'wdl' else 'bands'
+        pd.testing.assert_frame_equal(pd.concat([getattr(f, frame) for f in parts]), getattr(fc, frame))
+
+
+def test_wdl_fold_scores_and_confusion_by_hand(index_data, date_folds, fold_wdl):
+    scores = ml.wdl_fold_scores(fold_wdl)
+    confusion = ml.wdl_fold_confusion(fold_wdl)
+    assert list(scores.index.get_level_values('fold').unique()) == list(range(1, len(date_folds) + 1))
+    table = ml.fold_table(index_data.index, date_folds)
+    for k, (_, test) in enumerate(date_folds, start=1):
+        y = index_data['y_wdl'].to_numpy()[test]
+        call = np.where(test % 2, 1, -1)                 # the stub's most probable outcome
+        m = pd.crosstab(y, call).reindex(index=ml.WDL_CLASSES, columns=ml.WDL_CLASSES, fill_value=0)
+        np.testing.assert_array_equal(confusion.loc[k].to_numpy(), m.to_numpy())
+        tp = np.diag(m.to_numpy())
+        precision = np.divide(tp, m.sum(axis=0), out=np.zeros(3), where=m.sum(axis=0).to_numpy() > 0)
+        recall = tp / m.sum(axis=1)
+        f1 = np.divide(2 * precision * recall, precision + recall, out=np.zeros(3),
+                       where=(precision + recall) > 0)
+        row = scores.loc[(k, 'model')]
+        assert row['days'] == len(test)
+        assert row['accuracy'] == pytest.approx(np.mean(call == y))
+        assert row['macro_f1'] == pytest.approx(f1.mean())
+        assert row['weighted_f1'] == pytest.approx(np.sum(f1 * m.sum(axis=1)) / len(y))
+        assert row['test_from'] == table.at[k, 'test_from'] and row['test_to'] == table.at[k, 'test_to']
+        # each fold's row is wdl_metrics on that fold alone
+        alone, _ = ml.wdl_metrics(ml.by_fold(fold_wdl)[k - 1])
+        pd.testing.assert_series_equal(scores.loc[k].drop(columns=['test_from', 'test_to']).loc['volatility'],
+                                       alone.loc['volatility'], check_names=False, check_dtype=False)
+    # the folds add up to the pooled matrix
+    np.testing.assert_array_equal(confusion.groupby(level='actual', sort=False).sum().to_numpy(),
+                                  ml.wdl_confusion(fold_wdl).to_numpy())
+    vol = ml.wdl_fold_confusion(fold_wdl, source='volatility')
+    assert vol.to_numpy().sum() == len(fold_wdl.y_wdl) and not vol.equals(confusion)
+
+
+def test_range_fold_scores_by_hand(index_data, date_folds, fold_return):
+    scores = ml.range_fold_scores(fold_return)
+    y = index_data['y_ret'].to_numpy()
+    sigma = index_data['vol_ewma'].to_numpy()
+    z = {tau: statistics.NormalDist().inv_cdf(tau) for tau in ml.TAUS}
+    for k, (_, test) in enumerate(date_folds, start=1):
+        row = scores.loc[(k, 'model')]
+        inside = lambda lo, hi: np.mean((y[test] >= sigma[test] * z[lo]) & (y[test] <= sigma[test] * z[hi]))
+        assert row['days'] == len(test)
+        assert row['cover_68'] == pytest.approx(inside(0.1587, 0.8413))
+        assert row['cover_90'] == pytest.approx(inside(0.05, 0.95))
+        const = scores.loc[(k, 'constant')]
+        lo, hi = fold_return.bands.loc[index_data.index[test], [('constant', 0.05), ('constant', 0.95)]].to_numpy().T
+        assert const['cover_90'] == pytest.approx(np.mean((y[test] >= lo) & (y[test] <= hi)))
+    assert set(scores.index.get_level_values('band')) == {*ml.BANDS, 'model'}
+    with pytest.raises(ValueError, match='not return'):
+        ml.range_fold_scores(ml.baseline_forecasts(index_data, date_folds, 'wdl'))
+
+
 def test_regression_scores_match_scikit_learn():
     metrics = pytest.importorskip('sklearn.metrics')
     rng = np.random.default_rng(3)
@@ -969,3 +1065,22 @@ def test_charts_draw_the_forecasts(index_bars, stub_forecasts, stub_wdl):
     assert len(ml.plot_folds(fc).data) == 2 * len(fc.folds)
     assert list(ml.plot_feature_importance(ml.feature_importance(fc)).data[0].y) == ['vol_20', 'ret_0']
     assert len(ml.plot_range_comparison([fc]).data) == len(ml.BANDS)
+
+
+def test_fold_charts_draw_the_fold_scores(fold_wdl, fold_return):
+    fig = ml.plot_wdl_confusion_folds(fold_wdl)
+    confusion = ml.wdl_fold_confusion(fold_wdl)
+    folds = confusion.index.get_level_values('fold').unique()
+    assert len(fig.data) == len(folds)
+    m = confusion.loc[3].to_numpy()
+    np.testing.assert_allclose(fig.data[2].z, m / m.sum(axis=1, keepdims=True))
+    np.testing.assert_array_equal(fig.data[2].customdata, m)
+    scores = ml.wdl_fold_scores(fold_wdl)
+    assert f"accuracy {scores.loc[(3, 'model'), 'accuracy']:.0%}" in fig.layout.annotations[2].text
+    fig = ml.plot_fold_coverage(fold_return)
+    cover = ml.range_fold_scores(fold_return)
+    model_68 = next(t for t in fig.data if t.name == 'stub' and t.xaxis == 'x')
+    np.testing.assert_allclose(model_68.y, cover.xs('model', level='band')['cover_68'])
+    assert len(fig.data) == 2 * 3                          # constant, EWMA and the model, twice
+    base = ml.baseline_forecasts(fold_return.data, ml.walk_forward_dates(fold_return.data.index), 'return')
+    assert len(ml.plot_fold_coverage(base).data) == 2 * 2  # no model
