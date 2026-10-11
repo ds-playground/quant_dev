@@ -34,18 +34,16 @@ from .metrics import (bootstrap_means, brier, brier_decomposition, christofferse
 from .gbm import GBM_PARAMS, LightGBMReturnModel, LightGBMWDLModel
 from .sequence import GRU_INPUTS, GRUReturnModel, GRUWDLModel, quantile_shift, windows
 from .mlp import MLPReturnModel, MLPWDLModel
-from .evaluate import (WDL_NAMES, Forecasts, baseline_forecasts, by_fold, compare_forecasts,
-                       daily_losses, evaluate, evaluate_many, feature_importance,
-                       planted_signal_bars, point_scores, range_check, range_fold_scores,
-                       range_table, return_metrics, walk_forward_forecasts, wdl_check,
-                       wdl_class_report, wdl_confusion, wdl_fold_confusion, wdl_fold_scores,
-                       wdl_metrics, wdl_scores)
+from .evaluate import (WDL_NAMES, Forecasts, compare_forecasts, daily_losses, evaluate,
+                       evaluate_many, feature_importance, planted_signal_bars, point_scores,
+                       range_check, range_table, return_metrics, walk_forward_forecasts,
+                       wdl_check, wdl_class_report, wdl_confusion, wdl_metrics, wdl_scores)
 from .registry import (MODELS_DIR, PARAMETERS_DIR, SavedModel, code_hash, code_modules,
                        data_fingerprint, finalize, finalize_many, forecast_next, list_models,
                        load_latest, load_model, model_id, model_spec, save_model)
-from .viz import (plot_coverage, plot_feature_importance, plot_fold_coverage, plot_folds,
-                  plot_forecast_bands, plot_model_comparison, plot_range_comparison,
-                  plot_wdl_confusion, plot_wdl_confusion_folds, plot_wdl_reliability)
+from .viz import (plot_coverage, plot_feature_importance, plot_folds, plot_forecast_bands,
+                  plot_model_comparison, plot_range_comparison, plot_wdl_confusion,
+                  plot_wdl_reliability)
 
 __all__ = ['ticker_bars', 'bar_returns',
            'FEATURES', 'features', 'ewma_vol', 'wilder_rsi',
@@ -66,12 +64,10 @@ __all__ = ['ticker_bars', 'bar_returns',
            'wdl_scores', 'wdl_check', 'point_scores', 'range_table', 'range_check',
            'WDL_NAMES', 'wdl_confusion', 'wdl_metrics', 'wdl_class_report', 'return_metrics',
            'feature_importance', 'daily_losses', 'compare_forecasts',
-           'baseline_forecasts', 'by_fold', 'wdl_fold_scores', 'wdl_fold_confusion',
-           'range_fold_scores',
            'planted_signal_bars',
            'MODELS_DIR', 'PARAMETERS_DIR', 'SavedModel', 'model_spec', 'data_fingerprint',
            'model_id', 'code_hash', 'code_modules', 'finalize', 'finalize_many', 'save_model',
            'load_model', 'load_latest', 'list_models', 'forecast_next',
            'plot_wdl_reliability', 'plot_coverage', 'plot_forecast_bands', 'plot_folds',
            'plot_feature_importance', 'plot_range_comparison', 'plot_model_comparison',
-           'plot_wdl_confusion', 'plot_wdl_confusion_folds', 'plot_fold_coverage']
+           'plot_wdl_confusion']

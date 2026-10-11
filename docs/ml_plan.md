@@ -1111,9 +1111,8 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
   - Next: data exploration on real data (`DATA = 'local'`).
 
 - **Sections 3 and 4 redone, fold by fold** (owner's request, 2026-10-10):
-  - **Section 3, the baselines**, now runs on `FOLDS` before any model:
-    `evaluate.baseline_forecasts` gives the baselines' forecasts alone, in the same `Forecasts`
-    a model run returns (and `walk_forward_forecasts` now builds its baselines with it).
+  - **Section 3, the baselines**, now runs on `FOLDS` before any model, scoring the baselines'
+    forecasts alone.
   - **Section 4, LightGBM**, trains both models afresh on each fold. Nothing is loaded or
     saved, and the table shows the trees each fold kept.
   - For each fold, as the owner asked:
@@ -1123,15 +1122,14 @@ basics and is rebuilt step by step. The owner judged the 63-day folds too small.
       and the 90% range, beside the constant and EWMA bands.
 
     An "all" row pools the folds.
-  - The package functions behind this:
-    - `evaluate.by_fold` cuts a `Forecasts` into one per fold, so any existing score can be read
-      fold by fold;
-    - `wdl_fold_scores`, `wdl_fold_confusion` and `range_fold_scores` give the tables, with
-      folds counted from 1 as in `fold_table`;
-    - `viz.plot_wdl_confusion_folds` and `viz.plot_fold_coverage` draw them.
-
-    The tests check these by hand against the stub models on the 6-month folds: crosstabs,
-    accuracy, F1, and coverage from the stub's own quantiles.
+  - **Notebook functions only, while exploring** (owner's rule, 2026-10-11): during model
+    exploration the package modules and tests are not changed. New functions live in the
+    notebook until the approach is confirmed, then move into the package with tests.
+    - Here that means `baseline_forecasts`, `wdl_fold_scores`, `wdl_fold_confusion`,
+      `range_fold_scores`, `plot_wdl_confusion_folds` and `plot_fold_coverage`.
+    - They are built only on the package's existing functions: `range_baselines`,
+      `wdl_baselines`, `classification_scores`, `confusion_matrix`, `range_scores` and
+      `walk_forward_forecasts` with `folds=`.
   - On the synthetic tickers it reads as it should:
     - W/D/L: LightGBM's accuracy and macro F1 move around the baselines' from fold to fold,
       with no fold clearly ahead (pooled macro F1: 0.26 for LightGBM against 0.29 for the

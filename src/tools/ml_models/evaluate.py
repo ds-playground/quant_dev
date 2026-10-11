@@ -21,15 +21,12 @@ forecast but whose volatility can:
   cluster less, and a pooled gain whose interval lies wholly above zero (`range_check`);
 - return, the point forecast: no better than the EWMA band's median (`point_scores`).
 
-`baseline_forecasts` scores the baselines alone, before any model. `by_fold` cuts forecasts into
-their folds; `wdl_fold_scores`, `wdl_fold_confusion` and `range_fold_scores` score each fold.
-
 `planted_signal_bars` builds the positive control: a series whose direction can be forecast.
 """
 import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -79,12 +76,6 @@ class Forecasts:
         return self.bands[(band, 0.5)]
 
 
-def _fold_row(d, k, train, test):
-    return {'fold': k, 'train_rows': len(train), 'train_from': d.index[train[0]],
-            'train_to': d.index[train[-1]], 'test_from': d.index[test[0]],
-            'test_to': d.index[test[-1]]}
-
-
 def walk_forward_forecasts(d, model, folds=None, taus=TAUS, ticker='', first_train=756, step=63):
     """`model`'s forecasts for every test row of `folds` (by default `walk_forward(len(d),
     first_train, step)`), beside the baselines for its target. A larger `step` retrains less
@@ -95,43 +86,31 @@ def walk_forward_forecasts(d, model, folds=None, taus=TAUS, ticker='', first_tra
     folds = walk_forward(len(d), first_train, step) if folds is None else folds
     forecasts, rows = [], []
     for k, (train, test) in enumerate(folds):
+        row = {'fold': k, 'train_rows': len(train), 'train_from': d.index[train[0]],
+               'train_to': d.index[train[-1]], 'test_from': d.index[test[0]],
+               'test_to': d.index[test[-1]]}
         if model.target == 'return':
             f, info = model.quantiles(d, train, test, taus)
         else:
             f, info = model.wdl(d, train, test)
         forecasts.append(np.asarray(f, dtype=float))
-        rows.append({**_fold_row(d, k, train, test), **info})
-    fc = baseline_forecasts(d, folds, model.target, taus, ticker)
-    f = np.vstack(forecasts)
-    fc = replace(fc, model=getattr(model, 'name', type(model).__name__),
-                 folds=pd.DataFrame(rows).set_index('fold'),
-                 settings=model.settings() if hasattr(model, 'settings') else None,
-                 walk_forward=plan)
-    if model.target == 'return':
-        for i, tau in enumerate(taus):
-            fc.bands[('model', tau)] = f[:, i]
-    else:
-        for i, c in enumerate(WDL_CLASSES):
-            fc.wdl[('model', c)] = f[:, i]
-    return fc
-
-
-def baseline_forecasts(d, folds, target, taus=TAUS, ticker=''):
-    """The baselines alone for `target` ('return' or 'wdl') on every test row of `folds`: the
-    `Forecasts` of `walk_forward_forecasts` without a model's columns, so the baselines can be
-    scored, fold by fold, before any model is trained."""
-    if target not in ('return', 'wdl'):
-        raise ValueError(f"target must be 'return' or 'wdl', got {target!r}")
+        rows.append({**row, **info})
     test_index = d.index[np.concatenate([test for _, test in folds])]
-    common = dict(ticker=ticker, model='baselines', target=target, data=d,
-                  folds=pd.DataFrame([_fold_row(d, k, train, test)
-                                      for k, (train, test) in enumerate(folds)]).set_index('fold'))
-    if target == 'return':
-        return Forecasts(**common, bands=range_baselines(d, folds, taus),
-                         y_ret=d.loc[test_index, 'y_ret'], taus=tuple(taus))
+    f = np.vstack(forecasts)
+    common = dict(ticker=ticker, model=getattr(model, 'name', type(model).__name__),
+                  target=model.target, folds=pd.DataFrame(rows).set_index('fold'), data=d,
+                  settings=model.settings() if hasattr(model, 'settings') else None,
+                  walk_forward=plan)
+    if model.target == 'return':
+        bands = range_baselines(d, folds, taus)
+        for i, tau in enumerate(taus):
+            bands[('model', tau)] = f[:, i]
+        return Forecasts(**common, bands=bands, y_ret=d.loc[test_index, 'y_ret'], taus=tuple(taus))
     threshold = d.attrs.get('wdl_threshold', WDL_THRESHOLD)
-    return Forecasts(**common, wdl=wdl_baselines(d, folds, threshold),
-                     y_wdl=d.loc[test_index, 'y_wdl'], wdl_threshold=threshold)
+    wdl = wdl_baselines(d, folds, threshold)
+    for i, c in enumerate(WDL_CLASSES):
+        wdl[('model', c)] = f[:, i]
+    return Forecasts(**common, wdl=wdl, y_wdl=d.loc[test_index, 'y_wdl'], wdl_threshold=threshold)
 
 
 def evaluate(ticker, model, source=None, directory=None, wdl_threshold=WDL_THRESHOLD, **kwargs):
@@ -220,14 +199,12 @@ WDL_NAMES = ('loss', 'draw', 'win')        # the names of WDL_CLASSES, in order
 
 def _wdl_days(forecasts):
     """Every test day of one or several tickers' win/draw/loss `Forecasts`: {source: (days, 3)
-    probabilities} for both baselines and the model (when there is one), and what happened."""
+    probabilities} for both baselines and the model, and what happened."""
     forecasts = [forecasts] if isinstance(forecasts, Forecasts) else list(forecasts)
     for fc in forecasts:
         _needs(fc, 'wdl')
     y = np.concatenate([fc.y_wdl.to_numpy() for fc in forecasts])
-    sources = [s for s in (*WDL_BASELINES, 'model')
-               if all(s in fc.wdl.columns.get_level_values(0) for fc in forecasts)]
-    p = {s: np.vstack([fc.wdl[s].to_numpy() for fc in forecasts]) for s in sources}
+    p = {s: np.vstack([fc.wdl[s].to_numpy() for fc in forecasts]) for s in (*WDL_BASELINES, 'model')}
     return p, y
 
 
@@ -271,21 +248,6 @@ def wdl_metrics(forecasts, level=0.95, mean_block=20, n_boot=1000, seed=0):
     accuracy, macro F1 and MCC do not reward always calling the commonest outcome.
     """
     p, y = _wdl_days(forecasts)
-    table, balanced, losses = _wdl_table(p, y)
-    gains = {}
-    for b in WDL_BASELINES if 'model' in p else ():
-        gains[('balanced_accuracy', b)] = mean_interval(balanced['model'] - balanced[b], level,
-                                                        mean_block, n_boot, seed)
-        gains[('log_loss', b)] = mean_interval(losses[b] - losses['model'], level, mean_block,
-                                               n_boot, seed)
-    gains = pd.DataFrame(gains).T
-    if len(gains):
-        gains.index.names = ['metric', 'over']
-    return table, gains
-
-
-def _wdl_table(p, y):
-    """`wdl_metrics`' table, and each source's per-day balanced-accuracy share and log loss."""
     classes = np.asarray(WDL_CLASSES)
     counts = {c: int((y == c).sum()) for c in WDL_CLASSES}
     present = [c for c in WDL_CLASSES if counts[c]]
@@ -304,7 +266,15 @@ def _wdl_table(p, y):
                         'brier': float(multiclass_brier(probs, y, WDL_CLASSES).mean())}
     table = pd.DataFrame(rows).T
     table['days'] = table['days'].astype(int)
-    return table, balanced, losses
+    gains = {}
+    for b in WDL_BASELINES:
+        gains[('balanced_accuracy', b)] = mean_interval(balanced['model'] - balanced[b], level,
+                                                        mean_block, n_boot, seed)
+        gains[('log_loss', b)] = mean_interval(losses[b] - losses['model'], level, mean_block,
+                                               n_boot, seed)
+    gains = pd.DataFrame(gains).T
+    gains.index.names = ['metric', 'over']
+    return table, gains
 
 
 def wdl_class_report(forecasts, source='model'):
@@ -440,61 +410,6 @@ def range_table(fc):
     _needs(fc, 'return')
     bands = [b for b in (*BANDS, 'model') if (b, fc.taus[0]) in fc.bands.columns]
     return pd.DataFrame({b: range_scores(fc.quantiles(b), fc.y_ret, fc.taus)[0] for b in bands}).T
-
-
-# ── Fold by fold ─────────────────────────────────────────────────────────────
-
-def by_fold(fc):
-    """`fc` cut into its folds: one `Forecasts` per fold, holding only that fold's test days, so
-    that any score here can be read fold by fold."""
-    out = []
-    for k in fc.folds.index:
-        start, end = fc.folds.at[k, 'test_from'], fc.folds.at[k, 'test_to']
-        cut = (lambda x: None if x is None else x.loc[start:end])
-        out.append(replace(fc, folds=fc.folds.loc[[k]], bands=cut(fc.bands), y_ret=cut(fc.y_ret),
-                           wdl=cut(fc.wdl), y_wdl=cut(fc.y_wdl)))
-    return out
-
-
-def _fold_index(fc, k):
-    """Fold `k` (counted from 1, as `split.fold_table`) and its test window."""
-    row = fc.folds.iloc[k - 1]
-    return {'fold': k, 'test_from': row['test_from'].date(), 'test_to': row['test_to'].date()}
-
-
-def wdl_fold_scores(fc):
-    """`wdl_metrics`' table for each fold of one ticker's win/draw/loss `Forecasts`: rows
-    `(fold, source)`, with the fold's test window; folds counted from 1. For baselines alone
-    (`baseline_forecasts`), the two baselines."""
-    _needs(fc, 'wdl')
-    parts = []
-    for k, f in enumerate(by_fold(fc), start=1):
-        table, _, _ = _wdl_table(*_wdl_days(f))
-        parts.append(table.assign(**_fold_index(fc, k)).rename_axis('source').reset_index())
-    out = pd.concat(parts).set_index(['fold', 'source'])
-    return out[['test_from', 'test_to', *[c for c in out.columns if c not in ('test_from', 'test_to')]]]
-
-
-def wdl_fold_confusion(fc, source='model'):
-    """`wdl_confusion` of `source` for each fold of one ticker's win/draw/loss `Forecasts`: rows
-    `(fold, actual)`, columns the forecast; folds counted from 1."""
-    _needs(fc, 'wdl')
-    return pd.concat({k: wdl_confusion(f, source) for k, f in enumerate(by_fold(fc), start=1)},
-                     names=['fold'])
-
-
-def range_fold_scores(fc):
-    """`range_table` for each fold of one ticker's return `Forecasts`: rows `(fold, band)`, with
-    the fold's test window and days; `cover_68` and `cover_90` are the shares of the fold's test
-    days whose return fell inside each band's 68% and 90% range. Folds counted from 1."""
-    _needs(fc, 'return')
-    parts = []
-    for k, f in enumerate(by_fold(fc), start=1):
-        table = range_table(f).assign(**_fold_index(fc, k), days=len(f.y_ret))
-        parts.append(table.rename_axis('band').reset_index())
-    out = pd.concat(parts).set_index(['fold', 'band'])
-    first = ['test_from', 'test_to', 'days']
-    return out[first + [c for c in out.columns if c not in first]]
 
 
 def range_check(forecasts, level=0.95, mean_block=20, n_boot=1000, seed=0):
